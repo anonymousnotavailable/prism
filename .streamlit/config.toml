@@ -1,0 +1,21 @@
+# Prism's default theme — dark navy + electric cyan. Matches
+# modules/theme.py's CUSTOM_CSS_DARK so the native Streamlit chrome (widget
+# borders, focus rings, etc.) agrees with the app's own injected CSS. The
+# in-app light/dark toggle overrides this at runtime via injected CSS; this
+# file only controls the very first paint before any CSS is injected, and
+# whatever the sidebar toggle hasn't touched (e.g. some native widget chrome).
+[theme]
+base = "dark"
+primaryColor = "#00e5ff"
+backgroundColor = "#0a0e17"
+secondaryBackgroundColor = "#111827"
+textColor = "#e0f7fa"
+font = "sans serif"
+
+[server]
+# 50 MB is generous for the CSV/Excel files this app expects, while staying
+# well under Streamlit Community Cloud's per-app memory ceiling.
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false

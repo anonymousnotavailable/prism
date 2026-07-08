@@ -1,0 +1,501 @@
+order_id,order_date,region,product,quantity,revenue
+ORD-20000,2024-01-01,West,Monitor,5.0,"₹1,608"
+ORD-20001,2024-01-02,East,Monitor,7.0,"₹3,934"
+ORD-20002,2024-01-03,East,Webcam,14.0,"₹3,078"
+ORD-20003,2024-01-04,West,Webcam,10.0,₹730
+ORD-20004,2024-01-05,East,Desk Chair,,"₹3,290"
+ORD-20005,2024-01-06,West,Headset,2.0,"₹1,450"
+ORD-20006,2024-01-07,West,Mouse,4.0,"₹3,191"
+ORD-20007,2024-01-08,North,Keyboard,13.0,₹347
+ORD-20008,2024-01-09,North,Keyboard,,"₹3,524"
+ORD-20009,2024-01-10,South,Webcam,5.0,₹901
+ORD-20010,2024-01-11,South,Headset,8.0,"₹1,986"
+ORD-20011,2024-01-12,West,Keyboard,7.0,"₹2,748"
+ORD-20012,2024-01-13,West,Monitor,2.0,"₹2,179"
+ORD-20013,2024-01-14,North,Webcam,3.0,₹912
+ORD-20014,2024-01-15,South,Monitor,14.0,₹815
+ORD-20015,2024-01-16,West,Monitor,6.0,"₹1,353"
+ORD-20016,2024-01-17,North,Keyboard,4.0,₹494
+ORD-20017,2024-01-18,West,Desk Chair,12.0,"₹1,101"
+ORD-20018,2024-01-19,North,Mouse,7.0,₹781
+ORD-20019,2024-01-20,South,Headset,12.0,"₹2,020"
+ORD-20020,2024-01-21,West,Laptop,,"₹1,619"
+ORD-20021,2024-01-22,South,Keyboard,7.0,"₹2,471"
+ORD-20022,2024-01-23,South,Desk Chair,,"₹1,339"
+ORD-20023,2024-01-24,South,Desk Chair,11.0,₹425
+ORD-20024,2024-01-25,East,Headset,10.0,
+ORD-20025,2024-01-26,South,Standing Desk,7.0,"₹3,094"
+ORD-20026,2024-01-27,West,Keyboard,12.0,"₹1,247"
+ORD-20027,2024-01-28,South,Monitor,6.0,"₹1,797"
+ORD-20028,2024-01-29,South,Laptop,10.0,"₹3,093"
+ORD-20029,2024-01-30,East,Monitor,,"₹1,805"
+ORD-20030,2024-01-31,East,Desk Chair,5.0,"₹3,582"
+ORD-20031,2024-02-01,East,Standing Desk,3.0,"₹3,697"
+ORD-20032,2024-02-02,East,Monitor,8.0,"₹1,449"
+ORD-20033,2024-02-03,West,Headset,5.0,"₹3,023"
+ORD-20034,2024-02-04,West,Monitor,8.0,"₹1,237"
+ORD-20035,2024-02-05,West,Desk Chair,10.0,₹816
+ORD-20036,2024-02-06,East,Monitor,12.0,"₹1,920"
+ORD-20037,2024-02-07,East,Webcam,11.0,"₹2,529"
+ORD-20038,2024-02-08,South,Laptop,8.0,"₹3,762"
+ORD-20039,2024-02-09,West,Webcam,1.0,₹840
+ORD-20040,2024-02-10,South,Standing Desk,3.0,"₹2,936"
+ORD-20041,2024-02-11,North,Webcam,11.0,"₹2,059"
+ORD-20042,2024-02-12,West,Keyboard,9.0,"₹45,000"
+ORD-20043,2024-02-13,North,Desk Chair,12.0,"₹3,899"
+ORD-20044,2024-02-14,West,Keyboard,7.0,"₹2,874"
+ORD-20045,2024-02-15,East,Desk Chair,7.0,₹777
+ORD-20046,2024-02-16,North,Desk Chair,4.0,"₹3,651"
+ORD-20047,2024-02-17,North,Mouse,1.0,₹681
+ORD-20048,2024-02-18,South,Headset,3.0,₹643
+ORD-20049,2024-02-19,North,Desk Chair,10.0,"₹1,527"
+ORD-20050,2024-02-20,North,Monitor,9.0,"₹3,770"
+ORD-20051,2024-02-21,East,Laptop,4.0,₹422
+ORD-20052,2024-02-22,West,Mouse,6.0,"₹3,697"
+ORD-20053,2024-02-23,South,Monitor,10.0,"₹2,563"
+ORD-20054,2024-02-24,West,Standing Desk,6.0,₹548
+ORD-20055,2024-02-25,West,Desk Chair,6.0,"₹2,404"
+ORD-20056,2024-02-26,West,Mouse,4.0,"₹1,998"
+ORD-20057,2024-02-27,East,Keyboard,9.0,"₹2,387"
+ORD-20058,2024-02-28,South,Webcam,13.0,"₹3,028"
+ORD-20059,2024-02-29,East,Mouse,4.0,
+ORD-20060,2024-03-01,South,Laptop,5.0,"₹3,990"
+ORD-20061,2024-03-02,South,Webcam,7.0,₹880
+ORD-20062,2024-03-03,South,Webcam,3.0,"₹3,308"
+ORD-20063,2024-03-04,North,Laptop,8.0,"₹1,821"
+ORD-20064,2024-03-05,West,Desk Chair,13.0,"₹3,198"
+ORD-20065,2024-03-06,North,Headset,9.0,"₹3,600"
+ORD-20066,2024-03-07,North,Desk Chair,3.0,"₹3,970"
+ORD-20067,2024-03-08,North,Desk Chair,,"₹1,284"
+ORD-20068,2024-03-09,West,Webcam,2.0,"₹1,976"
+ORD-20069,2024-03-10,East,Keyboard,14.0,"₹3,788"
+ORD-20070,2024-03-11,West,Keyboard,5.0,"₹3,799"
+ORD-20071,2024-03-12,North,Webcam,5.0,"₹1,680"
+ORD-20072,2024-03-13,East,Laptop,13.0,"₹3,779"
+ORD-20073,2024-03-14,South,Monitor,5.0,"₹1,802"
+ORD-20074,2024-03-15,South,Headset,4.0,"₹1,687"
+ORD-20075,2024-03-16,North,Standing Desk,4.0,"₹3,099"
+ORD-20076,2024-03-17,East,Desk Chair,6.0,"₹2,043"
+ORD-20077,2024-03-18,West,Desk Chair,1.0,"₹1,958"
+ORD-20078,2024-03-19,East,Monitor,9.0,"₹1,729"
+ORD-20079,2024-03-20,North,Keyboard,6.0,"₹1,901"
+ORD-20080,2024-03-21,East,Keyboard,14.0,₹817
+ORD-20081,2024-03-22,South,Webcam,11.0,₹526
+ORD-20082,2024-03-23,West,Headset,6.0,"₹3,090"
+ORD-20083,2024-03-24,West,Monitor,10.0,"₹2,389"
+ORD-20084,2024-03-25,North,Webcam,12.0,
+ORD-20085,2024-03-26,East,Webcam,3.0,"₹3,269"
+ORD-20086,2024-03-27,West,Standing Desk,3.0,"₹1,151"
+ORD-20087,2024-03-28,West,Headset,2.0,"₹1,165"
+ORD-20088,2024-03-29,East,Monitor,1.0,"₹1,328"
+ORD-20089,2024-03-30,East,Standing Desk,,
+ORD-20090,2024-03-31,North,Monitor,12.0,"₹3,115"
+ORD-20091,2024-04-01,East,Laptop,11.0,"₹1,684"
+ORD-20092,2024-04-02,South,Desk Chair,6.0,"₹1,496"
+ORD-20093,2024-04-03,North,Mouse,7.0,"₹2,654"
+ORD-20094,2024-04-04,North,Webcam,11.0,₹990
+ORD-20095,2024-04-05,East,Monitor,13.0,₹694
+ORD-20096,2024-04-06,East,Webcam,4.0,"₹2,879"
+ORD-20097,2024-04-07,East,Mouse,10.0,"₹3,099"
+ORD-20098,2024-04-08,East,Standing Desk,9.0,"₹1,397"
+ORD-20099,2024-04-09,West,Webcam,9.0,"₹2,653"
+ORD-20100,2024-04-10,East,Standing Desk,12.0,₹426
+ORD-20101,2024-04-11,South,Desk Chair,11.0,"₹1,796"
+ORD-20102,2024-04-12,East,Desk Chair,6.0,"₹2,438"
+ORD-20103,2024-04-13,East,Laptop,11.0,"₹1,238"
+ORD-20104,2024-04-14,North,Desk Chair,1.0,"₹1,588"
+ORD-20105,2024-04-15,North,Headset,5.0,"₹2,555"
+ORD-20106,2024-04-16,East,Mouse,4.0,"₹2,483"
+ORD-20107,2024-04-17,South,Keyboard,4.0,₹871
+ORD-20108,2024-04-18,East,Webcam,13.0,"₹2,914"
+ORD-20109,2024-04-19,South,Monitor,7.0,₹596
+ORD-20110,2024-04-20,North,Monitor,2.0,"₹3,888"
+ORD-20111,2024-04-21,North,Desk Chair,7.0,"₹1,049"
+ORD-20112,2024-04-22,South,Desk Chair,1.0,"₹1,238"
+ORD-20113,2024-04-23,West,Headset,2.0,"₹1,041"
+ORD-20114,2024-04-24,South,Desk Chair,6.0,"₹3,969"
+ORD-20115,2024-04-25,South,Keyboard,7.0,"₹1,360"
+ORD-20116,2024-04-26,East,Webcam,4.0,"₹2,540"
+ORD-20117,2024-04-27,West,Monitor,9.0,"₹3,965"
+ORD-20118,2024-04-28,South,Mouse,7.0,"₹3,815"
+ORD-20119,2024-04-29,East,Monitor,2.0,₹457
+ORD-20120,2024-04-30,South,Mouse,12.0,"₹2,228"
+ORD-20121,2024-05-01,East,Keyboard,2.0,"₹2,525"
+ORD-20122,2024-05-02,South,Mouse,,"₹2,899"
+ORD-20123,2024-05-03,East,Mouse,3.0,"₹1,543"
+ORD-20124,2024-05-04,East,Laptop,14.0,"₹1,513"
+ORD-20125,2024-05-05,East,Keyboard,4.0,₹316
+ORD-20126,2024-05-06,West,Desk Chair,13.0,₹430
+ORD-20127,2024-05-07,North,Mouse,14.0,"₹2,335"
+ORD-20128,2024-05-08,East,Headset,4.0,₹581
+ORD-20129,2024-05-09,South,Laptop,1.0,"₹1,049"
+ORD-20130,2024-05-10,South,Mouse,1.0,"₹1,533"
+ORD-20131,2024-05-11,North,Standing Desk,3.0,₹561
+ORD-20132,2024-05-12,North,Headset,6.0,₹414
+ORD-20133,2024-05-13,South,Laptop,3.0,"₹3,730"
+ORD-20134,2024-05-14,West,Webcam,14.0,"₹1,910"
+ORD-20135,2024-05-15,North,Desk Chair,7.0,"₹1,058"
+ORD-20136,2024-05-16,South,Mouse,12.0,"₹2,921"
+ORD-20137,2024-05-17,West,Laptop,1.0,₹335
+ORD-20138,2024-05-18,West,Desk Chair,2.0,"₹1,207"
+ORD-20139,2024-05-19,North,Keyboard,7.0,"₹3,855"
+ORD-20140,2024-05-20,North,Standing Desk,3.0,"₹3,621"
+ORD-20141,2024-05-21,East,Keyboard,3.0,"₹2,653"
+ORD-20142,2024-05-22,North,Mouse,1.0,₹645
+ORD-20143,2024-05-23,South,Desk Chair,4.0,"₹1,477"
+ORD-20144,2024-05-24,South,Monitor,11.0,₹403
+ORD-20145,2024-05-25,West,Laptop,,"₹1,111"
+ORD-20146,2024-05-26,North,Desk Chair,8.0,₹394
+ORD-20147,2024-05-27,East,Standing Desk,3.0,₹767
+ORD-20148,2024-05-28,East,Standing Desk,7.0,"₹2,643"
+ORD-20149,2024-05-29,North,Monitor,9.0,₹672
+ORD-20150,2024-05-30,West,Monitor,3.0,₹876
+ORD-20151,2024-05-31,West,Keyboard,6.0,"₹3,640"
+ORD-20152,2024-06-01,South,Webcam,12.0,"₹1,541"
+ORD-20153,2024-06-02,West,Standing Desk,6.0,"₹1,532"
+ORD-20154,2024-06-03,East,Desk Chair,7.0,₹620
+ORD-20155,2024-06-04,West,Keyboard,12.0,"₹3,245"
+ORD-20156,2024-06-05,West,Standing Desk,10.0,"₹2,803"
+ORD-20157,2024-06-06,East,Keyboard,3.0,"₹2,324"
+ORD-20158,2024-06-07,South,Laptop,9.0,"₹2,586"
+ORD-20159,2024-06-08,North,Mouse,13.0,₹671
+ORD-20160,2024-06-09,East,Laptop,3.0,"₹1,263"
+ORD-20161,2024-06-10,North,Webcam,13.0,"₹2,459"
+ORD-20162,2024-06-11,West,Standing Desk,9.0,"₹3,823"
+ORD-20163,2024-06-12,West,Laptop,10.0,"₹3,323"
+ORD-20164,2024-06-13,North,Laptop,5.0,"₹2,671"
+ORD-20165,2024-06-14,East,Monitor,1.0,"₹2,220"
+ORD-20166,2024-06-15,North,Monitor,1.0,₹356
+ORD-20167,2024-06-16,North,Headset,10.0,"₹3,596"
+ORD-20168,2024-06-17,South,Headset,14.0,₹547
+ORD-20169,2024-06-18,West,Standing Desk,9.0,₹778
+ORD-20170,2024-06-19,West,Mouse,6.0,"₹2,864"
+ORD-20171,2024-06-20,East,Standing Desk,11.0,"₹3,305"
+ORD-20172,2024-06-21,East,Desk Chair,14.0,"₹3,210"
+ORD-20173,2024-06-22,East,Desk Chair,3.0,"₹1,974"
+ORD-20174,2024-06-23,North,Monitor,2.0,₹955
+ORD-20175,2024-06-24,South,Mouse,14.0,₹431
+ORD-20176,2024-06-25,West,Standing Desk,1.0,"₹3,450"
+ORD-20177,2024-06-26,South,Desk Chair,,"₹3,917"
+ORD-20178,2024-06-27,North,Monitor,3.0,"₹1,203"
+ORD-20179,2024-06-28,North,Desk Chair,2.0,"₹3,504"
+ORD-20180,2024-06-29,East,Desk Chair,4.0,"₹1,789"
+ORD-20181,2024-06-30,North,Monitor,5.0,"₹1,452"
+ORD-20182,2024-07-01,West,Laptop,5.0,"₹2,169"
+ORD-20183,2024-07-02,West,Keyboard,1.0,₹330
+ORD-20184,2024-07-03,East,Mouse,12.0,"₹1,938"
+ORD-20185,2024-07-04,South,Monitor,12.0,"₹1,038"
+ORD-20186,2024-07-05,West,Laptop,10.0,"₹2,936"
+ORD-20187,2024-07-06,East,Laptop,13.0,"₹2,160"
+ORD-20188,2024-07-07,South,Keyboard,14.0,"₹3,515"
+ORD-20189,2024-07-08,South,Mouse,14.0,"₹3,618"
+ORD-20190,2024-07-09,South,Keyboard,6.0,"₹1,472"
+ORD-20191,2024-07-10,West,Mouse,9.0,"₹1,337"
+ORD-20192,2024-07-11,North,Webcam,11.0,"₹3,775"
+ORD-20193,2024-07-12,North,Monitor,10.0,"₹2,165"
+ORD-20194,2024-07-13,East,Mouse,12.0,₹657
+ORD-20195,2024-07-14,South,Webcam,10.0,₹470
+ORD-20196,2024-07-15,West,Laptop,6.0,"₹3,965"
+ORD-20197,2024-07-16,North,Standing Desk,8.0,"₹2,443"
+ORD-20198,2024-07-17,West,Standing Desk,3.0,₹502
+ORD-20199,2024-07-18,North,Keyboard,14.0,"₹2,192"
+ORD-20200,2024-07-19,South,Standing Desk,13.0,"₹2,165"
+ORD-20201,2024-07-20,West,Keyboard,9.0,"₹1,911"
+ORD-20202,2024-07-21,North,Standing Desk,11.0,"₹3,820"
+ORD-20203,2024-07-22,East,Webcam,5.0,"₹3,810"
+ORD-20204,2024-07-23,East,Monitor,6.0,₹762
+ORD-20205,2024-07-24,South,Laptop,8.0,₹861
+ORD-20206,2024-07-25,North,Mouse,4.0,"₹1,808"
+ORD-20207,2024-07-26,East,Webcam,1.0,"₹3,386"
+ORD-20208,2024-07-27,South,Monitor,6.0,"₹2,608"
+ORD-20209,2024-07-28,West,Headset,11.0,"₹3,000"
+ORD-20210,2024-07-29,East,Laptop,4.0,"₹2,431"
+ORD-20211,2024-07-30,South,Mouse,10.0,"₹1,077"
+ORD-20212,2024-07-31,North,Laptop,9.0,"₹3,326"
+ORD-20213,2024-08-01,East,Standing Desk,6.0,₹352
+ORD-20214,2024-08-02,South,Headset,11.0,"₹2,884"
+ORD-20215,2024-08-03,East,Desk Chair,12.0,"₹1,019"
+ORD-20216,2024-08-04,West,Laptop,14.0,"₹2,043"
+ORD-20217,2024-08-05,South,Monitor,11.0,"₹3,908"
+ORD-20218,2024-08-06,West,Monitor,2.0,"₹2,294"
+ORD-20219,2024-08-07,East,Headset,5.0,₹511
+ORD-20220,2024-08-08,East,Desk Chair,8.0,"₹1,886"
+ORD-20221,2024-08-09,West,Headset,2.0,"₹2,743"
+ORD-20222,2024-08-10,West,Mouse,6.0,₹510
+ORD-20223,2024-08-11,West,Standing Desk,2.0,"₹1,235"
+ORD-20224,2024-08-12,West,Monitor,8.0,₹368
+ORD-20225,2024-08-13,North,Monitor,3.0,"₹2,298"
+ORD-20226,2024-08-14,South,Webcam,4.0,"₹1,711"
+ORD-20227,2024-08-15,West,Desk Chair,5.0,"₹2,164"
+ORD-20228,2024-08-16,South,Keyboard,14.0,"₹1,395"
+ORD-20229,2024-08-17,North,Keyboard,7.0,"₹2,730"
+ORD-20230,2024-08-18,East,Headset,8.0,₹940
+ORD-20231,2024-08-19,West,Desk Chair,13.0,"₹3,655"
+ORD-20232,2024-08-20,East,Keyboard,1.0,"₹3,852"
+ORD-20233,2024-08-21,West,Desk Chair,4.0,"₹2,124"
+ORD-20234,2024-08-22,East,Headset,6.0,"₹2,022"
+ORD-20235,2024-08-23,North,Webcam,13.0,"₹3,481"
+ORD-20236,2024-08-24,West,Webcam,11.0,"₹1,372"
+ORD-20237,2024-08-25,South,Mouse,10.0,"₹3,271"
+ORD-20238,2024-08-26,West,Headset,6.0,"₹1,363"
+ORD-20239,2024-08-27,West,Standing Desk,12.0,"₹2,964"
+ORD-20240,2024-08-28,West,Mouse,3.0,"₹1,536"
+ORD-20241,2024-08-29,North,Standing Desk,6.0,"₹2,530"
+ORD-20242,2024-08-30,West,Desk Chair,5.0,"₹3,726"
+ORD-20243,2024-08-31,East,Monitor,1.0,₹501
+ORD-20244,2024-09-01,South,Desk Chair,2.0,"₹3,287"
+ORD-20245,2024-09-02,West,Mouse,12.0,"₹2,305"
+ORD-20246,2024-09-03,West,Monitor,14.0,"₹1,703"
+ORD-20247,2024-09-04,East,Keyboard,4.0,"₹1,596"
+ORD-20248,2024-09-05,North,Monitor,2.0,₹557
+ORD-20249,2024-09-06,East,Keyboard,2.0,"₹1,256"
+ORD-20250,2024-09-07,North,Laptop,1.0,"₹2,606"
+ORD-20251,2024-09-08,North,Headset,12.0,₹661
+ORD-20252,2024-09-09,North,Standing Desk,1.0,"₹2,777"
+ORD-20253,2024-09-10,North,Standing Desk,10.0,"₹3,860"
+ORD-20254,2024-09-11,West,Standing Desk,12.0,"₹3,929"
+ORD-20255,2024-09-12,South,Monitor,3.0,"₹3,590"
+ORD-20256,2024-09-13,North,Monitor,4.0,"₹3,284"
+ORD-20257,2024-09-14,North,Webcam,4.0,₹958
+ORD-20258,2024-09-15,South,Standing Desk,11.0,"₹3,890"
+ORD-20259,2024-09-16,South,Desk Chair,14.0,
+ORD-20260,2024-09-17,South,Monitor,11.0,"₹3,515"
+ORD-20261,2024-09-18,West,Webcam,4.0,"₹3,548"
+ORD-20262,2024-09-19,West,Headset,11.0,"₹2,601"
+ORD-20263,2024-09-20,East,Mouse,10.0,"₹2,229"
+ORD-20264,2024-09-21,West,Mouse,6.0,"₹1,042"
+ORD-20265,2024-09-22,South,Headset,2.0,"₹2,222"
+ORD-20266,2024-09-23,North,Standing Desk,5.0,"₹1,375"
+ORD-20267,2024-09-24,South,Desk Chair,12.0,₹766
+ORD-20268,2024-09-25,North,Laptop,8.0,₹774
+ORD-20269,2024-09-26,West,Desk Chair,2.0,"₹3,264"
+ORD-20270,2024-09-27,North,Keyboard,13.0,"₹3,713"
+ORD-20271,2024-09-28,South,Keyboard,8.0,₹825
+ORD-20272,2024-09-29,North,Headset,5.0,₹349
+ORD-20273,2024-09-30,West,Standing Desk,1.0,"₹1,275"
+ORD-20274,2024-10-01,North,Laptop,9.0,₹797
+ORD-20275,2024-10-02,East,Headset,8.0,₹998
+ORD-20276,2024-10-03,West,Monitor,3.0,"₹2,458"
+ORD-20277,2024-10-04,East,Standing Desk,12.0,"₹1,862"
+ORD-20278,2024-10-05,West,Mouse,8.0,"₹1,888"
+ORD-20279,2024-10-06,West,Desk Chair,2.0,"₹1,061"
+ORD-20280,2024-10-07,West,Standing Desk,3.0,"₹2,759"
+ORD-20281,2024-10-08,East,Laptop,4.0,"₹1,371"
+ORD-20282,2024-10-09,East,Desk Chair,11.0,"₹1,777"
+ORD-20283,2024-10-10,East,Desk Chair,11.0,"₹2,015"
+ORD-20284,2024-10-11,West,Desk Chair,12.0,"₹3,646"
+ORD-20285,2024-10-12,South,Standing Desk,9.0,"₹1,212"
+ORD-20286,2024-10-13,West,Desk Chair,13.0,"₹2,959"
+ORD-20287,2024-10-14,West,Desk Chair,5.0,"₹1,445"
+ORD-20288,2024-10-15,South,Webcam,9.0,"₹3,609"
+ORD-20289,2024-10-16,South,Keyboard,9.0,"₹1,758"
+ORD-20290,2024-10-17,East,Desk Chair,,"₹2,169"
+ORD-20291,2024-10-18,West,Webcam,7.0,"₹3,546"
+ORD-20292,2024-10-19,North,Webcam,10.0,"₹2,789"
+ORD-20293,2024-10-20,North,Standing Desk,13.0,₹649
+ORD-20294,2024-10-21,North,Webcam,13.0,₹806
+ORD-20295,2024-10-22,South,Keyboard,5.0,"₹3,966"
+ORD-20296,2024-10-23,North,Keyboard,11.0,₹408
+ORD-20297,2024-10-24,East,Keyboard,11.0,"₹1,413"
+ORD-20298,2024-10-25,East,Monitor,14.0,"₹3,848"
+ORD-20299,2024-10-26,West,Laptop,9.0,₹356
+ORD-20300,2024-10-27,East,Desk Chair,3.0,₹897
+ORD-20301,2024-10-28,South,Desk Chair,11.0,"₹1,089"
+ORD-20302,2024-10-29,West,Monitor,3.0,₹620
+ORD-20303,2024-10-30,West,Mouse,6.0,
+ORD-20304,2024-10-31,East,Standing Desk,7.0,"₹2,492"
+ORD-20305,2024-11-01,East,Desk Chair,11.0,"₹1,478"
+ORD-20306,2024-11-02,South,Headset,3.0,₹702
+ORD-20307,2024-11-03,East,Standing Desk,10.0,"₹3,301"
+ORD-20308,2024-11-04,North,Keyboard,3.0,"₹3,277"
+ORD-20309,2024-11-05,East,Desk Chair,6.0,"₹2,380"
+ORD-20310,2024-11-06,West,Standing Desk,2.0,₹810
+ORD-20311,2024-11-07,West,Headset,1.0,"₹2,305"
+ORD-20312,2024-11-08,South,Monitor,5.0,"₹2,629"
+ORD-20313,2024-11-09,South,Keyboard,14.0,"₹1,885"
+ORD-20314,2024-11-10,East,Headset,8.0,"₹3,496"
+ORD-20315,2024-11-11,South,Keyboard,10.0,"₹1,743"
+ORD-20316,2024-11-12,East,Laptop,4.0,"₹2,190"
+ORD-20317,2024-11-13,North,Monitor,3.0,₹722
+ORD-20318,2024-11-14,North,Standing Desk,13.0,"₹2,385"
+ORD-20319,2024-11-15,North,Mouse,11.0,"₹3,136"
+ORD-20320,2024-11-16,South,Headset,7.0,"₹3,006"
+ORD-20321,2024-11-17,North,Mouse,4.0,"₹1,251"
+ORD-20322,2024-11-18,South,Desk Chair,13.0,"₹3,970"
+ORD-20323,2024-11-19,West,Laptop,7.0,"₹2,964"
+ORD-20324,2024-11-20,West,Keyboard,1.0,"₹1,868"
+ORD-20325,2024-11-21,West,Headset,13.0,"₹1,835"
+ORD-20326,2024-11-22,East,Desk Chair,6.0,"₹3,184"
+ORD-20327,2024-11-23,North,Mouse,,₹950
+ORD-20328,2024-11-24,East,Webcam,6.0,"₹2,667"
+ORD-20329,2024-11-25,East,Desk Chair,5.0,"₹2,960"
+ORD-20330,2024-11-26,West,Webcam,9.0,"₹2,210"
+ORD-20331,2024-11-27,South,Desk Chair,5.0,"₹3,531"
+ORD-20332,2024-11-28,North,Standing Desk,8.0,"₹2,034"
+ORD-20333,2024-11-29,East,Monitor,2.0,"₹2,020"
+ORD-20334,2024-11-30,South,Mouse,12.0,"₹1,353"
+ORD-20335,2024-12-01,East,Monitor,4.0,"₹3,702"
+ORD-20336,2024-12-02,South,Mouse,9.0,"₹1,470"
+ORD-20337,2024-12-03,South,Laptop,4.0,"₹2,873"
+ORD-20338,2024-12-04,North,Webcam,3.0,"₹1,815"
+ORD-20339,2024-12-05,West,Monitor,3.0,"₹3,761"
+ORD-20340,2024-12-06,West,Desk Chair,10.0,"₹3,807"
+ORD-20341,2024-12-07,South,Webcam,1.0,₹411
+ORD-20342,2024-12-08,North,Keyboard,,"₹3,980"
+ORD-20343,2024-12-09,East,Mouse,7.0,"₹2,538"
+ORD-20344,2024-12-10,South,Webcam,7.0,₹573
+ORD-20345,2024-12-11,East,Mouse,4.0,"₹2,139"
+ORD-20346,2024-12-12,North,Monitor,5.0,₹483
+ORD-20347,2024-12-13,North,Laptop,11.0,"₹2,331"
+ORD-20348,2024-12-14,East,Headset,13.0,₹986
+ORD-20349,2024-12-15,North,Headset,13.0,"₹1,661"
+ORD-20350,2024-12-16,East,Desk Chair,9.0,"₹1,427"
+ORD-20351,2024-12-17,South,Monitor,4.0,"₹2,528"
+ORD-20352,2024-12-18,North,Laptop,2.0,"₹3,343"
+ORD-20353,2024-12-19,West,Webcam,9.0,"₹3,765"
+ORD-20354,2024-12-20,East,Webcam,8.0,"₹1,517"
+ORD-20355,2024-12-21,West,Desk Chair,8.0,"₹2,408"
+ORD-20356,2024-12-22,West,Laptop,8.0,₹322
+ORD-20357,2024-12-23,East,Webcam,2.0,"₹1,677"
+ORD-20358,2024-12-24,West,Standing Desk,6.0,"₹3,855"
+ORD-20359,2024-12-25,North,Desk Chair,,₹740
+ORD-20360,2024-12-26,West,Mouse,12.0,"₹3,518"
+ORD-20361,2024-12-27,West,Mouse,13.0,"₹2,714"
+ORD-20362,2024-12-28,East,Mouse,12.0,"₹1,387"
+ORD-20363,2024-12-29,West,Laptop,7.0,"₹3,179"
+ORD-20364,2024-12-30,East,Webcam,12.0,"₹1,370"
+ORD-20365,2024-12-31,West,Headset,12.0,"₹3,611"
+ORD-20366,2025-01-01,West,Headset,5.0,₹606
+ORD-20367,2025-01-02,East,Standing Desk,,₹740
+ORD-20368,2025-01-03,West,Webcam,12.0,"₹3,075"
+ORD-20369,2025-01-04,West,Standing Desk,9.0,"₹1,962"
+ORD-20370,2025-01-05,South,Laptop,7.0,₹846
+ORD-20371,2025-01-06,North,Standing Desk,13.0,"₹2,200"
+ORD-20372,2025-01-07,North,Headset,14.0,"₹1,399"
+ORD-20373,2025-01-08,North,Mouse,13.0,"₹2,332"
+ORD-20374,2025-01-09,South,Headset,1.0,"₹3,052"
+ORD-20375,2025-01-10,North,Laptop,1.0,"₹3,470"
+ORD-20376,2025-01-11,South,Standing Desk,7.0,₹518
+ORD-20377,2025-01-12,South,Webcam,8.0,
+ORD-20378,2025-01-13,East,Laptop,4.0,"₹3,940"
+ORD-20379,2025-01-14,North,Standing Desk,6.0,"₹2,001"
+ORD-20380,2025-01-15,West,Mouse,8.0,"₹3,147"
+ORD-20381,2025-01-16,North,Laptop,11.0,₹660
+ORD-20382,2025-01-17,West,Webcam,11.0,"₹3,532"
+ORD-20383,2025-01-18,East,Laptop,2.0,"₹2,454"
+ORD-20384,2025-01-19,North,Headset,6.0,"₹3,587"
+ORD-20385,2025-01-20,North,Desk Chair,4.0,"₹3,212"
+ORD-20386,2025-01-21,South,Laptop,5.0,"₹3,516"
+ORD-20387,2025-01-22,East,Desk Chair,12.0,₹512
+ORD-20388,2025-01-23,North,Headset,7.0,"₹2,947"
+ORD-20389,2025-01-24,North,Keyboard,7.0,"₹1,029"
+ORD-20390,2025-01-25,North,Monitor,14.0,"₹1,283"
+ORD-20391,2025-01-26,East,Laptop,7.0,"₹1,502"
+ORD-20392,2025-01-27,North,Monitor,11.0,"₹2,488"
+ORD-20393,2025-01-28,North,Keyboard,14.0,"₹2,623"
+ORD-20394,2025-01-29,South,Standing Desk,14.0,"₹3,746"
+ORD-20395,2025-01-30,South,Headset,5.0,₹347
+ORD-20396,2025-01-31,East,Monitor,6.0,"₹1,016"
+ORD-20397,2025-02-01,West,Webcam,1.0,"₹1,639"
+ORD-20398,2025-02-02,West,Mouse,11.0,"₹3,327"
+ORD-20399,2025-02-03,East,Desk Chair,6.0,"₹2,335"
+ORD-20400,2025-02-04,East,Desk Chair,1.0,
+ORD-20401,2025-02-05,West,Standing Desk,3.0,"₹3,113"
+ORD-20402,2025-02-06,South,Webcam,3.0,"₹2,724"
+ORD-20403,2025-02-07,East,Laptop,2.0,"₹1,372"
+ORD-20404,2025-02-08,North,Headset,1.0,₹622
+ORD-20405,2025-02-09,East,Mouse,8.0,"₹2,011"
+ORD-20406,2025-02-10,North,Desk Chair,4.0,"₹3,557"
+ORD-20407,2025-02-11,North,Monitor,14.0,"₹2,513"
+ORD-20408,2025-02-12,West,Mouse,9.0,₹497
+ORD-20409,2025-02-13,East,Desk Chair,9.0,"₹1,928"
+ORD-20410,2025-02-14,South,Headset,8.0,"₹1,723"
+ORD-20411,2025-02-15,North,Laptop,10.0,"₹2,455"
+ORD-20412,2025-02-16,North,Desk Chair,11.0,"₹2,472"
+ORD-20413,2025-02-17,West,Keyboard,5.0,"₹3,820"
+ORD-20414,2025-02-18,South,Webcam,9.0,"₹1,551"
+ORD-20415,2025-02-19,West,Webcam,8.0,"₹1,810"
+ORD-20416,2025-02-20,West,Webcam,10.0,"₹2,570"
+ORD-20417,2025-02-21,West,Mouse,11.0,"₹3,580"
+ORD-20418,2025-02-22,North,Mouse,11.0,"₹2,913"
+ORD-20419,2025-02-23,North,Laptop,9.0,"₹2,042"
+ORD-20420,2025-02-24,East,Headset,1.0,"₹3,314"
+ORD-20421,2025-02-25,South,Keyboard,12.0,"₹2,096"
+ORD-20422,2025-02-26,West,Mouse,14.0,"₹3,865"
+ORD-20423,2025-02-27,South,Monitor,8.0,"₹1,345"
+ORD-20424,2025-02-28,North,Webcam,7.0,₹771
+ORD-20425,2025-03-01,North,Standing Desk,3.0,"₹3,372"
+ORD-20426,2025-03-02,South,Mouse,7.0,"₹1,400"
+ORD-20427,2025-03-03,East,Mouse,9.0,"₹3,435"
+ORD-20428,2025-03-04,North,Mouse,11.0,"₹2,555"
+ORD-20429,2025-03-05,West,Laptop,7.0,"₹2,183"
+ORD-20430,2025-03-06,South,Desk Chair,,₹622
+ORD-20431,2025-03-07,South,Standing Desk,3.0,"₹3,209"
+ORD-20432,2025-03-08,East,Headset,8.0,₹544
+ORD-20433,2025-03-09,West,Laptop,9.0,
+ORD-20434,2025-03-10,South,Keyboard,13.0,"₹3,545"
+ORD-20435,2025-03-11,West,Monitor,12.0,"₹1,421"
+ORD-20436,2025-03-12,South,Desk Chair,9.0,₹773
+ORD-20437,2025-03-13,North,Desk Chair,,"₹3,577"
+ORD-20438,2025-03-14,West,Mouse,12.0,"₹2,075"
+ORD-20439,2025-03-15,West,Mouse,8.0,₹762
+ORD-20440,2025-03-16,West,Desk Chair,12.0,"₹2,145"
+ORD-20441,2025-03-17,West,Laptop,11.0,"₹1,213"
+ORD-20442,2025-03-18,South,Desk Chair,5.0,"₹1,809"
+ORD-20443,2025-03-19,North,Standing Desk,6.0,"₹2,669"
+ORD-20444,2025-03-20,East,Mouse,6.0,"₹3,687"
+ORD-20445,2025-03-21,East,Desk Chair,4.0,"₹3,263"
+ORD-20446,2025-03-22,South,Webcam,11.0,₹896
+ORD-20447,2025-03-23,East,Standing Desk,6.0,"₹2,066"
+ORD-20448,2025-03-24,South,Laptop,10.0,"₹2,120"
+ORD-20449,2025-03-25,East,Webcam,8.0,"₹3,961"
+ORD-20450,2025-03-26,West,Mouse,6.0,₹622
+ORD-20451,2025-03-27,North,Desk Chair,10.0,"₹2,190"
+ORD-20452,2025-03-28,South,Desk Chair,3.0,"₹3,683"
+ORD-20453,2025-03-29,East,Keyboard,8.0,"₹1,776"
+ORD-20454,2025-03-30,North,Headset,3.0,"₹1,268"
+ORD-20455,2025-03-31,East,Mouse,2.0,"₹2,357"
+ORD-20456,2025-04-01,West,Headset,12.0,"₹1,484"
+ORD-20457,2025-04-02,West,Desk Chair,12.0,"₹3,730"
+ORD-20458,2025-04-03,East,Webcam,10.0,₹614
+ORD-20459,2025-04-04,West,Desk Chair,13.0,"₹1,065"
+ORD-20460,2025-04-05,South,Webcam,9.0,₹610
+ORD-20461,2025-04-06,South,Keyboard,2.0,
+ORD-20462,2025-04-07,North,Headset,6.0,"₹1,385"
+ORD-20463,2025-04-08,East,Mouse,4.0,"₹3,631"
+ORD-20464,2025-04-09,South,Mouse,11.0,"₹3,606"
+ORD-20465,2025-04-10,West,Laptop,,"₹3,765"
+ORD-20466,2025-04-11,South,Monitor,9.0,"₹1,248"
+ORD-20467,2025-04-12,West,Keyboard,12.0,₹302
+ORD-20468,2025-04-13,North,Keyboard,3.0,"₹1,734"
+ORD-20469,2025-04-14,North,Webcam,13.0,"₹3,861"
+ORD-20470,2025-04-15,South,Keyboard,10.0,"₹3,126"
+ORD-20471,2025-04-16,North,Monitor,1.0,₹521
+ORD-20472,2025-04-17,South,Mouse,8.0,"₹2,900"
+ORD-20473,2025-04-18,East,Headset,5.0,"₹3,693"
+ORD-20474,2025-04-19,East,Standing Desk,10.0,"₹3,881"
+ORD-20475,2025-04-20,North,Headset,3.0,"₹2,949"
+ORD-20476,2025-04-21,North,Keyboard,7.0,"₹3,493"
+ORD-20477,2025-04-22,East,Keyboard,7.0,"₹3,414"
+ORD-20478,2025-04-23,East,Mouse,7.0,"₹1,626"
+ORD-20479,2025-04-24,West,Standing Desk,13.0,
+ORD-20480,2025-04-25,West,Keyboard,14.0,"₹2,992"
+ORD-20481,2025-04-26,South,Monitor,1.0,₹807
+ORD-20482,2025-04-27,North,Headset,12.0,"₹1,722"
+ORD-20483,2025-04-28,South,Desk Chair,3.0,"₹3,984"
+ORD-20484,2025-04-29,West,Standing Desk,3.0,"₹2,371"
+ORD-20485,2025-04-30,South,Keyboard,7.0,"₹2,230"
+ORD-20486,2025-05-01,West,Standing Desk,14.0,"₹3,807"
+ORD-20487,2025-05-02,East,Desk Chair,8.0,"₹1,351"
+ORD-20488,2025-05-03,East,Mouse,9.0,"₹3,998"
+ORD-20489,2025-05-04,North,Keyboard,11.0,
+ORD-20490,2025-05-05,East,Keyboard,7.0,"₹1,646"
+ORD-20491,2025-05-06,South,Keyboard,7.0,"₹1,511"
+ORD-20492,2025-05-07,West,Standing Desk,10.0,₹768
+ORD-20000,2024-01-01,West,Monitor,5.0,"₹1,608"
+ORD-20001,2024-01-02,East,Monitor,7.0,"₹3,934"
+ORD-20002,2024-01-03,East,Webcam,14.0,"₹3,078"
+ORD-20003,2024-01-04,West,Webcam,10.0,₹730
+ORD-20004,2024-01-05,East,Desk Chair,,"₹3,290"
+ORD-20005,2024-01-06,West,Headset,2.0,"₹1,450"
+ORD-20006,2024-01-07,West,Mouse,4.0,"₹3,191"
