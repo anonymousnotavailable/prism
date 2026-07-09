@@ -185,3 +185,24 @@ def get_data_quality_report(df: pd.DataFrame, column_types: dict[str, str]) -> d
         "outliers": outliers,
         "all_null_columns": [c for c, t in column_types.items() if t == "all_null"],
     }
+
+
+def get_health_score(quality_report: dict) -> int:
+    """A single 0-100 "at a glance" health score for the sticky mini-header —
+    a fast composite of the same signals already shown in the Overview tab's
+    data quality report, not a rigorous statistical metric.
+    """
+    score = 100.0
+    score -= quality_report["total_missing_pct"] * 0.5
+
+    n_rows = quality_report["n_rows"] or 1
+    duplicate_pct = 100 * quality_report["duplicate_rows"] / n_rows
+    score -= duplicate_pct * 0.3
+
+    outlier_pcts = [info["pct"] for info in quality_report["outliers"].values()]
+    if outlier_pcts:
+        score -= (sum(outlier_pcts) / len(outlier_pcts)) * 0.2
+
+    score -= min(len(quality_report["all_null_columns"]) * 5, 20)
+
+    return max(0, min(100, round(score)))

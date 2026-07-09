@@ -1,0 +1,601 @@
+startup_name,city,industry,stage,funding_date,funding_amount,investor_count,distance_to_hub,valuation_usd
+StartupCo_1,Chennai,SaaS,Series A,02/08/2022,0.3 Cr,NULL,,18719404.72
+StartupCo_2,Bangalore ,Healthtech,Bridge,24-Feb-19,"Rs. 2,03,30,561",9,8km,23477024.2
+StartupCo_3,Mumbai ,Healthtech,Bridge,18-Jul-19,"₹24,68,288",6,12km,6254238.41
+StartupCo_4,mumbai,Foodtech,Series B,04-Apr-19,0.82 crore,11,,94946033.84
+StartupCo_5,Banglore,Edtech,Bridge,2022-12-08,"₹62,68,652",11,5km,4394166.49
+StartupCo_6,Mumbai ,E-commerce,Seed,7th July 2023,18.7 lakh,6,,4434269.56
+StartupCo_7,Hyderabad,SaaS,Series B,2020-05-20,3.3 lakh,12,20m,12774268.18
+StartupCo_8,Chennai,Foodtech,Seed,11.06.2023,0.17 crore,11,12miles,668387.42
+StartupCo_9,Delhi,Logistics,NULL,17.08.2019,47.7 lakh,5,,1944962.63
+StartupCo_10,mumbai,Edtech,Bridge,2021-02-04,"Rs. 10,99,505",3,12km,
+StartupCo_11,Chennai,Edtech,Bridge,30/07/2023,"Rs. 1,89,77,763",2,12km,1068262.92
+StartupCo_12,New Delhi,Edtech,Bridge,unknown,"₹24,93,177",11,2miles,
+StartupCo_13,Chennai,Edtech,Series A,27/10/2023,"Rs. 5,91,432",6,20km,9833370.45
+StartupCo_14,mumbai,Logistics,Seed,26/12/2020,17.0 lakh,7,,
+StartupCo_15,Hyderabad,Fintech,Series A,14/05/2021,"Rs. 37,34,435",3,20km,
+StartupCo_16,Pune,Healthtech,Series A,13.03.2020,"Rs. 51,31,135",7,,1580907.54
+StartupCo_17,Mumbai ,Edtech,Seed,14/11/2019,Undisclosed,4,8km,
+StartupCo_18,New Delhi,Fintech,Series C,20.05.2019,0.23 crore,11,,3609363.38
+StartupCo_19,Pune,Fintech,Series A,2020-02-23,Undisclosed,11,8m,3603586.23
+StartupCo_20,Banglore,Foodtech,Series B,12.03.2020,Undisclosed,9,,143008878.94
+StartupCo_21,bangalore,SaaS,Seed,01-Aug-23,0.09 crore,9,2km,8708012.73
+StartupCo_22,Bangalore ,SaaS,Series C,2023-09-29,Undisclosed,1,8km,30517698.99
+StartupCo_23,bangalore,Logistics,Bridge,14-Dec-23,42.0 lakh,12,20km,1423649.96
+StartupCo_24,Bangalore,Logistics,Bridge,2022-09-27,0.07 crore,2,20km,470003.22
+StartupCo_25,Chennai,Edtech,Series A,22-May-23,41.4 lakh,7,,
+StartupCo_26,Banglore,E-commerce,Series C,01-Apr-20,"₹40,15,377",1,,26901695.44
+StartupCo_27,Hyderabad,E-commerce,Series B,2023-12-02,"₹22,77,697",5,8miles,7470911.54
+StartupCo_28,bangalore,SaaS,Series A,30th November 2021,0.1 Cr,9,8miles,967254.59
+StartupCo_29,Mumbai ,Logistics,Series C,invalid-date,1.2 Cr,4,,4452791.87
+StartupCo_30,Banglore,Healthtech,Series C,27/05/2022,3.9 lakh,11,12km,14878494.92
+StartupCo_31,Delhi,Foodtech,Seed,10/07/2023,"₹20,59,350",4,2m,14448858.23
+StartupCo_32,Bangalore,Logistics,Series A,18th March 2023,0.7 Cr,2,,3219114.89
+StartupCo_33,Chennai,Edtech,Series C,04-May-22,1.00 crore,6,,41720337.75
+StartupCo_34,Mumbai ,Fintech,Series A,18/04/2023,"₹22,55,641",9,8km,2523541.21
+StartupCo_35,New Delhi,Fintech,Series C,29th April 2021,1.05 crore,7,12m,14605301.64
+StartupCo_36,Chennai,Edtech,Series C,3rd September 2020,"Rs. 26,16,136",7,,4330695.21
+StartupCo_37,mumbai,Edtech,Series A,23/01/2023,0.09 crore,3,12km,
+StartupCo_38,Mumbai ,Fintech,Series C,2023-04-08,86.7 lakh,7,2km,1477245.94
+StartupCo_39,bangalore,Edtech,Series A,2023-09-15,30.0 lakh,1,20km,67955255.75
+StartupCo_40,Hyderabad,Fintech,Series B,29/09/2020,0.50 crore,2,,40036389.93
+StartupCo_41,Delhi,SaaS,Seed,08.10.2023,"₹50,43,822",11,2miles,3376399.18
+StartupCo_42,Hyderabad,E-commerce,Series C,06-Jun-21,31.3 lakh,6,20miles,89259181.72
+StartupCo_43,mumbai,Edtech,Series C,29-Aug-23,0.0 Cr,2,20m,92893616.13
+StartupCo_44,Bangalore ,Foodtech,Bridge,2022-12-07,36.3 lakh,5,12m,30488305.95
+StartupCo_45,delhi,Foodtech,Bridge,08/04/2021,36.5 lakh,12,8m,5674477.09
+StartupCo_46,New Delhi,SaaS,Series A,08/10/2020,0.25 crore,2,,450740.3
+StartupCo_47,Pune,Logistics,Series B,invalid-date,"Rs. 1,92,58,688",-,8km,15182725.47
+StartupCo_48,New Delhi,Fintech,Series B,28-Nov-20,12.4 lakh,3,2m,4084029.46
+StartupCo_49,Mumbai ,E-commerce,Bridge,31.08.2019,"₹98,05,779",9,20m,4186453.17
+StartupCo_50,Mumbai ,SaaS,Series B,12.04.2023,"Rs. 17,31,134",4,5km,14550365.4
+StartupCo_51,Bangalore,Healthtech,Series B,26/05/2019,0.6 Cr,11,5m,
+StartupCo_52,Mumbai,SaaS,Series C,14-Mar-23,"₹1,04,52,732",10,12miles,10279028.65
+StartupCo_53,Banglore,Foodtech,Bridge,07.07.2019,"Rs. 22,06,251",4,8km,3100023.84
+StartupCo_54,Mumbai ,E-commerce,Series B,6th July 2019,0.06 crore,8,5miles,4934874.35
+StartupCo_55,Chennai,E-commerce,Series C,24.10.2020,"Rs. 46,63,814",2,,
+StartupCo_56,Delhi,Foodtech,Bridge,06.04.2023,44.7 lakh,1,12km,
+StartupCo_57,mumbai,Edtech,Seed,20/09/2023,0.2 Cr,2,8miles,8954530.69
+StartupCo_58,Pune,Logistics,Series B,invalid-date,0.2 Cr,3,,1063359.6
+StartupCo_59,Mumbai,Foodtech,Series C,13th September 2022,Undisclosed,8,20m,5314386.98
+StartupCo_60,Banglore,Healthtech,Series C,6th March 2023,"Rs. 26,93,783",8,5m,2667318.17
+StartupCo_61,delhi,Foodtech,Series A,01.02.2019,3.14 crore,12,,16290233.02
+StartupCo_62,Hyderabad,Foodtech,Series C,2022-07-07,0.45 crore,12,2km,11546197.49
+StartupCo_63,Delhi,Edtech,Seed,1st March 2019,3.3 lakh,1,5km,7947207.18
+StartupCo_64,Delhi,Fintech,Series C,16.10.2021,"Rs. 35,14,037",10,2m,8539638.09
+StartupCo_65,New Delhi,Healthtech,Series B,14th November 2022,0.3 Cr,5,12km,357577674.82
+StartupCo_66,Hyderabad,SaaS,Seed,07/11/2023,31.4 lakh,11,,13968579.08
+StartupCo_67,bangalore,Healthtech,Seed,10/07/2022,1.29 crore,2,20miles,1539522.63
+StartupCo_68,Chennai,Logistics,Series A,23/12/2021,84.5 lakh,9,,27450626.5
+StartupCo_69,Pune,Healthtech,Series C,28-Oct-23,1.76 crore,11,,2271426.98
+StartupCo_70,New Delhi,Fintech,Seed,10-Aug-19,"₹66,10,887",11,,1085144.16
+StartupCo_71,Mumbai ,Foodtech,Series B,14/10/2019,"₹9,95,854",1,5km,237501248.61
+StartupCo_72,Chennai,Foodtech,Series B,04-Sep-23,Undisclosed,8,12m,3800158.77
+StartupCo_73,Mumbai,Logistics,Series C,19.07.2020,36.8 lakh,4,20km,
+StartupCo_74,Delhi,Fintech,Series A,2023-07-24,5.1 lakh,4,8km,4175674.75
+StartupCo_75,Pune,E-commerce,Seed,2022-04-20,0.1 Cr,NULL,2km,9848645.22
+StartupCo_76,mumbai,Fintech,Seed,09/09/2020,Undisclosed,8,12m,18081296.98
+StartupCo_77,Delhi,Logistics,Bridge,17.07.2020,210.0 lakh,10,20miles,2237486.39
+StartupCo_78,mumbai,Healthtech,Series C,30th May 2021,Undisclosed,8,12km,2744529.08
+StartupCo_79,delhi,Foodtech,Seed,31st August 2023,"₹86,77,297",2,5km,5481600.76
+StartupCo_80,Mumbai ,Healthtech,Seed,12/08/2020,0.4 Cr,10,12km,1402411.1
+StartupCo_81,Mumbai,Logistics,NULL,2023-04-21,"₹4,74,976",10,8miles,63130472.28
+StartupCo_82,Pune,Fintech,Series C,2019-07-07,0.45 crore,12,8miles,11721681.3
+StartupCo_83,Banglore,E-commerce,Bridge,26/06/2021,0.1 Cr,11,20km,28709375.72
+StartupCo_84,Bangalore ,Foodtech,Series A,23.04.2019,0.6 Cr,1,,1226058.46
+StartupCo_85,Mumbai,Logistics,Seed,18th February 2022,"Rs. 44,15,322",11,,13873304.47
+StartupCo_86,Pune,Fintech,Series B,15th August 2020,0.1 Cr,2,,14941786.58
+StartupCo_87,New Delhi,SaaS,Series B,11-Jun-19,43.2 lakh,7,,
+StartupCo_88,delhi,Logistics,Series A,28.04.2020,0.1 Cr,2,2km,13792130.17
+StartupCo_89,Mumbai,Healthtech,Series C,23-Oct-20,"₹57,72,405",11,8miles,145933524.85
+StartupCo_90,Delhi,Healthtech,Bridge,2022-08-13,0.72 crore,2,2m,1488150.68
+StartupCo_91,New Delhi,Edtech,Series A,2nd January 2023,0.84 crore,2,,2059507.62
+StartupCo_92,Chennai,Healthtech,Series B,22-Oct-22,"Rs. 12,21,000",10,12miles,50520682.68
+StartupCo_93,Chennai,Foodtech,Seed,2019-09-22,53.6 lakh,10,8km,37695986.73
+StartupCo_94,Bengaluru,SaaS,Series C,14.03.2020,Undisclosed,6,,30495516.78
+StartupCo_95,bangalore,Foodtech,Series C,20.11.2020,"Rs. 24,35,187",10,20km,152883916.24
+StartupCo_96,Bangalore ,SaaS,Series C,24/04/2020,11.2 lakh,9,20m,2868775.25
+StartupCo_97,Pune,E-commerce,Series C,23rd November 2023,29.8 lakh,5,2km,2613718.75
+StartupCo_98,Bangalore,Fintech,Seed,31-Jul-23,45.6 lakh,8,8km,14823554.03
+StartupCo_99,Hyderabad,Healthtech,Series C,20.03.2019,"₹33,20,421",5,12m,30730766.4
+StartupCo_100,Chennai,SaaS,Seed,09.05.2023,187.0 lakh,5,20m,
+StartupCo_101,New Delhi,Logistics,Series A,19th August 2020,"₹23,79,525",?,2miles,
+StartupCo_102,Delhi,Logistics,Series B,25/07/2022,Undisclosed,7,2miles,525706562.93
+StartupCo_103,Bangalore ,Fintech,Series A,23/01/2022,0.12 crore,6,12km,22714204.18
+StartupCo_104,Pune,Healthtech,Bridge,27th September 2020,"Rs. 58,32,561",9,5miles,1782738.55
+StartupCo_105,Bangalore ,Fintech,Series C,25/11/2020,0.77 crore,3,,6355339.11
+StartupCo_106,Mumbai,Foodtech,Series B,30th July 2019,"₹29,95,450",2,12km,18071676.51
+StartupCo_107,Banglore,Foodtech,Series B,03/06/2019,0.05 crore,11,,2495025.29
+StartupCo_108,Bangalore,SaaS,Seed,11-Jan-21,"₹91,35,500",7,8miles,4548133.89
+StartupCo_109,Banglore,Healthtech,Bridge,23/02/2019,"₹7,33,155",12,8miles,12251275.55
+StartupCo_110,Hyderabad,Foodtech,Series C,14-Jul-21,51.9 lakh,3,,11522029.72
+StartupCo_111,mumbai,SaaS,Seed,14.06.2023,"₹39,31,258",6,,2360098.34
+StartupCo_112,bangalore,Foodtech,Series C,15.05.2019,0.1 Cr,5,,9696863.86
+StartupCo_113,Bangalore,Healthtech,Series A,03/08/2022,0.5 Cr,10,,
+StartupCo_114,Banglore,Edtech,Bridge,04.08.2020,1.2 Cr,2,20km,20607729.66
+StartupCo_115,Banglore,Healthtech,Bridge,26/03/2019,"Rs. 6,25,806",1,20m,43172016.54
+StartupCo_116,bangalore,Foodtech,Seed,1st September 2020,0.61 crore,8,12km,2176573.57
+StartupCo_117,Bangalore ,Logistics,Series A,20/11/2021,0.6 Cr,9,5km,
+StartupCo_118,Bangalore ,SaaS,Series A,16.01.2023,"₹33,28,75,062",6,12miles,19241337.73
+StartupCo_119,bangalore,Logistics,Series C,2020-07-30,127.7 lakh,8,2m,20922501.53
+StartupCo_120,Hyderabad,Edtech,Series C,12-Jan-21,0.71 crore,9,,37169632.13
+StartupCo_121,Chennai,Edtech,Bridge,27-Mar-23,0.81 crore,3,2km,5537735.01
+StartupCo_122,Bengaluru,Healthtech,Series B,29th November 2019,"₹24,60,358",7,20m,2787796.84
+StartupCo_123,Banglore,Logistics,Bridge,07/05/2022,Undisclosed,8,,4290675.24
+StartupCo_124,delhi,Logistics,Series C,05/12/2022,5.3 Cr,2,5m,10047266.94
+StartupCo_125,New Delhi,Foodtech,Series C,27.10.2020,74.5 lakh,11,20miles,539880.02
+StartupCo_126,mumbai,Healthtech,Series B,25-Jul-20,0.2 Cr,9,,790899.51
+StartupCo_127,bangalore,Foodtech,Series C,17-Oct-22,35.3 lakh,9,,45509237.96
+StartupCo_128,New Delhi,Edtech,Bridge,18th February 2020,"Rs. 13,85,588",9,20km,1764508.67
+StartupCo_129,delhi,E-commerce,Seed,25-Jul-19,"₹13,60,768",11,,24628050.69
+StartupCo_130,Hyderabad,E-commerce,Series A,2023-04-24,"Rs. 34,52,766",2,,12294811.28
+StartupCo_131,mumbai,Foodtech,Series B,02/06/2023,"Rs. 4,28,29,295",8,20km,3343736.59
+StartupCo_132,mumbai,SaaS,Series B,12.07.2020,"Rs. 69,94,976",4,8km,
+StartupCo_133,bangalore,E-commerce,Seed,21-Aug-23,0.4 Cr,7,5m,426038.98
+StartupCo_134,New Delhi,Logistics,Series A,24-Jan-19,90.9 lakh,5,8km,3293035.37
+StartupCo_135,Chennai,Logistics,Series C,2020-03-24,0.3 Cr,3,12m,2706640.87
+StartupCo_136,Banglore,Edtech,Bridge,12th December 2022,92.4 lakh,6,,18953154.09
+StartupCo_137,Bangalore ,Foodtech,Bridge,8th January 2023,"₹21,88,218",10,5m,1468211.26
+StartupCo_138,Bengaluru,E-commerce,Seed,08/03/2023,"Rs. 14,92,562",4,,4358253.81
+StartupCo_139,Mumbai,SaaS,Series C,05/02/2021,"₹53,14,651",7,20km,125545821.37
+StartupCo_140,Bangalore,Foodtech,Bridge,03.09.2020,"₹98,34,767",8,5km,1340661.98
+StartupCo_141,Mumbai,SaaS,Bridge,2020-05-07,1.13 crore,4,2km,214374339.65
+StartupCo_142,Banglore,Edtech,Bridge,24.04.2020,18.3 lakh,12,8km,909768.14
+StartupCo_143,mumbai,E-commerce,Series C,06/07/2022,0.14 crore,11,12miles,59433388.58
+StartupCo_144,bangalore,Foodtech,Series C,23-Oct-23,82.8 lakh,12,12km,17291561.09
+StartupCo_145,Pune,E-commerce,Bridge,16-Apr-19,"₹30,43,654",5,,2212435.03
+StartupCo_146,Pune,E-commerce,Seed,09-Mar-20,0.1 Cr,4,,68740.86
+StartupCo_147,Mumbai,Healthtech,Series B,21/08/2022,"₹7,31,359",6,2m,6083846.93
+StartupCo_148,Delhi,E-commerce,Bridge,18-Jun-20,"Rs. 5,87,616",9,5miles,102833008.72
+StartupCo_149,Pune,Edtech,Series C,2023-01-21,"₹38,24,310",11,,4592491.61
+StartupCo_150,delhi,Fintech,Series C,03.08.2023,"Rs. 1,84,30,693",NA,2km,
+StartupCo_151,Pune,Logistics,NULL,2019-02-02,132.0 lakh,1,8km,1031172.2
+StartupCo_152,Bangalore,Healthtech,Series B,2020-01-29,"Rs. 10,06,701",10,8m,9023560.89
+StartupCo_153,Chennai,SaaS,Seed,11.02.2021,"₹41,51,049",9,12miles,17772363.77
+StartupCo_154,New Delhi,Logistics,Bridge,02/06/2019,0.4 Cr,11,8km,3611647.81
+StartupCo_155,Hyderabad,SaaS,Bridge,2023-09-06,"₹37,46,081",7,,4985426.95
+StartupCo_156,Bangalore ,E-commerce,Bridge,28th November 2020,0.7 Cr,10,,
+StartupCo_157,Mumbai ,Edtech,Bridge,2022-09-15,0.07 crore,7,2km,95920014.92
+StartupCo_158,Banglore,Fintech,Seed,29th June 2021,Undisclosed,6,12m,
+StartupCo_159,Bangalore ,Edtech,Bridge,27th April 2021,3.1 lakh,7,,217900710.81
+StartupCo_160,Bengaluru,Edtech,Series C,09-Jun-21,"Rs. 66,22,481",5,5m,7076729.03
+StartupCo_161,bangalore,SaaS,Series C,05-Jul-23,"Rs. 15,48,443",6,,13544455.07
+StartupCo_162,Bangalore ,Healthtech,Series C,15.10.2020,18.1 lakh,5,,6503276.11
+StartupCo_163,bangalore,Edtech,Series A,28th October 2022,"₹90,61,294",,2m,3670919.98
+StartupCo_164,Mumbai,Logistics,Series C,08.07.2021,"₹14,23,328",10,,15180514.6
+StartupCo_165,mumbai,Fintech,Series B,invalid-date,0.5 Cr,4,20m,34256942.85
+StartupCo_166,Bengaluru,Healthtech,Series A,2022-02-16,69.6 lakh,10,20km,30077657.5
+StartupCo_167,Mumbai,Healthtech,Series A,2020-12-14,"₹16,69,079",5,2m,2562534.8
+StartupCo_168,Bangalore ,Foodtech,Series A,18th October 2022,0.7 Cr,3,8m,27260256.88
+StartupCo_169,Pune,SaaS,Series C,14/12/2023,37.6 lakh,4,,8611831.82
+StartupCo_170,delhi,Healthtech,Series C,26-Jul-21,0.2 Cr,2,20m,60399859.92
+StartupCo_171,Mumbai,SaaS,Seed,23.06.2019,25.6 lakh,11,8km,20188951.79
+StartupCo_172,Chennai,E-commerce,Series A,10.02.2022,"Rs. 1,22,19,361",3,,6410694.67
+StartupCo_173,Banglore,Healthtech,Series C,17th April 2021,"₹86,77,218",11,2km,30649426.95
+StartupCo_174,Hyderabad,Foodtech,Bridge,18-Mar-22,"₹33,52,458",2,2m,62973100.11
+StartupCo_175,Banglore,Foodtech,Seed,10th July 2021,22.5 lakh,5,,24715211.37
+StartupCo_176,Pune,SaaS,Seed,2023-05-27,"Rs. 27,96,357",4,20km,14450643.85
+StartupCo_177,Pune,E-commerce,Series A,2nd May 2019,"₹66,77,060",5,5miles,10277770.81
+StartupCo_178,Mumbai ,Fintech,Series B,2022-07-21,"Rs. 4,02,59,829",2,,2604285.66
+StartupCo_179,mumbai,Healthtech,Seed,24th July 2022,"₹7,61,445",11,12km,1964943.26
+StartupCo_180,Pune,Foodtech,-,05-Apr-19,0.85 crore,2,2m,50483964.55
+StartupCo_181,Pune,Edtech,Series A,27/05/2020,"Rs. 69,48,348",2,5m,22661538.94
+StartupCo_182,Mumbai ,Logistics,Seed,20-Jan-19,32.2 lakh,1,5m,
+StartupCo_183,Bangalore,E-commerce,Bridge,06/08/2022,"₹35,80,329",11,5m,2313144.57
+StartupCo_184,Banglore,SaaS,Series C,2019-10-14,1.05 crore,2,5km,3217957.61
+StartupCo_185,Bangalore ,Foodtech,Series A,2020-02-25,0.12 crore,9,2km,7127092.52
+StartupCo_186,Pune,SaaS,Bridge,2019-09-28,"Rs. 53,65,594",7,5m,5487159.24
+StartupCo_187,Delhi,Healthtech,Bridge,03/11/2021,12.2 lakh,5,12km,3814854.83
+StartupCo_188,Hyderabad,E-commerce,Seed,03/01/2022,43.9 lakh,6,5km,12807363.25
+StartupCo_189,Bangalore,Foodtech,Series B,2022-12-07,"₹18,57,522",1,,4154012.27
+StartupCo_190,Mumbai ,Healthtech,Seed,17/11/2020,0.06 crore,7,,12585739.01
+StartupCo_191,mumbai,Edtech,Seed,2023-05-03,"Rs. 13,80,376",2,2km,1076046.61
+StartupCo_192,Hyderabad,Edtech,Series B,4th April 2020,Undisclosed,6,8km,6451539.05
+StartupCo_193,delhi,Foodtech,Series B,10.08.2021,192.0 lakh,5,2miles,14166085.89
+StartupCo_194,New Delhi,Logistics,Series A,09.02.2023,Undisclosed,9,,
+StartupCo_195,Bangalore,Foodtech,Series B,08/09/2022,0.3 Cr,7,5m,32168215.76
+StartupCo_196,Mumbai ,SaaS,Series C,25/04/2021,0.10 crore,12,2km,8636221.24
+StartupCo_197,Bengaluru,Edtech,Series C,2023-10-09,23.1 lakh,6,,8642740.66
+StartupCo_198,mumbai,Logistics,Seed,09-Jul-21,0.1 Cr,8,,14419295.61
+StartupCo_199,Mumbai,Foodtech,Series B,24/03/2019,Undisclosed,4,,19365811.42
+StartupCo_200,Chennai,Edtech,Bridge,2021-04-08,2.06 crore,8,5km,
+StartupCo_201,Chennai,Fintech,Series A,23/07/2023,"Rs. 52,93,838",N/A,5km,7548502.65
+StartupCo_202,Bangalore ,Edtech,Seed,10/08/2023,"Rs. 20,19,853",12,8km,25020748.72
+StartupCo_203,Chennai,E-commerce,Seed,23.04.2021,0.33 crore,9,5km,12436406.32
+StartupCo_204,Pune,Logistics,Series B,04.03.2022,12.9 lakh,9,5km,10288261.55
+StartupCo_205,Pune,SaaS,Series B,25-Jul-19,59.4 lakh,4,,9218890.59
+StartupCo_206,Bangalore ,SaaS,Series B,2019-12-27,Undisclosed,4,8km,78351479.65
+StartupCo_207,Hyderabad,Fintech,Seed,17/05/2022,4.3 Cr,,5miles,37464569.8
+StartupCo_208,Mumbai,Foodtech,Series B,29th October 2023,93.1 lakh,6,20km,2810797.07
+StartupCo_209,Pune,Edtech,Bridge,19.12.2022,4.5 Cr,9,20km,11698989.27
+StartupCo_210,bangalore,Healthtech,Bridge,2019-03-08,0.12 crore,3,12km,2643336.68
+StartupCo_211,mumbai,Edtech,Series A,3rd July 2021,"Rs. 15,92,361",1,2km,
+StartupCo_212,Chennai,Fintech,Bridge,2019-07-27,"Rs. 2,55,588",8,5m,
+StartupCo_213,Pune,Foodtech,Seed,26/11/2019,Undisclosed,12,,4038433.66
+StartupCo_214,bangalore,Healthtech,Series C,09.11.2020,0.39 crore,4,,2845646.98
+StartupCo_215,Hyderabad,Logistics,Bridge,8th January 2019,3.11 crore,7,5km,14836990.28
+StartupCo_216,mumbai,Edtech,Series A,06/07/2019,"₹1,02,26,660",11,5m,
+StartupCo_217,Bangalore ,Logistics,Bridge,25th June 2019,11.1 lakh,11,,3740180.82
+StartupCo_218,New Delhi,Edtech,Seed,02/09/2021,6.7 lakh,5,,18585248.96
+StartupCo_219,Bengaluru,Fintech,Series C,09-Mar-20,1.3 Cr,4,5km,138611851.37
+StartupCo_220,Banglore,SaaS,Bridge,2021-07-27,0.2 Cr,1,,
+StartupCo_221,New Delhi,SaaS,Bridge,16th May 2023,1.7 Cr,2,,680306.16
+StartupCo_222,Hyderabad,Fintech,Series C,26-Oct-22,"Rs. 1,44,38,077",12,5km,7483343.43
+StartupCo_223,Chennai,Foodtech,Series A,24/10/2023,"Rs. 15,92,395",12,,812896.04
+StartupCo_224,Delhi,Logistics,Series B,2023-02-26,34.6 lakh,8,5km,8956280.26
+StartupCo_225,mumbai,Foodtech,Series C,11/09/2023,0.7 Cr,1,5miles,4523975.92
+StartupCo_226,Pune,Fintech,Series C,02.07.2021,27.6 lakh,3,5miles,1791509.93
+StartupCo_227,Bangalore,SaaS,Series A,22.10.2023,0.61 crore,4,2km,10643324.52
+StartupCo_228,bangalore,Foodtech,Series C,30.12.2022,0.1 Cr,12,,25839692.0
+StartupCo_229,Hyderabad,Logistics,Bridge,18-Sep-22,0.1 Cr,6,2m,
+StartupCo_230,Hyderabad,E-commerce,Bridge,17.04.2023,0.5 Cr,4,5km,60400940.43
+StartupCo_231,Chennai,Healthtech,Series A,30-Jul-23,2.1 Cr,4,12miles,2891454.43
+StartupCo_232,Chennai,Healthtech,Series B,2023-04-12,1.3 Cr,3,5miles,10569805.45
+StartupCo_233,Bengaluru,Logistics,Series A,03/04/2022,3.9 Cr,10,,9833227.03
+StartupCo_234,bangalore,Edtech,Series A,26/07/2021,"₹24,24,759",3,5miles,123655652.38
+StartupCo_235,Bangalore,Foodtech,Series C,23-Sep-19,0.7 Cr,10,,38162214.18
+StartupCo_236,Banglore,SaaS,Series A,2020-01-26,0.10 crore,1,,69230171.94
+StartupCo_237,mumbai,Healthtech,Bridge,22nd July 2021,Undisclosed,12,,24867621.9
+StartupCo_238,Delhi,E-commerce,Series A,04.04.2020,0.0 Cr,12,5km,43472396.45
+StartupCo_239,Bangalore,Edtech,Seed,09-Apr-19,"₹2,82,920",11,12m,1506217.7
+StartupCo_240,Pune,Edtech,Bridge,18.09.2022,0.77 crore,9,2km,5932105.39
+StartupCo_241,Mumbai,Fintech,Seed,unknown,0.4 Cr,7,,84607678.1
+StartupCo_242,mumbai,Healthtech,Seed,02/10/2022,0.06 crore,8,2miles,102249178.47
+StartupCo_243,Chennai,Healthtech,Seed,07.01.2021,"₹4,23,344",11,,
+StartupCo_244,Delhi,Fintech,Series C,02/02/2021,0.5 Cr,6,12m,8175712.7
+StartupCo_245,Chennai,E-commerce,Series A,15th September 2021,"₹2,73,503",10,,8460830.36
+StartupCo_246,delhi,SaaS,Bridge,2020-06-19,6.8 lakh,11,20km,7774190.86
+StartupCo_247,Delhi,Foodtech,Series C,13th September 2021,50.8 lakh,6,,24264109.06
+StartupCo_248,Bangalore ,E-commerce,Series B,3rd June 2019,"₹17,64,467",8,5m,2169875.43
+StartupCo_249,Pune,SaaS,Seed,15th October 2021,0.30 crore,12,20km,1814244.56
+StartupCo_250,Pune,Foodtech,Series C,18/08/2023,Undisclosed,1,,37233277.68
+StartupCo_251,Mumbai ,Foodtech,Series B,28.12.2020,"₹59,85,532",11,2km,2025669.72
+StartupCo_252,Chennai,Logistics,Series A,12.10.2023,12.6 lakh,7,12km,4011250.41
+StartupCo_253,Pune,Foodtech,Seed,18/10/2021,0.1 Cr,1,20m,7568114.05
+StartupCo_254,mumbai,E-commerce,Series C,26.05.2022,0.1 Cr,6,5miles,3872946.1
+StartupCo_255,Banglore,Foodtech,Series B,04/09/2020,34.1 lakh,12,,169283892.26
+StartupCo_256,New Delhi,Foodtech,Series B,28.10.2021,"Rs. 42,26,039",9,,3110866.11
+StartupCo_257,Pune,Foodtech,Seed,14-Jul-23,0.3 Cr,1,2km,7508212.09
+StartupCo_258,Delhi,SaaS,Seed,08-Mar-19,"₹81,13,251",6,20km,22325722.57
+StartupCo_259,Pune,Logistics,Series B,20-Feb-21,0.2 Cr,7,8km,4009785.39
+StartupCo_260,Pune,E-commerce,Series A,21-Feb-23,0.0 Cr,10,2km,5882088.56
+StartupCo_261,Pune,E-commerce,Series A,2023-09-29,1.69 crore,,,915488.8
+StartupCo_262,Bangalore,Foodtech,Bridge,12/12/2021,2.4 Cr,4,12m,
+StartupCo_263,Pune,E-commerce,Seed,22nd December 2021,0.65 crore,8,5km,6116165.71
+StartupCo_264,delhi,SaaS,Series B,20.02.2019,"₹13,15,18,353",9,12km,14173367.48
+StartupCo_265,Pune,Foodtech,Series A,07/03/2020,Undisclosed,11,2km,47648531.41
+StartupCo_266,mumbai,Foodtech,Seed,8th January 2023,0.1 Cr,N/A,2km,7334674.65
+StartupCo_267,bangalore,SaaS,Seed,13th January 2019,"₹41,73,044",11,2miles,798372.47
+StartupCo_268,Bangalore,Healthtech,Series A,28-Aug-21,"₹5,93,205",3,,2857546.31
+StartupCo_269,Pune,Edtech,none,07.02.2022,8.9 lakh,9,2miles,3369047.68
+StartupCo_270,Hyderabad,Foodtech,Series A,2020-03-28,94.2 lakh,10,20km,111631346.67
+StartupCo_271,Bangalore,Healthtech,Series B,26-Jan-23,193.1 lakh,10,5km,8780474.77
+StartupCo_272,Pune,Healthtech,Series B,04.03.2022,"Rs. 11,62,936",10,8km,9979588.96
+StartupCo_273,Chennai,SaaS,Series C,2021-07-01,"₹62,41,256",6,20km,87284732.14
+StartupCo_274,bangalore,SaaS,Bridge,06/10/2023,26.0 lakh,9,,1875021.66
+StartupCo_275,Bangalore,Logistics,Series B,31/12/2023,6.2 lakh,10,2m,2389447.25
+StartupCo_276,mumbai,Fintech,Bridge,2021-07-02,323.2 lakh,3,,35650235.88
+StartupCo_277,bangalore,Fintech,Series B,29-Mar-19,0.64 crore,11,,1090501.94
+StartupCo_278,Hyderabad,Healthtech,Series C,31st March 2022,"₹18,22,007",9,2miles,3348543.88
+StartupCo_279,Mumbai ,Logistics,Series A,24-Oct-21,"Rs. 11,59,165",3,5km,3654278.07
+StartupCo_280,Banglore,SaaS,Bridge,2022-10-14,34.7 lakh,8,,
+StartupCo_281,Pune,Fintech,Series A,25th April 2019,45.2 lakh,3,20km,2555030.77
+StartupCo_282,Pune,SaaS,Bridge,25th March 2020,"₹24,54,079",7,20miles,8241087.21
+StartupCo_283,Banglore,SaaS,Bridge,19.02.2020,"₹16,36,179",9,,2277649.41
+StartupCo_284,Banglore,E-commerce,Bridge,14th September 2021,0.6 Cr,11,12m,27593390.81
+StartupCo_285,New Delhi,E-commerce,Series C,2019-07-20,"₹10,11,488",7,,
+StartupCo_286,delhi,Healthtech,Series A,30-Nov-21,"Rs. 80,53,880",1,8km,10313852.56
+StartupCo_287,mumbai,Logistics,Bridge,2023-03-27,"Rs. 62,74,674",4,20m,726426.13
+StartupCo_288,Hyderabad,Logistics,Seed,23.05.2023,"₹64,83,158",12,8km,3288902.11
+StartupCo_289,Delhi,Foodtech,Bridge,22.06.2020,"₹3,74,797",4,12miles,2828087.55
+StartupCo_290,Hyderabad,Healthtech,Series A,25th May 2023,34.6 lakh,10,8km,773504.17
+StartupCo_291,Chennai,SaaS,Seed,26th November 2021,0.11 crore,1,20miles,13119152.62
+StartupCo_292,Chennai,Foodtech,Bridge,25th December 2019,0.04 crore,7,2miles,23158876.25
+StartupCo_293,Pune,Foodtech,Bridge,8th May 2023,0.1 Cr,8,8km,8047566.47
+StartupCo_294,bangalore,Healthtech,Series B,02/01/2022,34.6 lakh,1,8km,3342554.32
+StartupCo_295,Mumbai,Fintech,Series A,18th October 2021,0.2 Cr,12,5km,2444570.38
+StartupCo_296,Chennai,Edtech,Series B,28-Mar-19,0.2 Cr,8,,40202478.82
+StartupCo_297,Pune,E-commerce,Series C,20th September 2019,"₹8,42,687",1,20miles,31125505.95
+StartupCo_298,Bangalore ,SaaS,Bridge,25th January 2019,1.84 crore,11,8km,19671988.28
+StartupCo_299,Chennai,Logistics,Series A,17th January 2021,12.6 lakh,7,,218061.68
+StartupCo_300,delhi,Logistics,Series C,26.08.2021,Undisclosed,1,,21117406.07
+StartupCo_301,bangalore,SaaS,Series A,22-Jul-19,Undisclosed,12,2m,6552989.53
+StartupCo_302,bangalore,Foodtech,Bridge,6th September 2019,"Rs. 15,83,610",6,20km,15505708.59
+StartupCo_303,Delhi,Fintech,Series A,10-Jun-22,0.27 crore,5,8m,10118587.95
+StartupCo_304,delhi,E-commerce,Series C,24/05/2022,0.44 crore,11,,51221662.31
+StartupCo_305,Bangalore ,SaaS,Series A,04.03.2023,"₹19,94,188",12,2m,14744843.6
+StartupCo_306,Bengaluru,Foodtech,Series A,3rd September 2022,0.2 Cr,7,5km,4276265.6
+StartupCo_307,delhi,Healthtech,Bridge,2020-07-11,0.20 crore,9,20m,16057365.53
+StartupCo_308,mumbai,Healthtech,-,----,3.9 Cr,5,12km,13724076.89
+StartupCo_309,Pune,Logistics,Series A,18th April 2020,0.2 Cr,1,12km,32824542.98
+StartupCo_310,Mumbai,Edtech,Series B,15th April 2023,0.20 crore,10,,53855811.9
+StartupCo_311,Hyderabad,Healthtech,NA,2022-12-05,2.8 lakh,10,,
+StartupCo_312,Mumbai,Healthtech,Series C,31/01/2019,Undisclosed,8,,1958854.72
+StartupCo_313,Mumbai,Fintech,Series C,8th May 2023,"Rs. 21,44,000",7,,537031.55
+StartupCo_314,Hyderabad,E-commerce,Series A,21-May-20,"₹2,44,39,830",12,,9135034.9
+StartupCo_315,Bengaluru,Edtech,Series B,06/03/2023,0.3 Cr,9,8km,14510615.76
+StartupCo_316,Bangalore,E-commerce,Seed,2019-09-03,Undisclosed,7,12km,30833378.29
+StartupCo_317,Mumbai,Fintech,Seed,13/08/2022,"₹43,37,191",3,20miles,322319.01
+StartupCo_318,mumbai,Healthtech,Series B,20.09.2021,0.1 Cr,12,20km,28241350.48
+StartupCo_319,Chennai,Logistics,Series B,2019-11-14,0.5 Cr,8,20m,49408402.8
+StartupCo_320,Mumbai,SaaS,Series C,05/08/2023,"₹69,85,437",7,8miles,4766239.22
+StartupCo_321,Pune,Fintech,Seed,2020-02-18,Undisclosed,2,12m,267877216.66
+StartupCo_322,Pune,Logistics,Seed,2020-03-03,"₹44,03,299",11,8m,11673120.72
+StartupCo_323,Hyderabad,Foodtech,Series A,18-Mar-20,"Rs. 11,79,011",9,20km,4461335.2
+StartupCo_324,Hyderabad,Logistics,Series A,14th December 2023,0.12 crore,2,5m,30876431.77
+StartupCo_325,mumbai,Fintech,Series A,31.05.2022,Undisclosed,4,8miles,9893112.4
+StartupCo_326,Mumbai,Edtech,Series A,04/10/2019,0.18 crore,Nil,8km,
+StartupCo_327,Banglore,Logistics,Series A,08-Jul-19,Undisclosed,10,,18228005.6
+StartupCo_328,Bangalore,Foodtech,Seed,2023-07-14,"Rs. 1,13,53,628",10,12m,14657946.33
+StartupCo_329,delhi,E-commerce,Series B,2019-04-21,0.24 crore,5,20km,4134907.03
+StartupCo_330,mumbai,Logistics,Series B,30th May 2023,"Rs. 19,18,104",7,2m,2046935.65
+StartupCo_331,Bangalore ,Healthtech,Bridge,2021-03-20,"Rs. 81,08,199",11,,15649519.0
+StartupCo_332,delhi,SaaS,Series B,18/01/2021,0.93 crore,6,8km,2228305.55
+StartupCo_333,Chennai,Healthtech,Seed,16th November 2019,0.54 crore,12,20km,67893902.56
+StartupCo_334,Delhi,Foodtech,Series A,04/03/2020,"₹12,91,678",12,,148366143.46
+StartupCo_335,bangalore,Logistics,Bridge,4th August 2020,"Rs. 3,86,750",4,2km,1373699.39
+StartupCo_336,Hyderabad,Fintech,Series B,07-Nov-21,71.7 lakh,12,2km,83810299.8
+StartupCo_337,delhi,Logistics,Series B,07-Feb-19,0.46 crore,6,20miles,8175259.31
+StartupCo_338,bangalore,SaaS,Series C,15/03/2021,6.2 Cr,11,5m,1642559.79
+StartupCo_339,Bangalore,Foodtech,Series A,13-Jan-22,Undisclosed,11,,10786778.97
+StartupCo_340,mumbai,Healthtech,Series B,27-Dec-21,78.1 lakh,12,2miles,10470707.89
+StartupCo_341,Bengaluru,Healthtech,Bridge,07/08/2019,0.4 Cr,3,20km,18283578.18
+StartupCo_342,Bengaluru,Healthtech,Series A,18/08/2021,"₹57,56,049",12,5km,2714961.46
+StartupCo_343,Mumbai,SaaS,Series C,29-Dec-19,1.6 Cr,8,,149534358.14
+StartupCo_344,Mumbai ,Fintech,Seed,2022-05-01,"Rs. 17,70,090",9,2km,96957174.6
+StartupCo_345,Hyderabad,Logistics,Series B,26.03.2021,0.3 Cr,5,20km,2013918.27
+StartupCo_346,bangalore,Foodtech,Series C,26/11/2022,"₹1,21,52,309",9,12km,9660803.38
+StartupCo_347,Hyderabad,E-commerce,Series B,06/07/2019,2.0 Cr,2,,701729.34
+StartupCo_348,Pune,Healthtech,Series A,20/11/2023,"₹19,58,604",11,2m,7010980.72
+StartupCo_349,delhi,E-commerce,Series C,2022-06-29,0.0 Cr,,12km,1947084.02
+StartupCo_350,Banglore,Logistics,Series A,2020-07-23,Undisclosed,10,8km,30546353.54
+StartupCo_351,Pune,Fintech,Series B,03-May-21,"₹6,95,264",3,20km,9919141.67
+StartupCo_352,New Delhi,Edtech,Seed,03/04/2023,0.2 Cr,7,8miles,1273630.25
+StartupCo_353,delhi,SaaS,Bridge,03/06/2023,23.9 lakh,12,20miles,108638051.69
+StartupCo_354,Hyderabad,Fintech,Seed,22/12/2022,Undisclosed,5,2km,932184.07
+StartupCo_355,mumbai,Foodtech,Seed,17/02/2020,0.24 crore,12,8km,
+StartupCo_356,Chennai,Logistics,Seed,09-Oct-22,"₹1,28,506",8,12miles,5902665.85
+StartupCo_357,Delhi,SaaS,Series B,2020-03-02,0.25 crore,10,2miles,8191091.34
+StartupCo_358,Hyderabad,SaaS,Series B,2022-12-15,"₹3,00,61,243",6,5miles,25249314.06
+StartupCo_359,Bengaluru,Logistics,Bridge,27/06/2021,"₹23,67,472",,12miles,48150763.09
+StartupCo_360,Chennai,SaaS,Bridge,2021-07-29,7.17 crore,7,2km,1689952.77
+StartupCo_361,Bengaluru,Fintech,Series A,2022-08-01,0.33 crore,4,12km,9711561.6
+StartupCo_362,Bengaluru,E-commerce,Series B,30th January 2022,Undisclosed,6,8miles,8570292.06
+StartupCo_363,Chennai,Logistics,Bridge,2021-05-23,"Rs. 27,49,054",7,12miles,11960584.08
+StartupCo_364,Chennai,Healthtech,Series C,19-Jul-19,0.17 crore,8,,3758411.64
+StartupCo_365,Delhi,SaaS,Seed,2021-07-17,"₹17,02,980",,5miles,8460087.67
+StartupCo_366,mumbai,Edtech,Series C,11th June 2023,0.37 crore,5,5km,3050241.5
+StartupCo_367,Banglore,E-commerce,Seed,20th January 2022,"Rs. 1,98,71,390",12,,6061902.02
+StartupCo_368,Chennai,Logistics,Bridge,23.05.2019,0.0 Cr,10,12km,
+StartupCo_369,Hyderabad,Foodtech,Series B,2022-03-29,1.5 Cr,8,,45684072.76
+StartupCo_370,Banglore,Logistics,Series B,11.11.2021,21.7 lakh,7,,396295.19
+StartupCo_371,Mumbai,SaaS,Series B,3rd June 2021,6.0 lakh,12,12km,5090256.1
+StartupCo_372,Hyderabad,Fintech,Seed,3rd October 2019,0.1 Cr,1,,2767001.96
+StartupCo_373,Bangalore ,SaaS,Bridge,----,100.5 lakh,10,,123087453.55
+StartupCo_374,Bangalore ,Foodtech,Bridge,29.12.2022,0.78 crore,9,2m,59848842.06
+StartupCo_375,Hyderabad,E-commerce,Bridge,10.08.2021,"Rs. 17,42,054",9,2miles,1633805.22
+StartupCo_376,Mumbai,SaaS,Seed,23.12.2020,Undisclosed,5,8miles,
+StartupCo_377,Bengaluru,SaaS,Seed,19/09/2021,0.08 crore,2,5miles,18514445.85
+StartupCo_378,Mumbai,Edtech,Series A,13th July 2023,"Rs. 24,50,026",3,,25893373.52
+StartupCo_379,Bengaluru,Fintech,Series C,27-Apr-23,0.2 Cr,7,20miles,
+StartupCo_380,Pune,Foodtech,Series C,2020-04-23,0.6 Cr,7,12km,25814320.46
+StartupCo_381,Chennai,Foodtech,Series C,29/07/2022,1.3 Cr,6,8miles,5170866.07
+StartupCo_382,Bengaluru,Foodtech,Series A,27-Apr-23,"₹8,93,341",4,2km,
+StartupCo_383,New Delhi,Fintech,Bridge,18th February 2019,0.7 Cr,10,,22385039.41
+StartupCo_384,Bangalore ,Foodtech,Series A,03-Jul-23,"₹48,34,844",3,2m,5585476.7
+StartupCo_385,Mumbai,SaaS,Series B,2020-07-21,"Rs. 99,07,795",1,8km,1360454.83
+StartupCo_386,Bangalore ,Fintech,Series C,2020-03-23,"Rs. 17,45,815",10,2km,6733777.22
+StartupCo_387,Chennai,SaaS,Series C,29th June 2020,0.1 Cr,3,12m,42862755.59
+StartupCo_388,mumbai,Fintech,Series C,05-Jan-21,5.0 lakh,6,,1074437.75
+StartupCo_389,Chennai,Foodtech,Series A,09/02/2022,0.1 Cr,1,2miles,22054228.87
+StartupCo_390,Bengaluru,E-commerce,Bridge,03.05.2020,2.7 Cr,8,12km,
+StartupCo_391,Delhi,Foodtech,Seed,02/11/2019,"₹2,50,34,054",12,2m,391251.51
+StartupCo_392,New Delhi,Edtech,Bridge,23-Jul-21,"Rs. 42,11,043",10,,
+StartupCo_393,Mumbai,Healthtech,Bridge,26-Oct-20,"Rs. 16,99,929",2,5km,7686148.2
+StartupCo_394,Bengaluru,Foodtech,Bridge,13th May 2020,"Rs. 52,77,501",N/A,12km,
+StartupCo_395,Pune,Foodtech,Series B,18th November 2022,Undisclosed,3,5km,8398367.89
+StartupCo_396,Delhi,Healthtech,Bridge,27/04/2020,"Rs. 37,49,275",4,20km,46499532.79
+StartupCo_397,delhi,Fintech,Seed,15.10.2021,"₹21,13,097",3,5m,11133316.33
+StartupCo_398,delhi,Edtech,Series A,2021-09-20,"Rs. 47,29,651",9,8m,8158587.12
+StartupCo_399,Hyderabad,Edtech,Series A,17/11/2023,0.06 crore,4,2m,683339.72
+StartupCo_400,Pune,Healthtech,Bridge,19.02.2020,0.4 Cr,6,12m,27095985.57
+StartupCo_401,Chennai,Fintech,Bridge,06/02/2022,"Rs. 33,42,136",4,,6743064.11
+StartupCo_402,Mumbai,Fintech,Bridge,01.04.2022,Undisclosed,4,,14967212.87
+StartupCo_403,Mumbai,Edtech,Seed,2021-12-23,Undisclosed,7,20km,3954483.2
+StartupCo_404,Mumbai,Logistics,Series C,02-Oct-22,"₹12,84,698",5,,
+StartupCo_405,bangalore,Foodtech,Series B,29-Oct-23,"₹10,10,496",11,8km,11920472.79
+StartupCo_406,Pune,Healthtech,Seed,23rd February 2021,0.0 Cr,6,20km,16393232.15
+StartupCo_407,Mumbai,Fintech,Series A,20.11.2023,"₹57,63,854",12,,41605105.91
+StartupCo_408,Chennai,Fintech,Bridge,2021-08-20,1.06 crore,12,8km,13046684.54
+StartupCo_409,Pune,E-commerce,Series A,2019-08-18,"₹1,10,42,301",12,2miles,108061564.75
+StartupCo_410,New Delhi,Logistics,Bridge,15.02.2019,0.07 crore,4,8miles,561680.61
+StartupCo_411,mumbai,Edtech,Series B,18.12.2019,15.4 lakh,5,,
+StartupCo_412,Mumbai,SaaS,Series A,15-Sep-23,"Rs. 60,84,108",12,8km,9240777.41
+StartupCo_413,Hyderabad,Fintech,Seed,10.01.2022,0.41 crore,3,12km,2991795.54
+StartupCo_414,Hyderabad,Foodtech,Bridge,2021-08-28,0.2 Cr,5,,2861697.68
+StartupCo_415,bangalore,Edtech,Series C,28th August 2019,"₹10,79,620",Nil,20km,1077342.97
+StartupCo_416,Pune,Healthtech,Series B,14-Nov-21,"Rs. 10,13,532",7,2miles,1169951.78
+StartupCo_417,Pune,Foodtech,Series C,26.11.2023,10.5 lakh,9,12miles,43161639.96
+StartupCo_418,mumbai,E-commerce,Bridge,01.03.2020,769.6 lakh,5,20m,
+StartupCo_419,Pune,Fintech,Series B,13-Feb-20,"Rs. 40,80,798",3,8miles,18624283.49
+StartupCo_420,Bengaluru,SaaS,Series B,12.09.2019,0.12 crore,11,5km,
+StartupCo_421,Banglore,Fintech,Seed,10/07/2022,"₹75,75,060",11,,
+StartupCo_422,Bengaluru,SaaS,Series B,12-Jul-20,0.38 crore,6,2km,3747289.22
+StartupCo_423,Bangalore ,E-commerce,Series B,2020-07-09,0.3 Cr,11,5km,413482937.26
+StartupCo_424,New Delhi,Foodtech,Bridge,28th March 2020,"₹14,05,900",4,,49819149.16
+StartupCo_425,delhi,Edtech,Series C,04/08/2023,273.7 lakh,3,5m,8431769.93
+StartupCo_426,mumbai,Fintech,Series A,10/11/2022,0.15 crore,4,2km,
+StartupCo_427,Bangalore,Edtech,Seed,30/03/2019,0.76 crore,2,,134715113.6
+StartupCo_428,Delhi,SaaS,Bridge,02-Apr-22,0.2 Cr,6,20km,
+StartupCo_429,Pune,E-commerce,Series A,09.01.2019,"Rs. 1,05,01,885",12,,22945023.01
+StartupCo_430,mumbai,Foodtech,Seed,2020-03-14,"₹4,96,694",9,12km,22583157.51
+StartupCo_431,mumbai,Edtech,Series B,27th February 2021,0.24 crore,5,,2985549.09
+StartupCo_432,Mumbai ,SaaS,Series C,03/01/2020,Undisclosed,1,20km,
+StartupCo_433,Banglore,SaaS,Series C,12th February 2020,0.7 Cr,6,,7947356.03
+StartupCo_434,Delhi,Fintech,Series A,08/04/2021,"₹6,58,412",8,8m,11600415.81
+StartupCo_435,delhi,Logistics,Series B,2nd January 2020,0.68 crore,7,2km,15717680.4
+StartupCo_436,Mumbai,E-commerce,Bridge,15th January 2022,"₹63,99,615",6,,
+StartupCo_437,Mumbai,SaaS,Series B,29.12.2019,"Rs. 88,92,391",9,12km,44954934.41
+StartupCo_438,Bengaluru,Fintech,Series C,25-Feb-22,0.3 Cr,3,12miles,17694600.93
+StartupCo_439,Bangalore,Edtech,Seed,2019-02-25,"₹54,74,118",11,,735685.94
+StartupCo_440,Pune,Healthtech,?,15.11.2023,"Rs. 45,28,469",5,12m,12134115.8
+StartupCo_441,bangalore,Healthtech,Series B,2019-07-24,0.1 Cr,12,,1309134.95
+StartupCo_442,New Delhi,Healthtech,Series B,14.03.2020,31.2 lakh,5,5km,43129996.18
+StartupCo_443,Mumbai ,SaaS,Series B,12/12/2020,0.3 Cr,2,20miles,24698449.99
+StartupCo_444,Banglore,Logistics,Series A,2nd November 2023,"₹1,00,78,757",3,,9291719.72
+StartupCo_445,Chennai,Healthtech,Series A,05/12/2021,0.37 crore,4,,4097685.7
+StartupCo_446,bangalore,E-commerce,Series B,14th August 2023,"₹19,40,787",5,5km,4441874.66
+StartupCo_447,Bengaluru,Foodtech,Seed,2020-02-18,0.43 crore,3,,5588613.68
+StartupCo_448,Pune,Edtech,Series C,2023-11-11,1.5 Cr,2,2m,4333460.91
+StartupCo_449,Pune,E-commerce,Seed,07/05/2023,"Rs. 26,12,332",9,8miles,2322347.41
+StartupCo_450,Mumbai,Healthtech,Seed,16-Apr-21,1.86 crore,5,2miles,4594651.25
+StartupCo_451,delhi,Foodtech,Seed,2023-08-10,112.8 lakh,NA,,11933166.29
+StartupCo_452,Hyderabad,Healthtech,Series C,23rd October 2023,"Rs. 45,03,927",8,,957096.44
+StartupCo_453,mumbai,Foodtech,Seed,2023-06-05,0.36 crore,1,,33748488.65
+StartupCo_454,Pune,Foodtech,Bridge,2021-11-02,0.18 crore,2,8m,43934944.45
+StartupCo_455,Delhi,Logistics,Series A,04-Oct-20,515.8 lakh,10,,73590107.1
+StartupCo_456,Chennai,Fintech,Series B,17.06.2020,"₹19,15,323",3,12miles,5156363.59
+StartupCo_457,Hyderabad,SaaS,Series A,5th August 2021,"Rs. 2,17,57,880",4,20miles,78615285.91
+StartupCo_458,mumbai,Logistics,Series A,22-Aug-23,19.7 lakh,11,8miles,4056008.66
+StartupCo_459,Pune,Fintech,NULL,TBD,"Rs. 6,51,256",3,12km,5822982.16
+StartupCo_460,Hyderabad,Healthtech,Series C,07.11.2022,"₹10,85,572",4,2km,
+StartupCo_461,New Delhi,Edtech,Series C,11-Jan-19,13.0 lakh,5,8km,1970482.21
+StartupCo_462,Hyderabad,Foodtech,Series C,03-Jul-19,0.43 crore,6,2km,8435610.67
+StartupCo_463,Bangalore ,Fintech,Series A,24/11/2021,Undisclosed,6,,90943658.85
+StartupCo_464,Mumbai ,SaaS,Series C,16/06/2020,"₹1,06,51,240",3,,1987660.62
+StartupCo_465,Delhi,SaaS,Series A,22.02.2020,"₹30,80,626",5,,6446299.05
+StartupCo_466,Bengaluru,E-commerce,N/A,19th May 2020,0.08 crore,8,20km,24452163.05
+StartupCo_467,bangalore,Healthtech,Bridge,01.05.2022,"Rs. 39,91,759",NA,20km,15769915.79
+StartupCo_468,Chennai,E-commerce,Series A,09/07/2019,"Rs. 59,02,824",7,,
+StartupCo_469,delhi,E-commerce,Series B,29.06.2023,"₹6,22,30,772",7,8km,13711602.99
+StartupCo_470,Hyderabad,Foodtech,Bridge,30th March 2023,0.2 Cr,7,2km,3413982.39
+StartupCo_471,Mumbai,SaaS,Seed,21.06.2019,Undisclosed,5,5km,3489570.46
+StartupCo_472,New Delhi,Fintech,Series C,03/04/2019,"Rs. 15,21,390",9,20miles,3862342.11
+StartupCo_473,mumbai,Healthtech,Series B,03/04/2019,"₹1,79,77,024",2,,52879420.61
+StartupCo_474,delhi,Foodtech,Seed,10.03.2023,0.16 crore,10,12km,
+StartupCo_475,Chennai,Logistics,Series C,20/06/2022,"Rs. 57,55,685",10,5km,2549649.97
+StartupCo_476,Bangalore,Edtech,Bridge,21st September 2023,"Rs. 69,86,694",11,12km,3881240.72
+StartupCo_477,Chennai,E-commerce,Bridge,13.04.2022,0.42 crore,4,8km,
+StartupCo_478,delhi,SaaS,Bridge,17th March 2019,"₹2,09,36,534",8,12km,914729.64
+StartupCo_479,mumbai,Edtech,Series B,10-Oct-21,"Rs. 15,66,968",10,5miles,131407863.95
+StartupCo_480,Pune,Logistics,Series C,26/09/2019,"₹46,06,774",5,,4967601.37
+StartupCo_481,Bengaluru,Fintech,Series A,28/09/2022,0.7 Cr,8,12m,14675429.42
+StartupCo_482,mumbai,Logistics,Seed,07-Mar-19,0.3 Cr,2,5m,181235311.45
+StartupCo_483,Pune,Logistics,Seed,22/05/2022,6.2 lakh,11,12km,2683289.79
+StartupCo_484,Mumbai,Fintech,Series C,10th January 2021,"₹31,41,615",3,2km,2968611.64
+StartupCo_485,Banglore,E-commerce,Bridge,17th May 2020,"Rs. 17,56,557",8,12miles,131147971.26
+StartupCo_486,Mumbai,E-commerce,Series B,28/07/2021,"₹42,76,072",9,2km,
+StartupCo_487,mumbai,Fintech,Bridge,17.07.2022,"Rs. 1,36,06,687",12,20miles,8669881.28
+StartupCo_488,Pune,Logistics,Bridge,2021-07-02,"Rs. 17,28,833",11,12miles,393424066.94
+StartupCo_489,mumbai,Logistics,Series A,25.01.2023,114.4 lakh,12,5km,4264522.76
+StartupCo_490,Mumbai,Logistics,Bridge,01.09.2023,"₹2,99,80,232",5,8miles,24712932.18
+StartupCo_491,New Delhi,Edtech,Bridge,17.07.2021,"Rs. 21,24,080",6,,21335699.87
+StartupCo_492,Pune,Fintech,Series B,30/11/2021,"Rs. 66,41,084",12,8m,
+StartupCo_493,delhi,Foodtech,Series C,9th June 2019,87.5 lakh,6,12miles,46877827.99
+StartupCo_494,Bangalore,E-commerce,Series C,01.11.2021,"₹1,17,57,590",3,,19018277.47
+StartupCo_495,Hyderabad,Healthtech,Series B,17/05/2022,"Rs. 1,71,68,567",7,5km,51338082.6
+StartupCo_496,Delhi,Logistics,Series A,10-Apr-19,0.71 crore,5,,
+StartupCo_497,bangalore,Fintech,Bridge,20th May 2023,"Rs. 38,98,320",7,12m,6915825.4
+StartupCo_498,New Delhi,Healthtech,Series B,25.11.2020,0.1 Cr,,,54285268.5
+StartupCo_499,Banglore,Edtech,Bridge,14/01/2022,0.2 Cr,10,,15448306.8
+StartupCo_500,Bengaluru,Logistics,Bridge,2021-06-28,"₹1,51,59,564",2,12km,9277635.1
+StartupCo_501,bangalore,Edtech,Series A,14th January 2022,34.6 lakh,3,8m,11835908.98
+StartupCo_502,Pune,Fintech,Seed,25.04.2021,"Rs. 80,04,418",6,20km,1155698.86
+StartupCo_503,Banglore,Foodtech,Seed,1st March 2019,4.4 Cr,7,,23399524.78
+StartupCo_504,Chennai,Foodtech,Series A,21st February 2020,0.23 crore,3,12m,
+StartupCo_505,Pune,Healthtech,Series B,16/09/2023,0.43 crore,11,20miles,
+StartupCo_506,Pune,Edtech,Bridge,04/12/2023,2.2 Cr,7,8miles,12917267.31
+StartupCo_507,delhi,SaaS,Series A,3rd November 2020,"₹45,69,095",1,12km,7702509.18
+StartupCo_508,Chennai,Fintech,Series C,8th January 2022,Undisclosed,1,12miles,22116727.14
+StartupCo_509,Chennai,Edtech,Series B,2023-03-02,0.2 Cr,1,,11756462.94
+StartupCo_510,Banglore,Foodtech,Series C,2020-03-04,"₹1,18,56,159",1,20m,11889128.74
+StartupCo_511,Chennai,Foodtech,Series A,18.09.2019,"₹38,34,553",5,,1905446.75
+StartupCo_512,delhi,Healthtech,Seed,24/05/2021,Undisclosed,11,12miles,3109022.04
+StartupCo_513,Bangalore ,Fintech,Seed,10-May-21,"₹5,25,536",9,20km,53359892.42
+StartupCo_514,mumbai,Logistics,Seed,27/02/2019,0.5 Cr,8,8miles,3842436.5
+StartupCo_515,Chennai,Logistics,Series C,22nd June 2022,Undisclosed,8,2km,93016368.76
+StartupCo_516,delhi,Edtech,Seed,04.06.2022,Undisclosed,11,8m,8051545.42
+StartupCo_517,Delhi,Fintech,Bridge,unknown,312.5 lakh,8,2m,3863950.68
+StartupCo_518,Bengaluru,Fintech,Series B,19.03.2022,0.02 crore,3,20m,1012546.65
+StartupCo_519,Banglore,Foodtech,Series A,29.09.2020,0.2 Cr,10,8miles,17193151.18
+StartupCo_520,New Delhi,Foodtech,Series A,25-Oct-23,0.8 Cr,1,5km,1920604.95
+StartupCo_521,Bangalore,Foodtech,Series B,18/11/2020,0.17 crore,10,2m,12809543.93
+StartupCo_522,Bengaluru,SaaS,Series C,12/07/2023,0.93 crore,12,,1302170.96
+StartupCo_523,Mumbai ,Edtech,Series B,31-Mar-19,"₹29,02,227",1,,23565675.11
+StartupCo_524,Mumbai,SaaS,Seed,30th August 2023,"₹9,05,188",11,12km,141803874.31
+StartupCo_525,Mumbai ,Edtech,Series A,31.08.2019,0.1 Cr,3,12miles,901407.08
+StartupCo_526,Bangalore ,Logistics,Seed,25.08.2020,0.4 Cr,3,5m,8298795.78
+StartupCo_527,New Delhi,Logistics,Series A,05/02/2021,"Rs. 49,87,605",8,12m,6188144.94
+StartupCo_528,Bengaluru,Healthtech,Series B,03.11.2023,Undisclosed,4,5miles,1359586.09
+StartupCo_529,Bangalore ,Edtech,Series C,2021-11-15,0.3 Cr,10,12miles,77489027.69
+StartupCo_530,Bangalore,Foodtech,Series B,16-Nov-21,1.2 Cr,9,2miles,
+StartupCo_531,Chennai,E-commerce,NULL,10/10/2019,56.6 lakh,12,8m,14858579.78
+StartupCo_532,Mumbai,Healthtech,Series C,9th April 2020,"Rs. 55,94,252",12,20m,20887280.02
+StartupCo_533,Chennai,Edtech,Bridge,13th October 2023,1.6 Cr,-,2m,23302801.32
+StartupCo_534,Hyderabad,SaaS,Bridge,05.09.2020,"Rs. 76,54,501",6,,11932564.75
+StartupCo_535,mumbai,Fintech,Seed,19/02/2021,Undisclosed,4,2miles,7767014.84
+StartupCo_536,bangalore,Foodtech,Series A,12-Nov-22,14.5 lakh,10,,77066236.41
+StartupCo_537,Chennai,Logistics,Seed,31st October 2020,0.3 Cr,7,2m,132409592.45
+StartupCo_538,Mumbai,SaaS,Series C,27th September 2020,0.1 Cr,10,5m,
+StartupCo_539,Mumbai,E-commerce,Series C,22nd March 2019,14.4 lakh,12,,10768724.62
+StartupCo_540,delhi,Foodtech,Seed,01/12/2022,"Rs. 14,93,826",10,,31357540.53
+StartupCo_541,Banglore,Fintech,Series B,10.04.2023,"Rs. 3,38,592",9,8m,4550396.14
+StartupCo_542,delhi,E-commerce,Seed,19/10/2023,"Rs. 1,78,321",4,,4508795.13
+StartupCo_543,delhi,Edtech,Series A,15-Oct-19,0.81 crore,8,2km,825831.28
+StartupCo_544,Mumbai,SaaS,Bridge,----,54.5 lakh,4,20km,28881165.79
+StartupCo_545,Bengaluru,Edtech,Seed,06/02/2021,"₹30,87,111",4,,2083450.11
+StartupCo_546,mumbai,Fintech,Series B,01.05.2021,"Rs. 8,14,200",9,20km,8838221.19
+StartupCo_547,Chennai,Healthtech,Series C,2022-09-01,2.0 Cr,Nil,8miles,
+StartupCo_548,New Delhi,Healthtech,Bridge,2019-12-18,0.3 Cr,5,12km,33133103.15
+StartupCo_549,Bengaluru,Healthtech,Series A,13/04/2022,"₹33,76,205",8,,
+StartupCo_550,delhi,Foodtech,Series A,09.10.2019,"₹2,82,072",6,2km,12146774.41
+StartupCo_551,New Delhi,Edtech,Series B,02/12/2021,"Rs. 14,42,111",7,8miles,6133241.29
+StartupCo_552,Bangalore,Edtech,Seed,03/12/2021,"₹23,33,032",6,5km,1977946.98
+StartupCo_553,New Delhi,Edtech,Series A,2021-05-22,0.71 crore,12,5km,131764894.51
+StartupCo_554,Pune,Logistics,Series C,26-Mar-21,65.0 lakh,7,12km,3772436.04
+StartupCo_555,Bangalore ,Edtech,Series C,2022-02-06,1.75 crore,12,12m,
+StartupCo_556,delhi,Fintech,Series C,03/10/2021,"Rs. 35,11,509",7,12miles,35567772.69
+StartupCo_557,Pune,E-commerce,Series C,2020-06-06,75.6 lakh,12,2m,3367209.22
+StartupCo_558,Bangalore ,E-commerce,Series A,2020-06-19,52.4 lakh,10,5km,
+StartupCo_559,Pune,Fintech,Series C,30-Nov-23,0.70 crore,7,20m,34031251.77
+StartupCo_560,Bangalore ,SaaS,Series C,14th March 2023,1.15 crore,4,5m,
+StartupCo_561,Chennai,Edtech,Series C,17/01/2020,"Rs. 1,58,84,794",12,,3981412.38
+StartupCo_562,bangalore,Fintech,Seed,2021-06-21,Undisclosed,11,8km,11951883.12
+StartupCo_563,Hyderabad,E-commerce,Seed,28th June 2020,0.14 crore,1,2m,199812764.58
+StartupCo_564,Bangalore ,Foodtech,Series C,2020-10-07,0.4 Cr,4,8miles,120113261.9
+StartupCo_565,bangalore,Fintech,Series A,26-Jul-20,18.3 lakh,12,12m,3344651.28
+StartupCo_566,Bangalore,Foodtech,Bridge,27.05.2022,0.5 Cr,8,12km,5495713.8
+StartupCo_567,Mumbai,E-commerce,Seed,07/03/2019,"₹16,42,220",3,20m,19467427.3
+StartupCo_568,Pune,Foodtech,Seed,2019-08-05,4.3 Cr,7,,8567342.18
+StartupCo_569,New Delhi,Healthtech,Series B,21st July 2022,0.6 Cr,12,,118605658.61
+StartupCo_570,Delhi,Foodtech,Series A,20/10/2023,"Rs. 37,75,478",7,2km,9407381.61
+StartupCo_571,mumbai,Logistics,Bridge,27.03.2022,0.1 Cr,NA,,22304008.18
+StartupCo_572,Mumbai ,Healthtech,Bridge,2020-03-30,0.04 crore,2,8km,6040124.57
+StartupCo_573,Pune,Fintech,Bridge,25/10/2021,71.1 lakh,12,,16172691.76
+StartupCo_574,Chennai,Fintech,Series A,5th December 2022,"Rs. 2,16,12,536",12,,4304709.9
+StartupCo_575,Delhi,Edtech,Series B,2021-03-11,0.06 crore,2,,1413177.83
+StartupCo_576,Pune,Healthtech,Series A,26/07/2021,"Rs. 1,14,84,604",11,5km,12443111.42
+StartupCo_577,New Delhi,E-commerce,Seed,23rd October 2022,"₹18,84,812",3,2km,111094476.53
+StartupCo_578,Chennai,Healthtech,Bridge,2020-05-08,"₹31,21,392",7,12km,44813556.41
+StartupCo_579,Pune,E-commerce,Bridge,7th September 2019,94.4 lakh,8,20m,6858909.69
+StartupCo_580,New Delhi,Logistics,Bridge,23.07.2019,0.7 Cr,6,,
+StartupCo_581,Delhi,Fintech,Series A,2023-01-01,Undisclosed,11,,835187.7
+StartupCo_582,Hyderabad,Healthtech,Seed,2022-03-23,"₹1,92,27,429",4,,
+StartupCo_583,New Delhi,Fintech,Series C,2021-11-29,0.15 crore,5,8miles,70430504.6
+StartupCo_584,Mumbai ,Healthtech,Bridge,20/10/2023,"₹59,14,019",4,8km,16089948.21
+StartupCo_585,New Delhi,Logistics,Series A,04/06/2020,"Rs. 16,88,977",11,8km,13137885.65
+StartupCo_586,delhi,Healthtech,Series A,15/02/2021,"₹14,60,153",1,2m,
+StartupCo_587,Chennai,SaaS,Seed,11-Feb-21,1.3 Cr,4,20miles,8551941.52
+StartupCo_588,Pune,E-commerce,Series C,22.07.2019,21.0 lakh,1,,20083321.09
+StartupCo_589,Pune,Foodtech,Series B,20/10/2019,0.01 crore,7,,28276682.02
+StartupCo_590,bangalore,E-commerce,Series B,2023-06-24,Undisclosed,8,5miles,49781229.36
+StartupCo_591,Mumbai ,Foodtech,Seed,06.05.2020,"Rs. 21,16,069",2,12km,653716.68
+StartupCo_592,Banglore,Foodtech,Seed,29/01/2019,0.1 Cr,10,,1656960.0
+StartupCo_593,mumbai,Fintech,Series A,05.04.2020,"₹18,64,975",3,,50690049.2
+StartupCo_594,bangalore,Foodtech,Series B,17th August 2020,"Rs. 30,90,042",5,,14943034.4
+StartupCo_595,Bangalore ,E-commerce,Series B,28/04/2019,"Rs. 35,84,703",,8km,18175066.51
+StartupCo_596,bangalore,Fintech,Series B,15th January 2019,1.08 crore,3,8miles,1296931.52
+StartupCo_597,Hyderabad,Foodtech,Seed,11-Mar-23,"Rs. 5,04,892",Nil,12m,4236996.17
+StartupCo_598,New Delhi,Logistics,Series A,2022-01-31,197.9 lakh,8,,4675409.26
+StartupCo_599,Delhi,E-commerce,Series A,2019-11-15,21.5 lakh,6,,31811315.35
+StartupCo_600,Hyderabad,Foodtech,Series A,2022-06-18,0.2 Cr,3,,5262482.56

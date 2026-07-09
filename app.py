@@ -25,9 +25,12 @@ from modules import (
     dashboard_builder,
     data_engine,
     datetime_intel,
+    domains,
     drift,
     forecasting,
+    hellmode,
     join_engine,
+    mllab,
     pii_detector,
     profiling,
     recipes,
@@ -36,6 +39,7 @@ from modules import (
     session_io,
     sql_lab,
     stats_lab,
+    story_mode,
     theme,
     type_coercion,
     ui,
@@ -96,6 +100,15 @@ _DEFAULTS = {
     "auto_report_content": None,  # last "Generate Report" content dict (for PDF/HTML export)
     "recipe_apply_log": [],  # last "Apply Recipe" per-step applied/skipped log
     "pii_findings": {},  # PII Detector's scan of the active dataset — {"email"/"phone"/"name": [...]}
+    "jump_to_tab": None,  # tab label to auto-select via JS once, right after tabs render
+    "story_mode_active": False,  # whether the Auto Analyst tab is showing the Story Mode stepper
+    "story_steps": [],  # last-built Story Mode steps (headline/narrative/chart)
+    "story_step_index": 0,  # current position in story_steps
+    "hellmode_date_result": None,  # last "Standardize Dates" preview {"column","parsed","failed","day_first"}
+    "hellmode_impute_recs": {},  # last "AI Recommend" imputation strategy suggestions
+    "hellmode_impute_recs_error": None,  # error from the last AI-recommend-imputation attempt, if any
+    "mllab_result": None,  # last "Run Baseline Models" result dict
+    "mllab_error": None,  # error from the last baseline model run, if any
 }
 for key, default_value in _DEFAULTS.items():
     if key not in st.session_state:
@@ -185,6 +198,14 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.dashboard_spec = None
     st.session_state.auto_report_content = None
     st.session_state.recipe_apply_log = []
+    st.session_state.story_mode_active = False
+    st.session_state.story_steps = []
+    st.session_state.story_step_index = 0
+    st.session_state.hellmode_date_result = None
+    st.session_state.hellmode_impute_recs = {}
+    st.session_state.hellmode_impute_recs_error = None
+    st.session_state.mllab_result = None
+    st.session_state.mllab_error = None
     st.session_state.last_file_name = source_name
 
 
@@ -193,10 +214,11 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
 # spec's UI layout. Rendered on every page, including the landing screen.
 # --------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## PRISM")
+    st.markdown('<span class="hero-title-animated" style="font-size:1.8rem;">PRISM</span>', unsafe_allow_html=True)
     st.caption("Auto-EDA · AI Analyst")
-    st.radio("Theme", ["dark", "light"], key="theme_mode", format_func=str.capitalize, horizontal=True)
+    st.radio("🎨 Theme", ["dark", "light"], key="theme_mode", format_func=str.capitalize, horizontal=True)
 
+    st.markdown("### 📁 Upload")
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
 
     if uploaded_file is not None and uploaded_file.name != st.session_state.last_file_name:
@@ -217,7 +239,7 @@ with st.sidebar:
 
     if working_df is not None:
         st.divider()
-        st.markdown("### Cleaning Controls")
+        st.markdown("### 🧹 Cleaning Controls")
 
         # --- Missing values -------------------------------------------------
         with st.expander("Handle Missing Values", expanded=False):
@@ -260,7 +282,7 @@ with st.sidebar:
                     for e in apply_errors:
                         st.error(e)
                     if not apply_errors:
-                        st.toast("Missing-value strategy applied.")
+                        st.toast("Missing-value strategy applied. 🧼")
             else:
                 st.info("No missing values detected.")
 
@@ -273,7 +295,7 @@ with st.sidebar:
                 new_df, removed = cleaning.remove_duplicates(working_df)
                 st.session_state.working_df = new_df
                 log_step(f"Removed {removed} duplicate row(s)", cleaning.duplicates_code())
-                st.toast(f"Removed {removed} duplicate row(s).")
+                st.toast(f"Removed {removed} duplicate row(s). 🗑️")
 
             all_null_cols = [c for c, t in st.session_state.column_types.items() if t == "all_null"]
             drop_choices = st.multiselect("Drop columns", working_df.columns.tolist(), default=all_null_cols)
@@ -283,7 +305,7 @@ with st.sidebar:
                 st.session_state.working_df = new_df
                 st.session_state.column_types = data_engine.detect_column_types(new_df)
                 log_step(f"Dropped column(s): {', '.join(drop_choices)}", cleaning.drop_columns_code(drop_choices))
-                st.toast("Column(s) dropped.")
+                st.toast("Column(s) dropped. 🗑️")
 
         # --- Dtype fixes -------------------------------------------------------
         with st.expander("Fix Column Types", expanded=False):
@@ -301,7 +323,7 @@ with st.sidebar:
                     st.session_state.working_df = new_df
                     st.session_state.column_types = data_engine.detect_column_types(new_df)
                     log_step(f"Converted '{dtype_col}' to {target_type}", cleaning.dtype_code(dtype_col, target_type))
-                    st.toast(f"Converted '{dtype_col}' to {target_type}.")
+                    st.toast(f"Converted '{dtype_col}' to {target_type}. 🔄")
 
         # --- Datetime feature extraction + gap detection -----------------------
         datetime_cols = [c for c, t in st.session_state.column_types.items() if t == "datetime"]
@@ -316,7 +338,7 @@ with st.sidebar:
                     log_step(
                         f"Extracted datetime features from '{dt_col}'", cleaning.datetime_features_code(dt_col)
                     )
-                    st.toast(f"Added {len(added_cols)} new column(s) from '{dt_col}'.")
+                    st.toast(f"Added {len(added_cols)} new column(s) from '{dt_col}'. ➕")
 
                 gaps = datetime_intel.detect_gaps(working_df, dt_col)
                 if gaps:
@@ -350,17 +372,17 @@ with st.sidebar:
                             f"Converted '{cand['column']}' from formatted text to numeric",
                             cleaning.type_coercion_code(cand["column"]),
                         )
-                        st.toast(f"Converted '{cand['column']}' to numeric.")
+                        st.toast(f"Converted '{cand['column']}' to numeric. 🔢")
 
         if st.button("Reset to Original Data", use_container_width=True):
             push_undo_snapshot()
             st.session_state.working_df = st.session_state.raw_df.copy()
             st.session_state.column_types = data_engine.detect_column_types(st.session_state.raw_df)
-            st.toast("Reset to original uploaded data.")
+            st.toast("Reset to original uploaded data. ⏮️")
 
         # --- Cleaning history, undo, export --------------------------------------
         st.divider()
-        st.markdown("### Cleaning History")
+        st.markdown("### 📜 Cleaning History")
         if st.session_state.cleaning_log:
             for i, step in enumerate(st.session_state.cleaning_log, 1):
                 st.caption(f"{i}. {step['description']}")
@@ -374,7 +396,7 @@ with st.sidebar:
                 st.session_state.working_df = snapshot["working_df"]
                 st.session_state.column_types = snapshot["column_types"]
                 st.session_state.cleaning_log = snapshot["cleaning_log"]
-                st.toast("Reverted the last step.")
+                st.toast("Reverted the last step. ↩️")
         with hc2:
             script_text = cleaning.export_script(st.session_state.cleaning_log, st.session_state.last_file_name)
             st.download_button(
@@ -389,43 +411,44 @@ with st.sidebar:
         # --- Cleaning recipes: save the history above as a named, reusable JSON
         # recipe, or apply a previously saved one to this dataset. ------------------
         st.divider()
-        st.markdown("### Cleaning Recipes")
-        recipe_name_input = st.text_input("Recipe name", value="my_cleaning_recipe", key="recipe_name_input")
-        recipe_json_text = recipes.save_recipe(recipe_name_input, st.session_state.cleaning_log)
-        st.download_button(
-            "Save Recipe",
-            data=recipe_json_text.encode("utf-8"),
-            file_name=f"{recipe_name_input or 'prism_recipe'}.json",
-            mime="application/json",
-            use_container_width=True,
-            disabled=not st.session_state.cleaning_log,
-        )
+        with st.expander("🧪 Cleaning Recipes", expanded=False):
+            recipe_name_input = st.text_input("Recipe name", value="my_cleaning_recipe", key="recipe_name_input")
+            recipe_json_text = recipes.save_recipe(recipe_name_input, st.session_state.cleaning_log)
+            st.download_button(
+                "Save Recipe",
+                data=recipe_json_text.encode("utf-8"),
+                file_name=f"{recipe_name_input or 'prism_recipe'}.json",
+                mime="application/json",
+                use_container_width=True,
+                disabled=not st.session_state.cleaning_log,
+            )
 
-        recipe_file = st.file_uploader("Apply a recipe to this dataset", type=["json"], key="recipe_uploader")
-        if recipe_file is not None:
-            loaded_recipe, recipe_load_error = recipes.load_recipe(recipe_file.getvalue())
-            if recipe_load_error:
-                st.error(recipe_load_error)
-            elif st.button("Apply Recipe", use_container_width=True, key="apply_recipe_btn"):
-                push_undo_snapshot()
-                recipe_result_df, recipe_step_log = recipes.apply_recipe(working_df, loaded_recipe)
-                st.session_state.working_df = recipe_result_df
-                st.session_state.column_types = data_engine.detect_column_types(recipe_result_df)
-                st.session_state.recipe_apply_log = recipe_step_log
-                log_step(
-                    f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'",
-                    f"# Applied recipe: {loaded_recipe.get('name', 'unnamed')}",
-                )
-                st.toast(f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'.")
+            recipe_file = st.file_uploader("Apply a recipe to this dataset", type=["json"], key="recipe_uploader")
+            if recipe_file is not None:
+                loaded_recipe, recipe_load_error = recipes.load_recipe(recipe_file.getvalue())
+                if recipe_load_error:
+                    st.error(recipe_load_error)
+                elif st.button("Apply Recipe", use_container_width=True, key="apply_recipe_btn"):
+                    push_undo_snapshot()
+                    recipe_result_df, recipe_step_log = recipes.apply_recipe(working_df, loaded_recipe)
+                    st.session_state.working_df = recipe_result_df
+                    st.session_state.column_types = data_engine.detect_column_types(recipe_result_df)
+                    st.session_state.recipe_apply_log = recipe_step_log
+                    log_step(
+                        f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'",
+                        f"# Applied recipe: {loaded_recipe.get('name', 'unnamed')}",
+                    )
+                    st.toast(f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'. 🧪")
 
-        if st.session_state.recipe_apply_log:
-            with st.expander("Recipe apply log", expanded=True):
+            if st.session_state.recipe_apply_log:
+                st.markdown("**Recipe apply log**")
                 for log_entry in st.session_state.recipe_apply_log:
                     status_label = "Applied" if log_entry["status"] == "applied" else "Skipped"
                     st.caption(f"**{status_label}** — {log_entry['description']}: {log_entry['detail']}")
 
         # --- Session save ---------------------------------------------------------
         st.divider()
+        st.markdown("### 💾 Session")
         session_json = session_io.save_session(
             st.session_state.raw_df, st.session_state.working_df,
             st.session_state.cleaning_log, st.session_state.chat_history,
@@ -439,7 +462,7 @@ with st.sidebar:
         )
 
         st.divider()
-        st.markdown("### AI Analyst")
+        st.markdown("### 🤖 AI Analyst")
         if ai_analyst.get_api_key():
             st.caption(f"Gemini ({ai_analyst.MODEL_NAME}) — API key detected.")
         else:
@@ -460,11 +483,16 @@ if st.session_state.working_df is None:
     ui.render_feature_cards()
     st.divider()
 
+    _, palette_matched_tab = ui.render_command_palette()
+
+    st.divider()
     chosen_sample = ui.render_sample_buttons()
     if chosen_sample:
         sample_df = ui.load_sample_dataframe(chosen_sample)
         set_active_dataset(sample_df, sample_df.copy(), f"sample:{chosen_sample.lower()}.csv")
-        st.toast(f"Loaded the {chosen_sample} sample dataset.")
+        if palette_matched_tab:
+            st.session_state.jump_to_tab = palette_matched_tab
+        st.toast(f"Loaded the {chosen_sample} sample dataset. 🎉")
         st.rerun()
 
     st.divider()
@@ -478,7 +506,7 @@ if st.session_state.working_df is None:
                 bundle["raw_df"], bundle["working_df"], "restored_session.csv",
                 cleaning_log=bundle["cleaning_log"], chat_history=bundle["chat_history"],
             )
-            st.toast("Session restored.")
+            st.toast("Session restored. 📂")
             st.rerun()
 
     ui.render_footer()
@@ -492,16 +520,40 @@ ui.render_onboarding()
 df = st.session_state.working_df
 column_types = st.session_state.column_types
 
+quality_for_header = data_engine.get_data_quality_report(df, column_types)
+ui.render_sticky_header(
+    st.session_state.last_file_name or "Untitled dataset",
+    quality_for_header["n_rows"],
+    quality_for_header["n_cols"],
+    data_engine.get_health_score(quality_for_header),
+)
+
 has_datetime_col = "datetime" in column_types.values()
 
-_tab_names = ["Overview", "Clean", "Combine", "Visualize", "SQL Lab", "AI Analyst", "Auto Analyst", "Stats Lab"]
+_tab_names = [
+    "Overview", "Clean", "Hell Mode", "Combine", "Visualize", "SQL Lab", "AI Analyst", "Auto Analyst", "Stats Lab",
+]
 if has_datetime_col:
     _tab_names.append("Forecasting")
 _tab_names.append("Clustering")
+_tab_names.append("Domain Lens")
+_tab_names.append("ML Lab")
 
-_tabs = dict(zip(_tab_names, st.tabs(_tab_names)))
+_TAB_ICONS = {
+    "Overview": "📊", "Clean": "🧹", "Hell Mode": "🔥", "Combine": "🔗", "Visualize": "📈", "SQL Lab": "🗄️",
+    "AI Analyst": "💬", "Auto Analyst": "🤖", "Stats Lab": "🧪", "Forecasting": "🔮", "Clustering": "🧩",
+    "Domain Lens": "🔬", "ML Lab": "🧬",
+}
+_tab_display_labels = [f"{_TAB_ICONS.get(name, '')} {name}".strip() for name in _tab_names]
+
+_tabs = dict(zip(_tab_names, st.tabs(_tab_display_labels)))
+
+if st.session_state.jump_to_tab:
+    ui.render_tab_jump_script(st.session_state.jump_to_tab)
+    st.session_state.jump_to_tab = None
 tab_overview = _tabs["Overview"]
 tab_clean = _tabs["Clean"]
+tab_hellmode = _tabs["Hell Mode"]
 tab_combine = _tabs["Combine"]
 tab_visualize = _tabs["Visualize"]
 tab_sql = _tabs["SQL Lab"]
@@ -510,6 +562,8 @@ tab_auto = _tabs["Auto Analyst"]
 tab_stats = _tabs["Stats Lab"]
 tab_forecast = _tabs.get("Forecasting")  # None when the dataset has no datetime column
 tab_cluster = _tabs["Clustering"]
+tab_domain = _tabs["Domain Lens"]
+tab_mllab = _tabs["ML Lab"]
 
 # --------------------------------------------------------------------------
 # Overview tab — data quality report, column health, drill-down, anomalies
@@ -560,7 +614,7 @@ with tab_overview:
                             st.session_state.pii_findings = pii_detector.scan_dataframe(
                                 masked_df, st.session_state.column_types
                             )
-                            st.toast(f"Masked '{pii_col}'.")
+                            st.toast(f"Masked '{pii_col}'. 🔒")
                             st.rerun()
 
     col_left, col_right = st.columns(2)
@@ -648,7 +702,7 @@ with tab_overview:
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
             if st.button("Find Anomalies", key="find_anomalies_btn"):
-                with st.spinner("Scanning for anomalies..."):
+                with st.spinner(ui.get_loading_message()):
                     flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
@@ -672,7 +726,7 @@ with tab_overview:
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
-                        st.toast(f"Excluded {len(flagged)} anomalous row(s).")
+                        st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 
 # --------------------------------------------------------------------------
@@ -704,7 +758,10 @@ with tab_clean:
         for step in st.session_state.cleaning_log:
             st.write(f"- {step['description']}")
     else:
-        st.info("No cleaning steps applied yet — use the sidebar's Cleaning Controls.")
+        ui.render_empty_state(
+            "🧹", "No cleaning steps yet",
+            "Use the sidebar's Cleaning Controls, Datetime Features, or Type Coercion tools to get started.",
+        )
 
     st.divider()
     st.subheader("Original vs Cleaned Preview")
@@ -724,6 +781,287 @@ with tab_clean:
         mime="text/csv",
         use_container_width=True,
     )
+
+# --------------------------------------------------------------------------
+# Hell Mode tab — a deeper cleaning engine for real-world-messy data: null
+# synonyms, Indian-formatted numbers, mixed date formats, fuzzy category
+# cleanup, mixed measurement units, and richer imputation strategies.
+# --------------------------------------------------------------------------
+with tab_hellmode:
+    ui.render_help_expander(
+        "A deeper cleaning engine for real-world-messy data: disguised nulls, Indian-formatted "
+        "numbers (₹/lakh/crore), mixed date formats, fuzzy-duplicate categories, mixed units, and "
+        "richer imputation (KNN, group-wise, AI-recommended)."
+    )
+
+    st.subheader("Hell Mode")
+
+    # --- 1. Null synonym detection -----------------------------------------
+    st.markdown("#### Null Synonym Detection")
+    st.caption(
+        "Scans text columns for disguised nulls (\"NA\", \"-\", \"Nil\", ...) that pandas "
+        "doesn't recognize as missing by default."
+    )
+
+    with st.expander("Synonym list (editable)", expanded=False):
+        synonyms_text = st.text_area(
+            "One synonym per line", value="\n".join(hellmode.DEFAULT_NULL_SYNONYMS),
+            key="null_synonyms_text", height=150,
+        )
+    active_synonyms = [line.strip() for line in synonyms_text.splitlines() if line.strip()]
+
+    disguised_findings = hellmode.scan_disguised_nulls(df, column_types, active_synonyms)
+    if not disguised_findings:
+        ui.render_empty_state(
+            "🕵️", "No disguised nulls found", "Every text/categorical column looks clean against the current synonym list."
+        )
+    else:
+        for line in hellmode.describe_disguised_nulls(disguised_findings):
+            st.warning(line)
+        if st.button("Convert all to proper NaN", key="convert_disguised_nulls_btn", use_container_width=True):
+            push_undo_snapshot()
+            new_df = hellmode.convert_disguised_nulls(df, list(disguised_findings.keys()), active_synonyms)
+            st.session_state.working_df = new_df
+            st.session_state.column_types = data_engine.detect_column_types(new_df)
+            log_step(
+                f"Converted disguised nulls to NaN in: {', '.join(disguised_findings.keys())}",
+                hellmode.disguised_nulls_code(list(disguised_findings.keys()), active_synonyms),
+            )
+            st.toast("Disguised nulls converted. 🕵️")
+            st.rerun()
+
+    # --- 2. Indian number parser --------------------------------------------
+    st.divider()
+    st.markdown("#### Indian Number Parser")
+    st.caption("Detects ₹/Rs./lakh/crore-formatted numbers and converts them to absolute numeric values.")
+
+    indian_candidates = hellmode.detect_indian_number_candidates(df, column_types)
+    if not indian_candidates:
+        ui.render_empty_state(
+            "🇮🇳", "No Indian-formatted numbers detected", "No text column looked like ₹/Rs./lakh/crore-style numbers."
+        )
+    else:
+        for cand in indian_candidates:
+            st.markdown(f"**{cand['column']}** — {cand['match_pct']}% look numeric")
+            st.dataframe(
+                pd.DataFrame({"Before": cand["sample_before"], "After": cand["sample_after"]}),
+                use_container_width=True, hide_index=True,
+            )
+            add_suffix = st.checkbox(
+                f"Rename to '{cand['column']}_inr' after conversion", value=True, key=f"indian_suffix_{cand['column']}"
+            )
+            if st.button(f"Convert '{cand['column']}'", key=f"indian_convert_{cand['column']}", use_container_width=True):
+                push_undo_snapshot()
+                new_df, new_col = hellmode.convert_indian_column(df, cand["column"], add_unit_suffix=add_suffix)
+                st.session_state.working_df = new_df
+                st.session_state.column_types = data_engine.detect_column_types(new_df)
+                rename_note = f" (renamed to '{new_col}')" if new_col != cand["column"] else ""
+                log_step(
+                    f"Converted '{cand['column']}' from Indian-formatted text to numeric{rename_note}",
+                    hellmode.indian_number_code(cand["column"], new_col),
+                )
+                st.toast(f"Converted '{cand['column']}' to numeric. 🇮🇳")
+                st.rerun()
+
+    # --- 3. Mixed date format resolver ---------------------------------------
+    st.divider()
+    st.markdown("#### Mixed Date Format Resolver")
+    st.caption("Standardizes a column with multiple date formats into one datetime dtype.")
+
+    date_candidate_cols = [c for c, t in column_types.items() if t in ("text", "categorical", "datetime")]
+    if not date_candidate_cols:
+        ui.render_empty_state("📅", "No candidate columns", "No text or datetime-like columns to resolve.")
+    else:
+        date_col = st.selectbox("Column", date_candidate_cols, key="date_resolver_col")
+
+        format_tally = hellmode.detect_date_formats(df[date_col])
+        if format_tally:
+            st.caption("Formats found: " + ", ".join(f"{k} ({v})" for k, v in format_tally.items()))
+
+        ambiguous_dates = hellmode.find_ambiguous_dates(df[date_col])
+        if ambiguous_dates:
+            st.warning(f"{len(ambiguous_dates)} distinct ambiguous date value(s) found (day-first vs month-first).")
+            st.dataframe(pd.DataFrame(ambiguous_dates), use_container_width=True, hide_index=True)
+
+        day_first_choice = st.radio(
+            "For ambiguous dates, treat the column as:",
+            ["Day-first (Indian/EU default)", "Month-first (US)"],
+            key="date_resolver_dayfirst",
+        )
+        day_first = day_first_choice == "Day-first (Indian/EU default)"
+
+        if st.button("Standardize Dates", key="resolve_dates_btn", use_container_width=True):
+            parsed, failed = hellmode.resolve_dates(df[date_col], day_first=day_first)
+            st.session_state.hellmode_date_result = {
+                "column": date_col, "parsed": parsed, "failed": failed, "day_first": day_first,
+            }
+
+        date_result = st.session_state.hellmode_date_result
+        if date_result is not None and date_result["column"] == date_col:
+            st.caption(f"{date_result['parsed'].notna().sum()} of {len(date_result['parsed'])} values parsed successfully.")
+            if date_result["failed"]:
+                st.error(f"{len(date_result['failed'])} distinct value(s) failed to parse: {', '.join(date_result['failed'][:10])}")
+            if st.button("Apply Standardized Dates", key="apply_dates_btn", type="primary", use_container_width=True):
+                push_undo_snapshot()
+                new_df = df.copy()
+                new_df[date_col] = date_result["parsed"]
+                st.session_state.working_df = new_df
+                st.session_state.column_types = data_engine.detect_column_types(new_df)
+                log_step(
+                    f"Standardized mixed date formats in '{date_col}' "
+                    f"({'day-first' if date_result['day_first'] else 'month-first'})",
+                    hellmode.date_resolver_code(date_col, date_result["day_first"]),
+                )
+                st.session_state.hellmode_date_result = None
+                st.toast(f"Standardized dates in '{date_col}'. 📅")
+                st.rerun()
+
+    # --- 4. Fuzzy category cleanup --------------------------------------------
+    st.divider()
+    st.markdown("#### Fuzzy Category Cleanup")
+    st.caption("Clusters similar category values (case variants, trailing spaces, misspellings) using rapidfuzz.")
+
+    categorical_cols = [c for c, t in column_types.items() if t == "categorical"]
+    if not categorical_cols:
+        ui.render_empty_state("🧵", "No categorical columns", "Fuzzy cleanup needs at least one categorical column.")
+    else:
+        fuzzy_col = st.selectbox("Column", categorical_cols, key="fuzzy_col")
+        fuzzy_threshold = st.slider("Similarity threshold", min_value=50, max_value=100, value=85, key="fuzzy_threshold")
+        fuzzy_groups = hellmode.suggest_fuzzy_groups(df[fuzzy_col], threshold=fuzzy_threshold)
+
+        if not fuzzy_groups:
+            st.info(f"No similar-value groups found in '{fuzzy_col}' at this threshold.")
+        else:
+            selected_fuzzy_groups = []
+            for group_idx, group in enumerate(fuzzy_groups):
+                with st.expander(
+                    f"{group['canonical']} — {len(group['members'])} variants, {group['total_count']} rows",
+                    expanded=False,
+                ):
+                    canonical_choice = st.selectbox(
+                        "Canonical name", [m["value"] for m in group["members"]],
+                        index=0, key=f"fuzzy_canonical_{group_idx}",
+                    )
+                    for member in group["members"]:
+                        st.caption(f"- {member['value']!r}: {member['count']} row(s)")
+                    merge_this_group = st.checkbox("Merge this group", value=True, key=f"fuzzy_merge_{group_idx}")
+                    if merge_this_group:
+                        selected_fuzzy_groups.append((group, canonical_choice))
+
+            if st.button(
+                "Apply Selected Merges", key="apply_fuzzy_btn", type="primary",
+                use_container_width=True, disabled=not selected_fuzzy_groups,
+            ):
+                push_undo_snapshot()
+                merge_map = {
+                    member["value"]: canonical_choice
+                    for group, canonical_choice in selected_fuzzy_groups
+                    for member in group["members"]
+                    if member["value"] != canonical_choice
+                }
+                new_df = hellmode.apply_fuzzy_merge(df, fuzzy_col, merge_map)
+                st.session_state.working_df = new_df
+                log_step(
+                    f"Merged {len(selected_fuzzy_groups)} fuzzy-duplicate group(s) in '{fuzzy_col}'",
+                    hellmode.fuzzy_merge_code(fuzzy_col, merge_map),
+                )
+                st.toast(f"Merged fuzzy duplicates in '{fuzzy_col}'. 🧵")
+                st.rerun()
+
+    # --- 5. Unit chaos detector ------------------------------------------------
+    st.divider()
+    st.markdown("#### Unit Chaos Detector")
+    st.caption("Scans for mixed measurement units within one column (e.g. km/m/miles) and normalizes to one unit.")
+
+    unit_findings = hellmode.detect_mixed_units(df, column_types)
+    if not unit_findings:
+        ui.render_empty_state(
+            "📏", "No mixed units detected", "No column showed more than one recognized unit (distance, weight)."
+        )
+    else:
+        for finding in unit_findings:
+            units_summary = ", ".join(f"{u} ({n})" for u, n in finding["units_found"].items())
+            st.markdown(f"**{finding['column']}** ({finding['family']}) — units found: {units_summary}")
+
+            unit_options = list(hellmode.UNIT_FAMILIES[finding["family"]]["to_base"].keys())
+            base_unit = hellmode.UNIT_FAMILIES[finding["family"]]["base_unit"]
+            target_unit = st.selectbox(
+                "Normalize to", unit_options, index=unit_options.index(base_unit), key=f"unit_target_{finding['column']}"
+            )
+            if st.button(f"Normalize '{finding['column']}'", key=f"unit_normalize_{finding['column']}", use_container_width=True):
+                push_undo_snapshot()
+                converted, description = hellmode.normalize_units(df[finding["column"]], finding["family"], target_unit)
+                new_df = df.copy()
+                new_df[finding["column"]] = converted
+                st.session_state.working_df = new_df
+                st.session_state.column_types = data_engine.detect_column_types(new_df)
+                log_step(
+                    f"{finding['column']}: {description}",
+                    hellmode.unit_normalize_code(finding["column"], finding["family"], target_unit),
+                )
+                st.toast(f"Normalized units in '{finding['column']}'. 📏")
+                st.rerun()
+
+    # --- 6. Imputation intelligence ---------------------------------------------
+    st.divider()
+    st.markdown("#### Imputation Intelligence")
+    st.caption(
+        "Beyond mean/median/mode: forward/back fill, KNN imputation, group-wise fill by another "
+        "column, and an AI-recommended strategy per column."
+    )
+
+    missing_value_cols = [c for c in df.columns if df[c].isna().sum() > 0]
+    if not missing_value_cols:
+        ui.render_empty_state("🧩", "No missing values", "Nothing to impute — this dataset has no missing values.")
+    else:
+        if st.button("AI Recommend", key="ai_recommend_impute_btn", use_container_width=True):
+            impute_model = ai_analyst.get_model()
+            with st.spinner(ui.get_loading_message()):
+                impute_recs, impute_recs_error = hellmode.ai_recommend_imputation(
+                    impute_model, df, column_types, data_engine.get_data_quality_report(df, column_types)
+                )
+            st.session_state.hellmode_impute_recs = impute_recs
+            st.session_state.hellmode_impute_recs_error = impute_recs_error
+
+        if st.session_state.hellmode_impute_recs_error:
+            st.warning(st.session_state.hellmode_impute_recs_error)
+        elif st.session_state.hellmode_impute_recs:
+            st.markdown("**AI-recommended strategies** (review before applying)")
+            for rec_col, rec in st.session_state.hellmode_impute_recs.items():
+                strategy_label = hellmode.IMPUTATION_STRATEGY_LABELS.get(rec["strategy"], rec["strategy"])
+                st.info(f"**{rec_col}** → {strategy_label} — {rec['reason']}")
+
+        impute_col = st.selectbox("Column", missing_value_cols, key="impute_col")
+        impute_strategy_label = st.selectbox(
+            "Strategy", list(hellmode.IMPUTATION_STRATEGY_LABELS.values()), key="impute_strategy_label"
+        )
+        impute_strategy = {v: k for k, v in hellmode.IMPUTATION_STRATEGY_LABELS.items()}[impute_strategy_label]
+
+        impute_group_col = None
+        impute_custom_value = None
+        if impute_strategy == "groupwise":
+            impute_group_col = st.selectbox(
+                "Group by column", [c for c in df.columns if c != impute_col], key="impute_group_col"
+            )
+        elif impute_strategy == "constant":
+            impute_custom_value = st.text_input("Constant value", key="impute_custom_value")
+
+        if st.button("Apply Imputation", key="apply_impute_btn", type="primary", use_container_width=True):
+            imputed_df, impute_error = hellmode.impute_column(
+                df, impute_col, impute_strategy, group_col=impute_group_col, custom_value=impute_custom_value
+            )
+            if impute_error:
+                st.error(impute_error)
+            else:
+                push_undo_snapshot()
+                st.session_state.working_df = imputed_df
+                st.session_state.column_types = data_engine.detect_column_types(imputed_df)
+                log_step(
+                    f"Imputed '{impute_col}' via {hellmode.IMPUTATION_STRATEGY_LABELS.get(impute_strategy, impute_strategy)}",
+                    hellmode.impute_code(impute_col, impute_strategy, group_col=impute_group_col, custom_value=impute_custom_value),
+                )
+                st.toast(f"Imputed '{impute_col}'. 🧩")
+                st.rerun()
 
 # --------------------------------------------------------------------------
 # Combine tab — join a second uploaded file onto the active dataset. Setting
@@ -770,7 +1108,11 @@ with tab_combine:
                 st.success(f"Loaded second file: {new_second_df.shape[0]:,} rows x {new_second_df.shape[1]} columns")
 
     if st.session_state.second_df is None:
-        st.info("Upload a second file above to combine or compare it with your active dataset.")
+        ui.render_empty_state(
+            "🔗", "Nothing to combine yet",
+            "Upload a second CSV or Excel file above to join it onto your active dataset, or compare "
+            "the two for drift.",
+        )
     else:
         second_df = st.session_state.second_df
 
@@ -858,7 +1200,7 @@ with tab_combine:
                             }
                         ],
                     )
-                    st.toast("Joined dataset is now active — every tab will use it.")
+                    st.toast("Joined dataset is now active — every tab will use it. 🔗")
                     st.rerun()
 
         else:
@@ -929,7 +1271,7 @@ with tab_visualize:
     if id_like_cols:
         st.caption(f"Excluded probable ID column(s) from auto-charts: {', '.join(id_like_cols)}")
 
-    with st.spinner("Building charts..."):
+    with st.spinner(ui.get_loading_message()):
         charts, top_corr = visualization.auto_generate_charts(df, chart_column_types)
 
     if top_corr:
@@ -938,7 +1280,9 @@ with tab_visualize:
             st.info(f"**{c1}** ↔ **{c2}** — {visualization.describe_correlation(val)}")
 
     if not charts:
-        st.info("Not enough data variety to auto-generate charts yet.")
+        ui.render_empty_state(
+            "📈", "Not enough variety to chart yet", "Try cleaning up a few more columns, or build one manually below."
+        )
     else:
         chart_items = list(charts.items())
         for i in range(0, len(chart_items), 2):
@@ -986,13 +1330,18 @@ with tab_visualize:
 
     if st.button("Build My Dashboard", use_container_width=True):
         dashboard_model = ai_analyst.get_model()
-        with st.spinner("Designing your dashboard..."):
+        with st.spinner(ui.get_loading_message()):
             st.session_state.dashboard_spec = dashboard_builder.generate_dashboard_spec(
                 dashboard_model, df, column_types
             )
 
     dashboard_spec = st.session_state.dashboard_spec
-    if dashboard_spec is not None:
+    if dashboard_spec is None:
+        ui.render_empty_state(
+            "📊", "No dashboard yet",
+            'Click "Build My Dashboard" above and Gemini will design KPI cards and charts for this data.',
+        )
+    else:
         if dashboard_spec["kpis"]:
             kpi_cols = st.columns(len(dashboard_spec["kpis"]))
             for kpi_col, kpi in zip(kpi_cols, dashboard_spec["kpis"]):
@@ -1055,13 +1404,17 @@ with tab_visualize:
 
     if st.button("Generate Report", use_container_width=True):
         report_model = ai_analyst.get_model()
-        with st.spinner("Writing your report..."):
+        with st.spinner(ui.get_loading_message()):
             st.session_state.auto_report_content = report_writer.build_report_content(
                 report_model, df, quality_for_export, column_types, charts, top_corr
             )
 
     report_content = st.session_state.auto_report_content
-    if report_content is not None:
+    if report_content is None:
+        ui.render_empty_state(
+            "📝", "No report yet", 'Click "Generate Report" above for an executive-style write-up with embedded charts.'
+        )
+    else:
         st.markdown(f"**Executive Summary**  \n{report_content['executive_summary']}")
         if report_content["findings_error"]:
             st.warning(report_content["findings_error"])
@@ -1141,6 +1494,10 @@ with tab_sql:
                 f"{st.session_state.sql_exec_time * 1000:.1f} ms"
             )
             st.dataframe(st.session_state.sql_result_df, use_container_width=True)
+        else:
+            ui.render_empty_state(
+                "🗄️", "No query run yet", "Try an example query above, or write your own and click \"Run Query\"."
+            )
 
         if explain_clicked:
             query_text = st.session_state.sql_editor.strip()
@@ -1151,7 +1508,7 @@ with tab_sql:
                 if sql_gemini_model is None:
                     st.warning(ai_analyst.GEMINI_SETUP_HELP)
                 else:
-                    with st.spinner("Explaining query..."):
+                    with st.spinner(ui.get_loading_message()):
                         explanation, explain_error = ai_analyst.explain_sql(sql_gemini_model, query_text)
                     st.session_state.sql_explanation = explanation
                     st.session_state.sql_explanation_error = explain_error
@@ -1180,7 +1537,7 @@ with tab_ai:
         st.warning(ai_analyst.GEMINI_SETUP_HELP)
     else:
         if st.button("Generate Key Insights"):
-            with st.spinner("Analyzing your data..."):
+            with st.spinner(ui.get_loading_message()):
                 quality_for_ai = data_engine.get_data_quality_report(df, column_types)
                 _, top_corr_for_ai = visualization.plot_correlation_heatmap(df)
                 insights, insight_error = ai_analyst.generate_key_insights(
@@ -1230,7 +1587,7 @@ with tab_ai:
 
         if final_question:
             st.session_state.chat_history.append({"role": "user", "content": final_question})
-            with st.spinner("Thinking..."):
+            with st.spinner(ui.get_loading_message()):
                 outcome = ai_analyst.ask_and_execute(
                     gemini_model, df, column_types, final_question, st.session_state.chat_history[:-1]
                 )
@@ -1254,6 +1611,11 @@ with tab_ai:
                         "chart_fig": chart_fig,
                     }
                 )
+
+        if not st.session_state.chat_history:
+            ui.render_empty_state(
+                "💬", "No questions asked yet", "Type a question above (or use voice) to start chatting with your data."
+            )
 
         for msg_idx, msg in enumerate(st.session_state.chat_history):
             if msg["role"] == "user":
@@ -1309,86 +1671,146 @@ with tab_auto:
 
     st.subheader("Auto Analyst")
 
-    auto_model = ai_analyst.get_model()
+    if st.session_state.story_mode_active:
+        # ------------------------------------------------------------------
+        # Story Mode — full-screen-feeling stepper through the last run's
+        # findings, one per step, each paired with a chart and a narrative.
+        # ------------------------------------------------------------------
+        story_steps = st.session_state.story_steps
+        step_idx = st.session_state.story_step_index
+        current_step = story_steps[step_idx]
 
-    if auto_model is None:
-        st.warning(ai_analyst.GEMINI_SETUP_HELP)
+        st.caption(f"Story Mode — step {step_idx + 1} of {len(story_steps)}")
+        st.markdown(
+            f'<div class="prism-heading" style="font-size:2.2rem; font-weight:700; margin:1rem 0;">'
+            f'{current_step["headline"]}</div>',
+            unsafe_allow_html=True,
+        )
+        if current_step["chart"] is not None:
+            st.plotly_chart(current_step["chart"], use_container_width=True, key=f"story_chart_{step_idx}")
+        st.markdown(
+            f'<div style="font-size:1.15rem; line-height:1.6;">{current_step["narrative"]}</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.divider()
+        nav_prev, nav_exit, nav_next = st.columns(3)
+        with nav_prev:
+            if st.button("⬅ Previous", disabled=step_idx == 0, use_container_width=True):
+                st.session_state.story_step_index -= 1
+                st.rerun()
+        with nav_exit:
+            if st.button("Exit Story Mode", use_container_width=True):
+                st.session_state.story_mode_active = False
+                st.rerun()
+        with nav_next:
+            if st.button("Next ➡", disabled=step_idx == len(story_steps) - 1, use_container_width=True):
+                st.session_state.story_step_index += 1
+                st.rerun()
     else:
-        if st.button("Run Full Analysis", type="primary", use_container_width=True):
-            plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
-            step_outcomes = []
-            step_history: list[dict] = []
+        auto_model = ai_analyst.get_model()
 
-            with st.status("Running full analysis...", expanded=True) as run_status:
-                for i, step in enumerate(plan, 1):
-                    run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
-                    outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
-                    step_outcomes.append(outcome)
-                    step_history.append({"role": "user", "content": step["question"]})
-                    step_history.append(
-                        {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
-                    )
-                    if outcome.get("ask_error") or outcome.get("error"):
-                        run_status.write(
-                            f"Step {i}/{len(plan)} — {step['title']}: failed "
-                            f"({outcome.get('ask_error') or outcome.get('error')})"
+        if auto_model is None:
+            st.warning(ai_analyst.GEMINI_SETUP_HELP)
+        else:
+            if st.button("Run Full Analysis", type="primary", use_container_width=True):
+                plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
+                step_outcomes = []
+                step_history: list[dict] = []
+
+                with st.status("Running full analysis...", expanded=True) as run_status:
+                    for i, step in enumerate(plan, 1):
+                        run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
+                        outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
+                        step_outcomes.append(outcome)
+                        step_history.append({"role": "user", "content": step["question"]})
+                        step_history.append(
+                            {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
                         )
-                    else:
-                        run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
-                run_status.update(label="Analysis complete", state="complete", expanded=False)
+                        if outcome.get("ask_error") or outcome.get("error"):
+                            run_status.write(
+                                f"Step {i}/{len(plan)} — {step['title']}: failed "
+                                f"({outcome.get('ask_error') or outcome.get('error')})"
+                            )
+                        else:
+                            run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
+                    run_status.update(label="Analysis complete", state="complete", expanded=False)
 
-            with st.spinner("Synthesizing top findings..."):
-                findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
+                with st.spinner(ui.get_loading_message()):
+                    findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
 
-            st.session_state.auto_analyst_plan = plan
-            st.session_state.auto_analyst_step_outcomes = step_outcomes
-            st.session_state.auto_analyst_findings = findings
-            st.session_state.auto_analyst_findings_error = findings_error
+                st.session_state.auto_analyst_plan = plan
+                st.session_state.auto_analyst_step_outcomes = step_outcomes
+                st.session_state.auto_analyst_findings = findings
+                st.session_state.auto_analyst_findings_error = findings_error
+                st.balloons()
 
-        if st.session_state.auto_analyst_step_outcomes:
-            st.divider()
-            st.markdown("### Analysis Complete")
-
-            if st.session_state.auto_analyst_findings_error:
-                st.error(st.session_state.auto_analyst_findings_error)
-            elif st.session_state.auto_analyst_findings:
-                cards_html = "".join(
-                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
-                    f'<div class="insight-text">{finding}</div></div>'
-                    for i, finding in enumerate(st.session_state.auto_analyst_findings)
+            if not st.session_state.auto_analyst_step_outcomes:
+                ui.render_empty_state(
+                    "🤖", "No analysis yet",
+                    'Click "Run Full Analysis" above and Gemini will plan and run a full exploratory pass.',
                 )
-                st.markdown(cards_html, unsafe_allow_html=True)
+            else:
+                st.divider()
+                st.markdown("### Analysis Complete")
 
-            st.divider()
-            st.markdown("**Step-by-step results**")
-            for i, outcome in enumerate(st.session_state.auto_analyst_step_outcomes, 1):
-                with st.expander(f"Step {i}: {outcome['title']}", expanded=False):
-                    st.caption(outcome["question"])
+                if st.session_state.auto_analyst_findings_error:
+                    st.error(st.session_state.auto_analyst_findings_error)
+                elif st.session_state.auto_analyst_findings:
+                    cards_html = "".join(
+                        f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                        f'<div class="insight-text">{finding}</div></div>'
+                        for i, finding in enumerate(st.session_state.auto_analyst_findings)
+                    )
+                    st.markdown(cards_html, unsafe_allow_html=True)
 
-                    if outcome.get("ask_error"):
-                        st.error(outcome["ask_error"])
-                        continue
-
-                    if outcome.get("retried"):
-                        st.caption(
-                            f"First attempt failed ({outcome.get('original_error')}) — "
-                            "Gemini corrected it automatically."
+                    if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
+                        id_like_cols_for_story = profiling.get_id_like_columns(df)
+                        story_chart_col_types = {
+                            c: t for c, t in column_types.items() if c not in id_like_cols_for_story
+                        }
+                        story_charts, _ = visualization.auto_generate_charts(df, story_chart_col_types)
+                        st.session_state.story_steps = story_mode.build_story_steps(
+                            st.session_state.last_file_name or "your dataset",
+                            df.shape[0],
+                            df.shape[1],
+                            st.session_state.auto_analyst_findings,
+                            story_charts,
                         )
+                        st.session_state.story_step_index = 0
+                        st.session_state.story_mode_active = True
+                        st.rerun()
 
-                    if outcome.get("code"):
-                        st.code(outcome["code"], language="python")
+                st.divider()
+                st.markdown("**Step-by-step results**")
+                for i, outcome in enumerate(st.session_state.auto_analyst_step_outcomes, 1):
+                    with st.expander(f"Step {i}: {outcome['title']}", expanded=False):
+                        st.caption(outcome["question"])
 
-                    if outcome.get("error"):
-                        st.error(outcome["error"])
-                        continue
+                        if outcome.get("ask_error"):
+                            st.error(outcome["ask_error"])
+                            continue
 
-                    result = outcome.get("result")
-                    if isinstance(result, pd.DataFrame):
-                        st.dataframe(result, use_container_width=True)
-                    elif isinstance(result, pd.Series):
-                        st.dataframe(result.to_frame(name="value"), use_container_width=True)
-                    elif result is not None:
-                        st.write(result)
+                        if outcome.get("retried"):
+                            st.caption(
+                                f"First attempt failed ({outcome.get('original_error')}) — "
+                                "Gemini corrected it automatically."
+                            )
+
+                        if outcome.get("code"):
+                            st.code(outcome["code"], language="python")
+
+                        if outcome.get("error"):
+                            st.error(outcome["error"])
+                            continue
+
+                        result = outcome.get("result")
+                        if isinstance(result, pd.DataFrame):
+                            st.dataframe(result, use_container_width=True)
+                        elif isinstance(result, pd.Series):
+                            st.dataframe(result.to_frame(name="value"), use_container_width=True)
+                        elif result is not None:
+                            st.write(result)
 
 # --------------------------------------------------------------------------
 # Stats Lab tab — guided statistical testing. Pick two columns, get a
@@ -1406,7 +1828,10 @@ with tab_stats:
 
     testable_cols = [c for c, t in column_types.items() if t in ("numeric", "categorical")]
     if len(testable_cols) < 2:
-        st.info("Need at least 2 numeric or categorical columns to run a statistical test.")
+        ui.render_empty_state(
+            "🧪", "Not enough columns to test",
+            "Stats Lab needs at least 2 numeric or categorical columns to suggest a test.",
+        )
     else:
         sc1, sc2 = st.columns(2)
         with sc1:
@@ -1428,7 +1853,9 @@ with tab_stats:
                 st.session_state.stats_lab_result = stats_lab.run_test(df, suggestion)
 
             result = st.session_state.stats_lab_result
-            if result is not None:
+            if result is None:
+                ui.render_empty_state("🧪", "No test run yet", 'Click "Run Test" above to see the verdict.')
+            else:
                 if result.get("error"):
                     st.error(result["error"])
                 else:
@@ -1474,7 +1901,10 @@ if tab_forecast is not None:
 
         numeric_cols_for_forecast = [c for c, t in column_types.items() if t == "numeric"]
         if not numeric_cols_for_forecast:
-            st.info("No numeric column detected — Forecasting needs one to project into the future.")
+            ui.render_empty_state(
+                "🔮", "No numeric column to forecast",
+                "Forecasting needs at least one numeric column to project into the future.",
+            )
         else:
             datetime_cols_for_forecast = [c for c, t in column_types.items() if t == "datetime"]
 
@@ -1492,7 +1922,7 @@ if tab_forecast is not None:
                     st.session_state.forecast_result = None
                     st.session_state.forecast_error = prep_error
                 else:
-                    with st.spinner("Fitting forecast model..."):
+                    with st.spinner(ui.get_loading_message()):
                         forecast_outcome = forecasting.run_forecast(series, forecast_horizon, freq)
                     if forecast_outcome.get("error"):
                         st.session_state.forecast_result = None
@@ -1503,7 +1933,11 @@ if tab_forecast is not None:
 
             if st.session_state.forecast_error:
                 st.error(st.session_state.forecast_error)
-            elif st.session_state.forecast_result is not None:
+            elif st.session_state.forecast_result is None:
+                ui.render_empty_state(
+                    "🔮", "No forecast yet", 'Pick your columns and horizon, then click "Generate Forecast".'
+                )
+            else:
                 forecast_outcome = st.session_state.forecast_result
                 if forecast_outcome.get("warning"):
                     st.caption(forecast_outcome["warning"])
@@ -1549,7 +1983,9 @@ with tab_cluster:
 
     numeric_cols_for_cluster = [c for c, t in column_types.items() if t == "numeric"]
     if len(numeric_cols_for_cluster) < 2:
-        st.info("Need at least 2 numeric columns to run clustering.")
+        ui.render_empty_state(
+            "🧩", "Not enough numeric columns", "Clustering needs at least 2 numeric columns to segment your data."
+        )
     else:
         selected_cluster_cols = st.multiselect(
             "Numeric columns to cluster on",
@@ -1587,7 +2023,11 @@ with tab_cluster:
                     st.session_state.cluster_segment_error = None
 
                 cluster_result = st.session_state.cluster_result
-                if cluster_result is not None:
+                if cluster_result is None:
+                    ui.render_empty_state(
+                        "🧩", "No clusters yet", 'Click "Run Clustering" above to segment this data.'
+                    )
+                else:
                     if cluster_result.get("error"):
                         st.error(cluster_result["error"])
                     else:
@@ -1606,7 +2046,7 @@ with tab_cluster:
                             if cluster_model is None:
                                 st.warning(ai_analyst.GEMINI_SETUP_HELP)
                             else:
-                                with st.spinner("Naming segments..."):
+                                with st.spinner(ui.get_loading_message()):
                                     names, name_error = clustering.name_segments(
                                         cluster_model, cluster_result["cluster_stats"]
                                     )
@@ -1618,5 +2058,301 @@ with tab_cluster:
                         elif st.session_state.cluster_segment_names:
                             for segment_desc in st.session_state.cluster_segment_names:
                                 st.info(segment_desc)
+
+# --------------------------------------------------------------------------
+# Domain Lens tab — map your columns to a domain's expected roles and get
+# ready-made analytics: Product (retention, DAU/MAU, funnels, churn) or
+# Banking (RFM, anomalies, NPA, credit utilization).
+# --------------------------------------------------------------------------
+with tab_domain:
+    ui.render_help_expander(
+        "Map your columns to a domain's expected roles and get ready-made analytics: Product "
+        "(retention, DAU/MAU, funnels, churn) or Banking (RFM, anomalies, NPA, credit utilization)."
+    )
+
+    st.subheader("Domain Lens")
+    domain_mode = st.radio("Mode", ["Product Analytics", "Banking Analytics"], key="domain_mode", horizontal=True)
+
+    all_domain_cols = df.columns.tolist()
+    optional_col_choices = ["(none)"] + all_domain_cols
+
+    if domain_mode == "Product Analytics":
+        st.markdown("#### Column Mapper")
+        pc1, pc2, pc3, pc4 = st.columns(4)
+        with pc1:
+            product_user_col = st.selectbox("User ID", all_domain_cols, key="product_user_col")
+        with pc2:
+            product_event_choice = st.selectbox("Event/Order column (optional)", optional_col_choices, key="product_event_col")
+            product_event_col = None if product_event_choice == "(none)" else product_event_choice
+        with pc3:
+            product_timestamp_col = st.selectbox("Timestamp", all_domain_cols, key="product_timestamp_col")
+        with pc4:
+            product_revenue_choice = st.selectbox("Revenue (optional)", optional_col_choices, key="product_revenue_col")
+
+        st.divider()
+        st.markdown("#### Retention Cohorts")
+        st.caption(domains.PRODUCT_METRIC_EXPLANATIONS["retention"])
+        try:
+            retention_df = domains.compute_retention_cohorts(df, product_user_col, product_timestamp_col)
+            if retention_df.empty:
+                st.info("Not enough date range in this column pair to build cohorts.")
+            else:
+                st.plotly_chart(domains.build_cohort_heatmap(retention_df), use_container_width=True)
+        except Exception as e:
+            st.error(f"Couldn't compute retention cohorts: {e}")
+
+        st.divider()
+        st.markdown("#### DAU / MAU & Stickiness")
+        st.caption(domains.PRODUCT_METRIC_EXPLANATIONS["dau_mau"])
+        try:
+            dau_mau_df = domains.compute_dau_mau(df, product_user_col, product_timestamp_col)
+            dm1, dm2 = st.columns(2)
+            with dm1:
+                st.plotly_chart(domains.build_dau_mau_chart(dau_mau_df), use_container_width=True)
+            with dm2:
+                st.plotly_chart(domains.build_stickiness_chart(dau_mau_df), use_container_width=True)
+            st.metric("Average Stickiness", f"{dau_mau_df['stickiness'].mean() * 100:.1f}%")
+        except Exception as e:
+            st.error(f"Couldn't compute DAU/MAU: {e}")
+
+        st.divider()
+        st.markdown("#### Funnel Analysis")
+        st.caption(domains.PRODUCT_METRIC_EXPLANATIONS["funnel"])
+        if not product_event_col:
+            ui.render_empty_state("🪜", "No event column mapped", "Map an Event/Order column above to build a funnel.")
+        else:
+            funnel_event_values = df[product_event_col].dropna().unique().tolist()
+            funnel_stages = st.multiselect("Ordered stages (2-5)", funnel_event_values, key="funnel_stages")
+            if len(funnel_stages) < 2:
+                st.info("Pick at least 2 ordered stages (up to 5).")
+            elif len(funnel_stages) > 5:
+                st.warning("Pick at most 5 stages.")
+            else:
+                funnel_result = domains.compute_funnel(df, product_user_col, product_event_col, funnel_stages)
+                st.plotly_chart(domains.build_funnel_chart(funnel_result, funnel_stages), use_container_width=True)
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Stage": funnel_stages,
+                            "Users": [funnel_result["stage_counts"][s] for s in funnel_stages],
+                            "Conversion % (of first stage)": [funnel_result["conversion_pct"][s] for s in funnel_stages],
+                            "Drop-off % (vs. previous)": [funnel_result["dropoff_pct"].get(s) for s in funnel_stages],
+                        }
+                    ),
+                    use_container_width=True, hide_index=True,
+                )
+
+        st.divider()
+        st.markdown("#### Churn Flag")
+        st.caption(domains.PRODUCT_METRIC_EXPLANATIONS["churn"])
+        churn_inactive_days = st.slider("Inactive for at least (days)", min_value=7, max_value=180, value=30, key="churn_inactive_days")
+        try:
+            churn_df = domains.flag_churn(df, product_user_col, product_timestamp_col, churn_inactive_days)
+            cm1, cm2 = st.columns(2)
+            cm1.metric("Churned Users", int(churn_df["churned"].sum()))
+            cm2.metric("Churn Rate", f"{100 * churn_df['churned'].mean():.1f}%" if len(churn_df) else "—")
+            st.dataframe(churn_df.sort_values("days_inactive", ascending=False), use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"Couldn't compute churn: {e}")
+
+    else:
+        st.markdown("#### Column Mapper")
+        bc1, bc2, bc3 = st.columns(3)
+        with bc1:
+            bank_customer_col = st.selectbox("Customer/Account ID", all_domain_cols, key="bank_customer_col")
+        with bc2:
+            bank_amount_col = st.selectbox("Transaction Amount", all_domain_cols, key="bank_amount_col")
+        with bc3:
+            bank_date_col = st.selectbox("Transaction Date", all_domain_cols, key="bank_date_col")
+
+        bc4, bc5, bc6 = st.columns(3)
+        with bc4:
+            bank_loan_amount_choice = st.selectbox("Loan Amount (optional)", optional_col_choices, key="bank_loan_amount_col")
+            bank_loan_amount_col = None if bank_loan_amount_choice == "(none)" else bank_loan_amount_choice
+        with bc5:
+            bank_overdue_choice = st.selectbox("Days Overdue (optional)", optional_col_choices, key="bank_overdue_col")
+            bank_overdue_col = None if bank_overdue_choice == "(none)" else bank_overdue_choice
+        with bc6:
+            bank_limit_choice = st.selectbox("Credit Limit (optional)", optional_col_choices, key="bank_limit_col")
+            bank_limit_col = None if bank_limit_choice == "(none)" else bank_limit_choice
+
+        bank_balance_choice = st.selectbox(
+            "Balance (optional, for credit utilization)", optional_col_choices, key="bank_balance_col"
+        )
+        bank_balance_col = None if bank_balance_choice == "(none)" else bank_balance_choice
+
+        st.divider()
+        st.markdown("#### RFM Segmentation")
+        st.caption(domains.BANKING_METRIC_EXPLANATIONS["rfm"])
+        try:
+            rfm_df = domains.compute_rfm(df, bank_customer_col, bank_date_col, bank_amount_col)
+            if rfm_df.empty:
+                st.info("Not enough data to compute RFM segments.")
+            else:
+                st.plotly_chart(domains.build_rfm_segment_chart(rfm_df), use_container_width=True)
+                st.dataframe(rfm_df, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"Couldn't compute RFM: {e}")
+
+        st.divider()
+        st.markdown("#### Transaction Anomalies")
+        st.caption(domains.BANKING_METRIC_EXPLANATIONS["anomalies"])
+        try:
+            anomalies_df = domains.detect_transaction_anomalies(df, bank_customer_col, bank_amount_col, bank_date_col)
+            if anomalies_df.empty:
+                st.info("No anomalies flagged.")
+            else:
+                st.warning(f"{len(anomalies_df)} anomaly flag(s) found.")
+                st.dataframe(anomalies_df, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"Couldn't detect anomalies: {e}")
+
+        if bank_loan_amount_col and bank_overdue_col:
+            st.divider()
+            st.markdown("#### NPA / Overdue Analysis")
+            st.caption(domains.BANKING_METRIC_EXPLANATIONS["npa"])
+            try:
+                npa_result = domains.compute_npa_ratio(df, bank_loan_amount_col, bank_overdue_col)
+                n1, n2, n3 = st.columns(3)
+                n1.metric("NPA Ratio", f"{npa_result['npa_ratio_pct']}%")
+                n2.metric("NPA Loans", npa_result["npa_count"])
+                n3.metric("Total Loans", npa_result["total_count"])
+                bucket_counts = domains.compute_overdue_buckets(df, bank_overdue_col)
+                st.plotly_chart(domains.build_overdue_bucket_chart(bucket_counts), use_container_width=True)
+            except Exception as e:
+                st.error(f"Couldn't compute NPA analysis: {e}")
+
+        if bank_limit_col and bank_balance_col:
+            st.divider()
+            st.markdown("#### Credit Utilization")
+            st.caption(domains.BANKING_METRIC_EXPLANATIONS["credit_utilization"])
+            try:
+                utilization = domains.compute_credit_utilization(df, bank_limit_col, bank_balance_col)
+                if utilization.empty:
+                    st.info("Not enough data to compute credit utilization.")
+                else:
+                    u1, u2 = st.columns(2)
+                    u1.metric("Average Utilization", f"{utilization.mean():.1f}%")
+                    u2.metric("Customers Over 30%", f"{100 * (utilization > 30).mean():.1f}%")
+                    st.plotly_chart(domains.build_credit_utilization_chart(utilization), use_container_width=True)
+            except Exception as e:
+                st.error(f"Couldn't compute credit utilization: {e}")
+
+# --------------------------------------------------------------------------
+# ML Lab tab — the data-science bridge: a feature engineering assistant,
+# a baseline model runner (Logistic/Linear Regression vs. Random Forest),
+# and a class-imbalance detector with optional SMOTE. Baseline exploration
+# only — never a deployed model.
+# --------------------------------------------------------------------------
+with tab_mllab:
+    ui.render_help_expander(
+        "Pick a target column for feature-engineering suggestions, then run baseline "
+        "Logistic/Linear Regression vs. Random Forest models — exploration only, not a deployed model."
+    )
+
+    st.subheader("ML Lab")
+    st.info("**Baseline exploration only — not a deployed model.**")
+
+    if len(df) < 100:
+        st.warning(f"This dataset has only {len(df)} rows — baseline models may be unstable with so little data.")
+
+    mllab_target_col = st.selectbox("Target column", df.columns.tolist(), key="mllab_target_col")
+
+    if df[mllab_target_col].nunique() < 2:
+        st.error(f"'{mllab_target_col}' has only 1 distinct value — pick a different target to train a model.")
+    else:
+        mllab_task_type = mllab.detect_task_type(df[mllab_target_col])
+        st.caption(f"Detected task type: **{mllab_task_type.capitalize()}**")
+
+        st.divider()
+        st.markdown("#### Feature Engineering Assistant")
+        feature_suggestions = mllab.suggest_features(df, column_types, mllab_target_col)
+        if not feature_suggestions:
+            ui.render_empty_state(
+                "🛠️", "No suggestions", "No feature engineering suggestions for this target/column combination."
+            )
+        else:
+            for suggestion_idx, suggestion in enumerate(feature_suggestions):
+                cols_label = suggestion.get("column") or " & ".join(suggestion.get("columns", []))
+                fcol1, fcol2 = st.columns([4, 1])
+                with fcol1:
+                    st.write(f"**{suggestion['type'].replace('_', ' ').title()}** — {cols_label}")
+                    st.caption(suggestion["reason"])
+                with fcol2:
+                    if st.button("Apply", key=f"apply_feature_{suggestion_idx}", use_container_width=True):
+                        push_undo_snapshot()
+                        new_df, description, code = mllab.apply_suggestion(df, suggestion)
+                        st.session_state.working_df = new_df
+                        st.session_state.column_types = data_engine.detect_column_types(new_df)
+                        log_step(description, code)
+                        st.toast(f"{description}. 🛠️")
+                        st.rerun()
+
+        st.divider()
+        st.markdown("#### Baseline Model Runner")
+
+        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+        mllab_selected_features = st.multiselect(
+            "Feature columns", mllab_feature_choices,
+            default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
+        )
+
+        mllab_use_smote = False
+        if mllab_task_type == "classification":
+            imbalance_info = mllab.check_class_imbalance(df[mllab_target_col])
+            st.plotly_chart(mllab.build_class_distribution_chart(imbalance_info), use_container_width=True)
+            if imbalance_info["is_imbalanced"]:
+                st.warning(mllab.imbalance_explanation(imbalance_info))
+                mllab_use_smote = st.checkbox("Apply SMOTE resampling to the training set", key="mllab_use_smote")
+                st.caption(mllab.SMOTE_TEST_SET_NOTE)
+
+        if not mllab_selected_features:
+            st.info("Pick at least one feature column.")
+        elif st.button("Run Baseline Models", type="primary", use_container_width=True):
+            with st.spinner(ui.get_loading_message()):
+                try:
+                    st.session_state.mllab_result = mllab.run_baseline_models(
+                        df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
+                    )
+                    st.session_state.mllab_error = None
+                except Exception as e:
+                    st.session_state.mllab_result = None
+                    st.session_state.mllab_error = str(e)
+
+        if st.session_state.mllab_error:
+            st.error(st.session_state.mllab_error)
+        elif st.session_state.mllab_result is None:
+            ui.render_empty_state("🧬", "No model run yet", 'Pick feature columns and click "Run Baseline Models".')
+        else:
+            baseline_result = st.session_state.mllab_result
+            st.caption(
+                f"Trained on {baseline_result['n_train']} rows, tested on {baseline_result['n_test']} rows (80/20 split)."
+            )
+
+            if baseline_result["smote_before_after"]:
+                sba = baseline_result["smote_before_after"]
+                if "error" in sba:
+                    st.warning(f"SMOTE couldn't be applied: {sba['error']}")
+                else:
+                    st.caption(f"SMOTE: training set went from {sba['before']} to {sba['after']}.")
+
+            metric_cols = st.columns(2)
+            for metric_col, (model_name, metrics) in zip(metric_cols, baseline_result["results"].items()):
+                with metric_col:
+                    st.markdown(f"**{model_name}**")
+                    for metric_name, value in metrics.items():
+                        st.metric(metric_name.upper(), value)
+
+            st.success(mllab.build_verdict(baseline_result))
+
+            if baseline_result["confusion_matrix"] is not None:
+                st.plotly_chart(
+                    mllab.build_confusion_matrix_chart(baseline_result["confusion_matrix"], baseline_result["confusion_labels"]),
+                    use_container_width=True,
+                )
+            if baseline_result["feature_importances"] is not None:
+                st.plotly_chart(
+                    mllab.build_feature_importance_chart(baseline_result["feature_importances"]), use_container_width=True
+                )
 
 ui.render_footer()

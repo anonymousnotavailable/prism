@@ -14,6 +14,7 @@ no GitHub web editor needed — just save the file here and push.
 | `sql-lab.png` | SQL Lab — an example query loaded, results with row count + execution time |
 | `ai-analyst.png` | AI Analyst — a question answered with a generated chart |
 | `combine.png` | Combine tab — candidate join-key table + before/after row-count preview |
+| `hell-mode.png` | Hell Mode tab — the Indian Number Parser's before/after preview table (load `samples/hell/indian_startup_funding_messy.csv` first) |
 
 ## How to add one (Windows)
 
@@ -33,6 +34,6 @@ no GitHub web editor needed — just save the file here and push.
    ```
 6. Refresh the README on GitHub — the images should now render inline.
 
-You don't need all 7 at once — add whichever you have and repeat later for
+You don't need all 8 at once — add whichever you have and repeat later for
 the rest. Any filename left missing just won't render (GitHub shows a small
 broken-image icon), it won't break the rest of the page.

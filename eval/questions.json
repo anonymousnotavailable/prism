@@ -118,5 +118,35 @@
     "dataset": "stock_data.csv",
     "question": "How many unique tickers are there in the dataset?",
     "check": {"type": "numeric", "expected": 2, "tolerance_pct": 0}
+  },
+  {
+    "id": 21,
+    "dataset": "bank_transactions_messy.csv",
+    "question": "How many transactions are flagged as fraud (is_fraud equal to 1)?",
+    "check": {"type": "numeric", "expected": 16, "tolerance_pct": 0}
+  },
+  {
+    "id": 22,
+    "dataset": "bank_transactions_messy.csv",
+    "question": "How many unique customers are there?",
+    "check": {"type": "numeric", "expected": 120, "tolerance_pct": 0}
+  },
+  {
+    "id": 23,
+    "dataset": "bank_transactions_messy.csv",
+    "question": "What is the total transaction amount across all rows?",
+    "check": {"type": "numeric", "expected": 7217461.77, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 24,
+    "dataset": "indian_startup_funding_messy.csv",
+    "question": "How many unique startups are there?",
+    "check": {"type": "numeric", "expected": 600, "tolerance_pct": 0}
+  },
+  {
+    "id": 25,
+    "dataset": "product_events_messy.csv",
+    "question": "How many unique users are there?",
+    "check": {"type": "numeric", "expected": 150, "tolerance_pct": 0}
   }
 ]

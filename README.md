@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.50-FF4B4B?logo=streamlit&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![Code-Gen Eval](https://img.shields.io/badge/code--gen%20eval-7%2F7%20(partial%20run)-yellow)](eval/eval_results.md)
+[![Code-Gen Eval](https://img.shields.io/badge/code--gen%20eval-7%2F25%20(partial%20run)-yellow)](eval/eval_results.md)
 
 <!-- demo.gif here -->
 
@@ -58,6 +58,43 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
   per-step applied/skipped log (a step that doesn't apply — a missing
   column, an unreproducible join — is skipped, never crashes the rest)
 - Before/after comparison view + download the cleaned dataset as CSV
+
+### Hell Mode
+A deeper cleaning engine for the kind of real-world-messy data that Smart
+Type Coercion doesn't cover — built and demoed against 3 bundled "hell"
+datasets in `/samples/hell` (Indian startup funding, bank transactions,
+product events; see [Screenshots](#screenshots) below):
+- **Null Synonym Detection** — scans text columns for disguised nulls
+  ("NA", "-", "Nil", "N/A", whitespace-only, ...) pandas doesn't recognize
+  as missing by default, reports per-column counts, and converts them all
+  to real `NaN` in one click, with an editable synonym list
+- **Indian Number Parser** — a custom regex parser (not locale-based) for
+  `₹1,20,000` (Indian comma grouping), `Rs. 45,000`, `1.2 Cr`, `45 lakh`,
+  `3.5L`, `2.3 crore`, plus `$`/`K`/`M`/`%` — converts to an absolute
+  numeric value with a before/after preview and an `_inr` column suffix
+  noting the conversion
+- **Mixed Date Format Resolver** — detects a column mixing `12/03/2024`,
+  `2024-03-12`, `12-Mar-24`, `12th March 2024`, and `12.03.2024` in the same
+  column; explicitly flags genuinely ambiguous dates (`05/03/2024` — May or
+  March?) in a review table where you pick day-first or month-first for the
+  whole column (day-first by default); reports rows that failed to parse
+  instead of silently dropping them
+- **Fuzzy Category Cleanup** — `rapidfuzz`-powered clustering of similar
+  category values (case variants, trailing spaces, misspellings like
+  "Maharashtra"/"maharashtra "/"Maharastra") into suggested merge groups
+  with counts; pick which groups to merge and the canonical name, with an
+  adjustable similarity threshold (default 85)
+- **Unit Chaos Detector** — scans for mixed measurement units in one column
+  (`5km`/`3000m`/`2 miles`, `60 kg`/`132 lbs`, `90 sec`/`5 min`) and
+  normalizes everything to a single chosen unit, logging the conversion
+- **Imputation Intelligence** — beyond mean/median/mode: forward/back fill,
+  KNN imputation (`sklearn.KNNImputer`), and group-wise fill (e.g. salary by
+  department); an "AI Recommend" button sends column stats and the
+  missingness pattern to Gemini for a suggested strategy per column with a
+  one-line reason, which you approve before anything is applied
+
+*(all of it fully logged to the same Cleaning History + Undo as every other
+cleaning action)*
 
 ### Combine
 - Upload a second CSV/Excel file and join it onto your active dataset
@@ -152,6 +189,45 @@ The flagship v2 feature — one button, a full agentic analysis:
 - "Name Segments with AI" sends the cluster stats to Gemini, which names and
   describes each segment in one line referencing a real number from the table
 
+### Domain Lens
+Map your own column names to a domain's expected roles and get ready-made,
+interview-ready analytics — no need to already know the metric formulas:
+
+**Product Analytics mode** (map user ID, event/order, timestamp, revenue optional):
+- **Retention cohort heatmap** — monthly cohorts by first-seen month, % returning each subsequent month
+- **DAU/MAU + stickiness** — daily/monthly active users on one chart (same unit — never a dual-axis chart), stickiness ratio on its own
+- **Funnel analysis** — pick 2-5 ordered event stages, see per-stage conversion % and drop-off, with true funnel semantics (each stage's users are a subset of the previous stage's)
+- **Churn flag** — a simple, adjustable "inactive for N days" flag per user
+
+**Banking Analytics mode** (map customer/account ID, amount, date; loan/limit/balance fields optional):
+- **RFM segmentation** — Recency/Frequency/Monetary scored 1-5 by quantile, mapped to labeled segments (Champions, Loyal Customers, At Risk, Lost, ...)
+- **Transaction anomaly flags** — amounts beyond 3xIQR per customer, and sudden daily transaction-frequency spikes
+- **NPA / overdue analysis** *(if loan fields mapped)* — the standard 90+-day non-performing-asset ratio, plus a 0-30/31-60/61-90/90+ overdue bucket chart
+- **Credit utilization** *(if limit + balance mapped)* — balance/limit distribution, with the ~30% risk threshold called out
+
+Every metric ships with a 2-line, plain-English explanation card alongside it.
+
+### ML Lab
+The data-science bridge — explicitly framed as **baseline exploration, not
+a deployed model**:
+- **Feature Engineering Assistant** — pick a target column; get per-column
+  suggestions (one-hot vs. ordinal encoding by cardinality, standard scaling
+  for numerics, year/month/day/weekday expansion for datetimes, and up to 3
+  candidate interaction features from the most-correlated numeric pairs),
+  each with a one-line reason and a one-click apply (logged + undoable)
+- **Baseline Model Runner** — auto-detects classification vs. regression
+  from the target's dtype, an 80/20 stratified split, a
+  `ColumnTransformer` preprocessing pipeline, and Logistic/Linear
+  Regression vs. Random Forest compared side by side: accuracy/F1 or
+  RMSE/R², a confusion matrix heatmap, a feature-importance chart, and a
+  plain-English verdict card ("Random Forest wins on F1 score... Top
+  driver: transaction_frequency")
+- **Class Imbalance Detector** — flags a classification target with a
+  minority class under 20%, explains why accuracy would be misleading, and
+  switches the headline metric to F1; offers SMOTE resampling on the
+  *training set only*, with before/after class counts and an explicit note
+  on why the test set is never touched
+
 ### Throughout
 - Light/dark theme toggle in the sidebar (default: dark cyan)
 - Dismissible first-visit onboarding, a "? Help" expander on every tab,
@@ -169,11 +245,14 @@ The flagship v2 feature — one button, a full agentic analysis:
 ```mermaid
 flowchart LR
     Upload["Upload<br/>CSV / Excel / sample dataset"] --> Engine["Engine<br/>type detection, quality report, cleaning, PII scan"]
+    Engine --> HellMode["Hell Mode<br/>disguised nulls, Indian numbers, mixed dates, fuzzy categories, units, imputation"]
     Engine --> Visualize["Visualize<br/>auto-charts, dashboard builder, report writer"]
     Engine --> SQLLab["SQL Lab<br/>DuckDB queries on the live DataFrame"]
     Engine --> AIAnalyst["AI Analyst<br/>Gemini: plain English to pandas code"]
     Engine --> AutoAnalyst["Auto Analyst<br/>Gemini plan, then sequential sandboxed steps"]
     Engine --> StatsForecastCluster["Stats Lab / Forecasting / Clustering<br/>scipy.stats, statsmodels, scikit-learn"]
+    Engine --> DomainLens["Domain Lens<br/>Product & Banking analytics packs"]
+    Engine --> MLLab["ML Lab<br/>feature engineering, baseline models, imbalance + SMOTE"]
     AIAnalyst --> Sandbox["Sandboxed exec()<br/>result to table, metric, or chart"]
     AutoAnalyst --> Sandbox
     Visualize --> Report["Export: HTML / PDF report"]
@@ -204,10 +283,14 @@ prism/
 │   ├── report_writer.py     # v2: executive PDF/HTML report generation
 │   ├── recipes.py           # v2: save/apply cleaning history as a portable JSON recipe
 │   ├── pii_detector.py      # v2: regex PII scan + one-click masking
+│   ├── hellmode.py          # v3: null synonyms, Indian number parser, mixed dates, fuzzy cleanup, units, imputation
+│   ├── domains.py           # v3: Product & Banking analytics packs (Domain Lens tab)
+│   ├── mllab.py             # v3: feature engineering, baseline models, class imbalance + SMOTE
 │   ├── report.py            # Standalone HTML report generation (Visualize tab's basic export)
 │   ├── theme.py             # Dark/light CSS + Plotly templates
 │   └── ui.py                # Landing screen, footer, help expanders, onboarding
 ├── samples/                  # sales_data.csv / hr_data.csv / stock_data.csv for "Try a sample dataset"
+│   └── hell/                 # Deliberately messy datasets exercising every Hell Mode feature
 ├── eval/                     # Code-gen eval harness — questions.json, run_eval.py, eval_results.md
 ├── .streamlit/config.toml   # Theme config
 ├── requirements.txt          # Pinned, tested-together versions
@@ -305,7 +388,12 @@ streamlit run app.py
 The app opens at `http://localhost:8501`. No dataset handy? Use one of the 3
 bundled samples on the landing screen — each one ships with deliberate
 messiness (nulls, duplicates, currency-as-text, a date gap) specifically so
-the cleaning tools have something to do immediately.
+the cleaning tools have something to do immediately. To try **Hell Mode**
+specifically, upload one of the 3 deliberately-messier datasets in
+[`samples/hell/`](samples/hell) via the sidebar's file uploader — each one
+exercises every Hell Mode subsystem (disguised nulls, Indian-formatted
+numbers, mixed date formats, fuzzy categories, mixed units, and
+imputation-worthy missingness).
 
 **Deploying this yourself?** See [`DEPLOYMENT.md`](DEPLOYMENT.md) for exact
 steps to put it on Streamlit Community Cloud for free.
@@ -324,6 +412,9 @@ steps to put it on Streamlit Community Cloud for free.
 | Statistical testing | `scipy.stats` (t-test, ANOVA, chi-square, Pearson, Shapiro-Wilk) |
 | Forecasting    | `statsmodels` (ETS/Exponential Smoothing, SARIMAX) |
 | Clustering     | scikit-learn (`KMeans`, `PCA`, `StandardScaler`) |
+| Fuzzy matching | `rapidfuzz` (Fuzzy Category Cleanup) |
+| Imbalanced classes | `imbalanced-learn` (`SMOTE`, training-set only) |
+| Baseline ML    | scikit-learn (`LogisticRegression`, `LinearRegression`, `RandomForest*`, `ColumnTransformer`) |
 | PDF reports    | `fpdf2` (pure Python, no system dependencies) + `kaleido` (chart rasterization) |
 | Voice input    | streamlit-mic-recorder (browser speech-to-text) |
 | AI layer       | Google Gemini API (`gemini-2.5-flash`)  |
@@ -335,8 +426,10 @@ steps to put it on Streamlit Community Cloud for free.
 ## Code-Gen Eval Harness
 
 A hidden quality-assurance layer that keeps the AI Analyst / Auto Analyst
-pipeline honest: [`eval/questions.json`](eval/questions.json) has 20 fixed
-question-answer pairs against the bundled sample datasets, and
+pipeline honest: [`eval/questions.json`](eval/questions.json) has 25 fixed
+question-answer pairs against the bundled sample datasets — 20 against the
+original Sales/HR/Stocks samples, plus 5 against the Hell Mode datasets
+(fraud counts, unique customers/startups/users) — and
 [`eval/run_eval.py`](eval/run_eval.py) runs each one through the *real*
 pipeline (`ai_analyst.ask_and_execute` — Gemini-generated pandas code,
 executed in the safe-execution sandbox), grades the result against a fixed
@@ -391,6 +484,11 @@ Chat with your data in plain English — typed or by voice. Gemini generates pan
 Upload a second dataset and join it to your active one. Auto-detect candidate keys by name overlap and value overlap (Jaccard %), see a before/after preview with row counts, columns gained, and key match rate. Commit with one click — rewires all other tabs to work with the joined result.
 
 ![Combine Tab](docs/screenshots/combine.png)
+
+### 8. Hell Mode
+The Indian Number Parser's before/after preview table in action — messy ₹/Rs./lakh/crore-formatted text on the left, the converted absolute numeric value on the right, before you commit the conversion. The same tab also handles disguised nulls, mixed date formats, fuzzy category cleanup, unit chaos, and richer imputation strategies.
+
+![Hell Mode Tab](docs/screenshots/hell-mode.png)
 
 ---
 

@@ -33,8 +33,26 @@ MANUAL_CHART_TYPES_REQUIRING_Y = {"Scatter", "Line"}
 
 
 def get_overview_stats(df: pd.DataFrame) -> pd.DataFrame:
-    """Return df.describe() across all dtypes, transposed for easier table display."""
-    return df.describe(include="all").transpose()
+    """Return df.describe() across all dtypes, transposed for easier table display.
+
+    When the dataframe mixes real numeric and real datetime64 columns (e.g.
+    after Hell Mode's date resolver or a datetime dtype conversion), describe()
+    puts a float mean next to a Timestamp mean in the same "mean" column,
+    which pandas stores as `object` dtype with mixed Python types — that
+    combination fails Arrow serialization when Streamlit renders it. Any
+    column containing a Timestamp gets every non-null cell stringified (not
+    just the Timestamps) so the whole column is homogeneously str, not a
+    float/Timestamp mix — style_describe_table()'s to_numeric(errors="coerce")
+    still recovers the numeric cells from their string form for coloring.
+    """
+    stats_df = df.describe(include="all").transpose()
+
+    def _stringify_if_mixed(col: pd.Series) -> pd.Series:
+        if col.dtype == object and col.map(lambda v: isinstance(v, pd.Timestamp)).any():
+            return col.map(lambda v: v if pd.isna(v) else str(v))
+        return col
+
+    return stats_df.apply(_stringify_if_mixed)
 
 
 def _cyan_gradient_color(norm_value: float) -> str:

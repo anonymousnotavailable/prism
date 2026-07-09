@@ -1,0 +1,1001 @@
+user_id,event,timestamp,device_type,session_value_inr,page_load_time_ms,session_duration
+user_98,activate,29th March 2024,desktop,Undisclosed,223.6,30min
+user_69,Activate,24-May-24,desktop,0.0 Cr,456.4,90sec
+user_119,signup,03.01.2024,mobile,0.5 lakh,496.9,15min
+user_143,Activate,2024-05-25,desktop,0.01 crore,3047.4,45sec
+user_78,ACTIVATE,01-Feb-24,tablet,0.01 crore,773.2,30sec
+user_4,PURCHASE,14.05.2024,tablet,0.0 Cr,1067.0,90sec
+user_133,Signup,29th May 2024,mobile,0.0 Cr,665.4,30sec
+user_83,SIGNUP,18-Mar-24,tablet,0.01 crore,320.9,30sec
+user_145,signup,20th April 2024,mobile,"₹50,000",1870.8,45sec
+user_85,ACTIVATE,2024-04-10,desktop,"Rs. 50,000",432.9,90sec
+user_66,SIGNUP,02-Apr-24,tablet,"₹50,000",,5min
+user_46,Signup,18th February 2024,mobile,"Rs. 50,000",2091.1,30sec
+user_148,PURCHASE,16-Apr-24,tablet,"₹50,000",,45sec
+user_97,signup,29/05/2024,tablet,0.01 crore,,15min
+user_58,churn_risk_view,17/05/2024,mobile,0.01 crore,1336.4,90min
+user_50,activate,2024-02-21,tablet,Undisclosed,,15sec
+user_56,Sign Up,20th February 2024,mobile,"Rs. 50,000",1910.7,15min
+user_88,purchase,21-Mar-24,mobile,"₹50,000",,1min
+user_124,SIGNUP,2024-02-13,tablet,"₹50,000",785.7,15sec
+user_23,Signup,26.04.2024,tablet,0.01 crore,,5min
+user_118,ACTIVATE,27-Jan-24,desktop,"₹50,000",584.7,1min
+user_138,Purchase,2024-02-28,mobile,0.5 lakh,678.1,1min
+user_149,SIGNUP,28/03/2024,tablet,0.5 lakh,119.8,30min
+user_25,signup,2024-02-03,mobile,"₹50,000",1295.4,90sec
+user_116,signup,13.01.2024,tablet,0.01 crore,2269.5,5min
+user_81,Signup,29/01/2024,mobile,0.01 crore,966.8,30sec
+user_36,SIGNUP,29/01/2024,tablet,"Rs. 50,000",220.3,30sec
+user_51,signup,15/03/2024,desktop,0.0 Cr,1770.4,1min
+user_2,ACTIVATE,5th April 2024,tablet,0.01 crore,282.3,90min
+user_109,Churn_Risk_View,2024-02-23,desktop,"Rs. 50,000",1080.5,30min
+user_102,Signup,30th March 2024,mobile,0.5 lakh,1489.8,15min
+user_55,Activate,11-Jan-24,tablet,"Rs. 50,000",1263.3,30sec
+user_46,SIGNUP,2024-01-11,tablet,0.0 Cr,707.8,15sec
+user_11,activate,2024-03-10,tablet,Undisclosed,566.6,30sec
+user_95,activate,16.03.2024,tablet,"Rs. 50,000",629.2,90min
+user_28,signup,15th May 2024,desktop,0.5 lakh,347.4,15min
+user_113,SIGNUP,14.05.2024,tablet,"Rs. 50,000",963.3,90sec
+user_111,Signup,2024-02-03,mobile,"Rs. 50,000",643.3,30sec
+user_72,Signup,11/02/2024,mobile,0.0 Cr,954.0,15sec
+user_104,ACTIVATE,30th May 2024,desktop,0.5 lakh,999.4,15sec
+user_5,signup,unknown,desktop,0.0 Cr,918.1,30sec
+user_83,Signup,15.02.2024,tablet,0.0 Cr,767.8,5min
+user_15,Sign Up,16/01/2024,mobile,0.5 lakh,375.3,30sec
+user_54,churn_risk_view,3rd May 2024,tablet,0.0 Cr,203.6,90sec
+user_141,signup,19/03/2024,mobile,0.5 lakh,1201.9,30sec
+user_89,PURCHASE,17th February 2024,mobile,"₹50,000",526.3,2min
+user_94,signup,2024-05-28,tablet,"₹50,000",911.6,90min
+user_90,PURCHASE,17th April 2024,mobile,"Rs. 50,000",1446.9,30sec
+user_136,Activate,8th April 2024,tablet,"Rs. 50,000",923.4,30min
+user_2,Signup,2024-04-23,tablet,Undisclosed,1412.4,90min
+user_112,signup,26/05/2024,,"Rs. 50,000",617.4,45min
+user_129,Signup,2024-03-18,desktop,0.01 crore,963.1,15min
+user_67,Signup,2024-03-15,tablet,"₹50,000",829.5,15sec
+user_101,activate,TBD,mobile,0.0 Cr,995.8,15sec
+user_10,Signup,25-Mar-24,tablet,"₹50,000",234.0,30sec
+user_3,SIGNUP,13-Jan-24,tablet,"₹50,000",563.9,5min
+user_99,ACTIVATE,15.03.2024,mobile,0.01 crore,205.9,90sec
+user_120,purchase,11-Feb-24,mobile,"Rs. 50,000",29.8,15sec
+user_33,ACTIVATE,12/01/2024,desktop,"Rs. 50,000",490.6,45sec
+user_29,Activate,23/03/2024,desktop,0.5 lakh,671.6,1min
+user_75,SIGNUP,22/04/2024,desktop,0.01 crore,2204.8,30sec
+user_136,signup,27/02/2024,mobile,0.5 lakh,702.9,15sec
+user_23,purchase,18-Jan-24,tablet,"Rs. 50,000",187.2,30sec
+user_141,SIGNUP,2024-03-24,mobile,0.01 crore,1186.8,45min
+user_14,ACTIVATE,27-Mar-24,mobile,0.01 crore,625.8,90sec
+user_36,PURCHASE,17.03.2024,tablet,"Rs. 50,000",730.4,90sec
+user_52,signup,10.01.2024,mobile,"Rs. 50,000",,30sec
+user_46,ACTIVATE,19.04.2024,tablet,0.0 Cr,,90sec
+user_111,Activate,17.02.2024,mobile,"Rs. 50,000",1669.4,45sec
+user_12,activate,26/01/2024,desktop,0.01 crore,513.2,15sec
+user_101,churn_risk_view,30-May-24,mobile,0.0 Cr,434.4,5min
+user_13,activate,30-May-24,NA,0.0 Cr,964.5,15sec
+user_41,Sign Up,25.01.2024,tablet,0.5 lakh,135.2,45sec
+user_117,SIGNUP,29th May 2024,desktop,0.01 crore,1361.0,15sec
+user_149,ACTIVATE,28.04.2024,tablet,0.5 lakh,642.1,90sec
+user_135,churn_risk_view,17/03/2024,desktop,"Rs. 50,000",192.7,90sec
+user_7,Activate,23-Feb-24,tablet,Undisclosed,690.3,2min
+user_147,PURCHASE,03.01.2024,tablet,0.0 Cr,117.4,15min
+user_37,churn_risk_view,23-May-24,mobile,0.01 crore,1392.6,15sec
+user_49,signup,2nd February 2024,mobile,"₹50,000",,5min
+user_78,Purchase,04.02.2024,mobile,0.0 Cr,,15sec
+user_15,Sign Up,04.02.2024,mobile,0.0 Cr,943.5,90sec
+user_130,SIGNUP,12-Apr-24,mobile,Undisclosed,,45min
+user_115,Activate,04.03.2024,desktop,0.5 lakh,494.9,15sec
+user_10,Churn_Risk_View,TBD,desktop,Undisclosed,1569.7,90min
+user_75,SIGNUP,15-Feb-24,desktop,"Rs. 50,000",,5min
+user_52,PURCHASE,26-Mar-24,desktop,0.01 crore,669.9,15sec
+user_36,Signup,2024-05-04,tablet,0.01 crore,1911.5,30sec
+user_147,Purchase,15-Apr-24,desktop,0.0 Cr,226.9,15sec
+user_130,Purchase,26-Apr-24,mobile,0.01 crore,257.8,1min
+user_50,churn_risk_view,06.01.2024,mobile,0.01 crore,812.2,15sec
+user_133,ACTIVATE,17-Jan-24,desktop,0.0 Cr,1875.5,90min
+user_24,signup,29/02/2024,tablet,0.01 crore,393.5,2min
+user_101,Signup,04-Feb-24,mobile,Undisclosed,1231.7,1min
+user_115,SIGNUP,28.04.2024,,0.01 crore,,45min
+user_19,ACTIVATE,16th January 2024,desktop,0.5 lakh,1192.2,90sec
+user_38,PURCHASE,09/04/2024,desktop,"₹50,000",648.3,1min
+user_44,signup,17th April 2024,mobile,"Rs. 50,000",,15min
+user_43,purchase,15.01.2024,tablet,"Rs. 50,000",95.4,30sec
+user_149,Sign Up,8th January 2024,tablet,Undisclosed,730.3,15sec
+user_22,activate,18/02/2024,mobile,"Rs. 50,000",299.1,90sec
+user_30,SIGNUP,07-Jan-24,tablet,"Rs. 50,000",732.3,15min
+user_62,churn_risk_view,14.04.2024,mobile,0.5 lakh,635.2,90sec
+user_69,churn_risk_view,22/01/2024,tablet,"Rs. 50,000",1493.4,30min
+user_107,Signup,31-Mar-24,desktop,0.0 Cr,692.7,15sec
+user_149,signup,18th May 2024,mobile,"₹50,000",1389.6,5min
+user_138,Sign Up,13.04.2024,desktop,0.0 Cr,890.1,90min
+user_134,activate,09.03.2024,tablet,0.0 Cr,772.0,1min
+user_145,signup,03/02/2024,mobile,0.0 Cr,336.3,30min
+user_50,SIGNUP,2024-03-24,tablet,"₹50,000",253.7,90min
+user_43,Sign Up,unknown,tablet,"₹50,000",2165.4,30sec
+user_4,SIGNUP,20.05.2024,tablet,0.5 lakh,197.0,15sec
+user_23,signup,1st February 2024,mobile,"₹50,000",141.4,30sec
+user_148,PURCHASE,16th May 2024,tablet,0.0 Cr,1029.8,15sec
+user_62,SIGNUP,2024-01-11,tablet,"₹50,000",1327.4,90sec
+user_81,ACTIVATE,24-Jan-24,desktop,0.5 lakh,1451.2,2min
+user_3,Signup,18-Jan-24,desktop,Undisclosed,1061.5,5min
+user_103,signup,20/04/2024,mobile,"₹50,000",855.8,15sec
+user_131,Churn_Risk_View,24/04/2024,mobile,0.5 lakh,,15min
+user_119,activate,28.02.2024,desktop,0.5 lakh,495.0,15min
+user_35,signup,21st May 2024,tablet,Undisclosed,2384.3,45min
+user_29,activate,09/01/2024,mobile,"₹50,000",,30sec
+user_44,ACTIVATE,21st February 2024,desktop,Undisclosed,,5min
+user_111,Churn_Risk_View,24-Mar-24,desktop,Undisclosed,1164.8,30min
+user_98,Activate,7th January 2024,,0.5 lakh,474.4,30min
+user_21,activate,05.05.2024,desktop,0.5 lakh,892.7,30min
+user_107,Churn_Risk_View,09-Apr-24,mobile,"₹50,000",1372.9,90min
+user_75,PURCHASE,01-May-24,mobile,0.01 crore,,15sec
+user_37,SIGNUP,2nd February 2024,mobile,"Rs. 50,000",1493.5,30sec
+user_64,Signup,1st April 2024,mobile,0.01 crore,678.2,15sec
+user_50,Signup,19/05/2024,desktop,"Rs. 50,000",2205.3,45sec
+user_16,Sign Up,15-May-24,none,"₹50,000",439.8,15sec
+user_79,purchase,20/02/2024,tablet,"₹50,000",1024.5,90sec
+user_25,signup,2024-05-09,mobile,0.5 lakh,1627.0,15sec
+user_53,purchase,17th March 2024,mobile,"₹50,000",506.4,90sec
+user_39,purchase,31-Mar-24,tablet,Undisclosed,876.6,5min
+user_2,Sign Up,31st January 2024,desktop,"₹50,000",,5min
+user_133,Sign Up,01.01.2024,tablet,"Rs. 50,000",275.0,90sec
+user_120,PURCHASE,09/02/2024,tablet,"Rs. 50,000",1319.9,15sec
+user_10,activate,2024-04-24,mobile,"₹50,000",1158.2,45min
+user_3,SIGNUP,13th February 2024,mobile,"Rs. 50,000",415.4,15min
+user_97,Purchase,21/05/2024,desktop,Undisclosed,910.0,45sec
+user_147,purchase,2024-04-03,mobile,"Rs. 50,000",1524.7,2min
+user_55,SIGNUP,20-Feb-24,mobile,"₹50,000",2586.2,5min
+user_128,SIGNUP,2024-01-17,mobile,"₹50,000",396.8,30sec
+user_96,Sign Up,01.05.2024,tablet,0.5 lakh,205.2,5min
+user_23,signup,2024-01-24,desktop,0.5 lakh,469.9,5min
+user_81,Activate,30/04/2024,tablet,0.5 lakh,1226.2,90min
+user_95,Activate,2024-05-24,desktop,"₹50,000",494.4,2min
+user_39,SIGNUP,16.03.2024,desktop,0.5 lakh,,15sec
+user_118,SIGNUP,01/02/2024,tablet,0.5 lakh,1490.8,30sec
+user_135,Purchase,05-Jan-24,mobile,0.01 crore,857.4,90sec
+user_100,Churn_Risk_View,15/05/2024,mobile,"₹50,000",1029.1,30sec
+user_36,PURCHASE,02/05/2024,mobile,0.0 Cr,313.8,90sec
+user_135,Activate,20-Apr-24,tablet,"₹50,000",981.8,90sec
+user_94,signup,01-Mar-24,tablet,0.5 lakh,942.0,15min
+user_2,ACTIVATE,21/03/2024,desktop,Undisclosed,1277.3,90min
+user_111,purchase,20/01/2024,mobile,0.5 lakh,1032.7,90sec
+user_46,Signup,2024-01-16,desktop,"Rs. 50,000",558.1,90min
+user_108,purchase,12th February 2024,tablet,0.01 crore,768.1,30sec
+user_148,activate,2024-01-03,-,0.0 Cr,321.1,45sec
+user_15,signup,2024-04-18,desktop,"₹50,000",356.4,1min
+user_87,Signup,03.01.2024,mobile,0.5 lakh,687.2,30sec
+user_71,churn_risk_view,23.04.2024,tablet,"Rs. 50,000",206.3,15sec
+user_140,activate,24th March 2024,tablet,0.5 lakh,588.3,15sec
+user_56,Sign Up,30-Mar-24,mobile,"Rs. 50,000",679.4,30min
+user_91,ACTIVATE,22nd February 2024,tablet,"Rs. 50,000",613.2,90min
+user_93,signup,15/04/2024,tablet,0.5 lakh,2035.7,15min
+user_8,activate,2024-03-12,tablet,0.01 crore,1015.1,30sec
+user_10,Churn_Risk_View,2024-02-09,desktop,Undisclosed,273.4,45min
+user_57,ACTIVATE,13/04/2024,tablet,0.0 Cr,1215.2,30sec
+user_109,purchase,03/02/2024,desktop,0.5 lakh,1245.1,2min
+user_113,Signup,2024-03-26,mobile,"Rs. 50,000",1165.9,90min
+user_3,Activate,8th April 2024,tablet,"Rs. 50,000",171.6,1min
+user_19,activate,28/02/2024,tablet,0.01 crore,361.5,90min
+user_6,Signup,2024-04-18,-,0.0 Cr,746.8,30min
+user_16,SIGNUP,31st March 2024,N/A,0.5 lakh,273.5,45sec
+user_124,Sign Up,28-Apr-24,tablet,0.01 crore,211.0,15sec
+user_82,ACTIVATE,18/05/2024,mobile,"Rs. 50,000",,90sec
+user_43,Churn_Risk_View,30-May-24,desktop,"₹50,000",851.5,45min
+user_128,activate,01.04.2024,tablet,0.01 crore,458.7,90sec
+user_68,Signup,11-Apr-24,desktop,0.01 crore,79.2,90sec
+user_2,Sign Up,28/01/2024,mobile,"Rs. 50,000",681.2,45sec
+user_41,Signup,2024-03-03,NA,"Rs. 50,000",655.2,2min
+user_67,Churn_Risk_View,2024-03-28,desktop,Undisclosed,803.3,15sec
+user_147,Signup,26th February 2024,tablet,0.01 crore,279.2,30min
+user_5,ACTIVATE,15th May 2024,mobile,"₹50,000",169.1,15min
+user_72,Activate,2024-02-25,?,0.5 lakh,1329.4,90min
+user_52,SIGNUP,20-Feb-24,desktop,0.01 crore,254.4,15min
+user_29,Sign Up,20-Feb-24,tablet,"Rs. 50,000",106.6,1min
+user_74,Churn_Risk_View,16.02.2024,desktop,0.01 crore,1263.6,15sec
+user_144,Signup,18-Feb-24,mobile,0.5 lakh,66.6,45sec
+user_88,PURCHASE,19/04/2024,desktop,"₹50,000",256.4,5min
+user_107,Sign Up,23-May-24,mobile,0.01 crore,,15sec
+user_80,churn_risk_view,2024-05-03,mobile,0.01 crore,420.9,15sec
+user_67,Sign Up,19th April 2024,tablet,0.0 Cr,845.7,45sec
+user_21,Purchase,2024-05-18,desktop,"Rs. 50,000",1591.6,1min
+user_94,SIGNUP,17.03.2024,tablet,"₹50,000",787.1,30sec
+user_78,ACTIVATE,26/03/2024,tablet,0.5 lakh,512.3,90sec
+user_113,activate,09/03/2024,,0.5 lakh,,15sec
+user_107,Churn_Risk_View,15.04.2024,mobile,"Rs. 50,000",316.3,45sec
+user_11,PURCHASE,09-Apr-24,desktop,0.5 lakh,214.9,90min
+user_5,signup,18th March 2024,tablet,0.0 Cr,435.5,15sec
+user_7,signup,14.04.2024,mobile,"₹50,000",1065.3,5min
+user_20,Churn_Risk_View,2024-05-25,mobile,0.01 crore,754.7,30min
+user_136,activate,18-Apr-24,desktop,0.5 lakh,203.7,30sec
+user_77,Sign Up,05.01.2024,none,"₹50,000",599.8,2min
+user_135,SIGNUP,11th February 2024,tablet,0.5 lakh,481.7,15min
+user_128,ACTIVATE,02.01.2024,desktop,0.01 crore,897.5,15sec
+user_36,Signup,10/05/2024,desktop,"₹50,000",643.8,2min
+user_52,activate,08-Jan-24,tablet,"₹50,000",1495.7,30sec
+user_76,purchase,14-May-24,tablet,0.0 Cr,1482.2,45sec
+user_22,Activate,2024-01-20,tablet,"Rs. 50,000",207.2,90min
+user_135,signup,04.02.2024,desktop,0.5 lakh,280.7,45min
+user_97,Sign Up,17-Feb-24,mobile,Undisclosed,481.7,5min
+user_55,signup,2024-04-14,mobile,0.5 lakh,,45sec
+user_63,purchase,06/04/2024,mobile,"Rs. 50,000",397.1,5min
+user_108,PURCHASE,06.03.2024,tablet,0.01 crore,1483.4,2min
+user_139,Sign Up,07.02.2024,desktop,"Rs. 50,000",1403.5,1min
+user_118,signup,2024-05-15,mobile,"Rs. 50,000",1692.2,5min
+user_65,activate,17th February 2024,mobile,0.5 lakh,,15min
+user_45,Signup,18th February 2024,tablet,0.0 Cr,242.8,90min
+user_115,Churn_Risk_View,17/02/2024,mobile,0.0 Cr,1451.8,45sec
+user_135,Signup,2024-02-18,NA,0.01 crore,1021.0,90min
+user_78,PURCHASE,28.02.2024,tablet,"₹50,000",539.4,2min
+user_120,ACTIVATE,03/02/2024,desktop,"Rs. 50,000",561.4,30min
+user_14,Signup,12.05.2024,mobile,"Rs. 50,000",562.4,1min
+user_102,churn_risk_view,2024-02-02,tablet,0.0 Cr,1937.1,90sec
+user_114,Sign Up,14/04/2024,tablet,0.01 crore,2852.0,30min
+user_81,Activate,27-Feb-24,tablet,"₹50,000",,90sec
+user_15,Signup,27/02/2024,mobile,0.0 Cr,353.1,15sec
+user_117,Signup,11.01.2024,desktop,"Rs. 50,000",1039.5,45min
+user_106,signup,02.02.2024,mobile,0.01 crore,,15min
+user_91,ACTIVATE,23-Jan-24,mobile,"₹50,000",570.4,45sec
+user_130,signup,01-Jan-24,tablet,Undisclosed,595.5,45sec
+user_63,Sign Up,30-Jan-24,NULL,Undisclosed,1161.3,1min
+user_30,churn_risk_view,18th May 2024,tablet,0.5 lakh,743.3,1min
+user_41,ACTIVATE,11-Jan-24,tablet,"₹50,000",424.5,15sec
+user_23,ACTIVATE,7th April 2024,tablet,0.5 lakh,483.6,30sec
+user_76,ACTIVATE,08/03/2024,mobile,"Rs. 50,000",,90sec
+user_23,PURCHASE,2024-05-18,desktop,Undisclosed,752.6,1min
+user_85,ACTIVATE,17/05/2024,mobile,0.5 lakh,913.9,90sec
+user_37,Sign Up,05/01/2024,,0.01 crore,604.5,15sec
+user_50,Purchase,21st January 2024,desktop,0.0 Cr,1896.5,45min
+user_104,SIGNUP,03.02.2024,tablet,"₹50,000",235.4,1min
+user_4,ACTIVATE,03/02/2024,none,"₹50,000",170.4,2min
+user_111,signup,03/01/2024,tablet,"₹50,000",608.3,15sec
+user_15,SIGNUP,01/03/2024,NULL,0.5 lakh,622.5,45sec
+user_28,Purchase,27-May-24,none,Undisclosed,991.8,90min
+user_35,SIGNUP,12-Jan-24,tablet,0.0 Cr,,15sec
+user_135,Purchase,24-Feb-24,desktop,0.5 lakh,503.3,30sec
+user_104,Sign Up,7th April 2024,mobile,0.01 crore,1135.8,15min
+user_103,signup,2024-01-05,desktop,Undisclosed,222.3,15sec
+user_108,signup,7th May 2024,desktop,0.01 crore,359.5,15sec
+user_145,Purchase,8th March 2024,tablet,0.01 crore,1141.8,2min
+user_31,Sign Up,26-May-24,desktop,"Rs. 50,000",1220.0,90sec
+user_126,Activate,8th March 2024,desktop,Undisclosed,502.0,30sec
+user_22,signup,18.05.2024,tablet,"₹50,000",126.8,30sec
+user_122,Sign Up,24th February 2024,desktop,0.0 Cr,475.6,30min
+user_96,Sign Up,17/02/2024,mobile,0.5 lakh,718.0,5min
+user_5,signup,27.05.2024,mobile,0.5 lakh,532.3,30min
+user_134,Sign Up,08-Feb-24,desktop,0.01 crore,842.6,30min
+user_111,activate,25/05/2024,mobile,"₹50,000",,2min
+user_47,purchase,20th April 2024,mobile,0.5 lakh,398.2,15min
+user_7,SIGNUP,2024-04-23,mobile,0.01 crore,91.3,45sec
+user_121,Sign Up,17th March 2024,none,0.01 crore,854.0,90sec
+user_40,Sign Up,04-Jan-24,mobile,0.01 crore,399.3,90min
+user_146,Sign Up,24-Apr-24,tablet,0.5 lakh,2949.3,90sec
+user_19,Churn_Risk_View,06/03/2024,mobile,0.01 crore,481.9,45sec
+user_106,Signup,21.04.2024,tablet,"Rs. 50,000",707.2,15sec
+user_73,signup,23.05.2024,mobile,"Rs. 50,000",1005.2,30sec
+user_77,Signup,07.05.2024,desktop,0.0 Cr,546.0,30sec
+user_123,Activate,15-Jan-24,mobile,Undisclosed,2972.6,1min
+user_102,PURCHASE,19-Mar-24,tablet,0.01 crore,714.3,45sec
+user_145,PURCHASE,09/04/2024,mobile,"Rs. 50,000",341.3,15sec
+user_106,signup,22.01.2024,mobile,0.01 crore,117.4,90min
+user_102,Purchase,23-Mar-24,desktop,0.5 lakh,681.5,15sec
+user_133,Purchase,16-Apr-24,tablet,Undisclosed,651.4,15sec
+user_66,Activate,18-Jan-24,Nil,"Rs. 50,000",1926.3,1min
+user_120,signup,11th January 2024,mobile,Undisclosed,870.8,2min
+user_15,Purchase,14.02.2024,Nil,Undisclosed,676.0,5min
+user_3,ACTIVATE,2024-05-29,desktop,0.0 Cr,616.4,45min
+user_53,ACTIVATE,2024-04-02,mobile,"Rs. 50,000",445.0,90sec
+user_146,activate,23rd March 2024,tablet,Undisclosed,1050.1,5min
+user_0,Activate,13/02/2024,mobile,"₹50,000",774.6,2min
+user_85,activate,13th May 2024,desktop,"₹50,000",562.8,90sec
+user_117,signup,2024-04-02,tablet,"Rs. 50,000",622.2,5min
+user_128,SIGNUP,13/05/2024,tablet,0.0 Cr,2144.1,90sec
+user_109,ACTIVATE,8th January 2024,tablet,0.01 crore,515.5,90min
+user_49,Signup,2024-01-01,tablet,"₹50,000",511.8,5min
+user_119,Signup,18th May 2024,desktop,0.0 Cr,1172.6,15min
+user_36,Activate,26th February 2024,tablet,0.5 lakh,2505.4,15sec
+user_80,ACTIVATE,10th March 2024,desktop,0.01 crore,1292.8,5min
+user_107,signup,07.05.2024,tablet,"Rs. 50,000",651.1,15min
+user_14,Sign Up,2024-05-22,mobile,0.0 Cr,833.7,90sec
+user_122,Sign Up,12.04.2024,tablet,0.0 Cr,,5min
+user_25,ACTIVATE,09.02.2024,tablet,"₹50,000",289.4,15sec
+user_99,Signup,10th January 2024,mobile,0.0 Cr,614.2,30sec
+user_77,SIGNUP,26/04/2024,mobile,0.0 Cr,795.7,5min
+user_86,Sign Up,2024-03-31,desktop,0.5 lakh,266.6,30sec
+user_81,Churn_Risk_View,22-Apr-24,mobile,0.0 Cr,439.9,1min
+user_67,Signup,12/01/2024,mobile,0.01 crore,1133.7,5min
+user_58,Sign Up,23/03/2024,mobile,0.0 Cr,482.3,90min
+user_59,Sign Up,18-Mar-24,tablet,"Rs. 50,000",769.3,30min
+user_5,Signup,17th January 2024,tablet,"Rs. 50,000",297.2,15min
+user_41,signup,07-Feb-24,tablet,0.5 lakh,146.2,15min
+user_41,signup,28th February 2024,desktop,"₹50,000",619.8,45sec
+user_6,Sign Up,29th April 2024,desktop,"₹50,000",485.6,45sec
+user_68,signup,2024-01-30,-,"₹50,000",477.6,15sec
+user_58,Activate,17/03/2024,tablet,0.01 crore,1598.8,90min
+user_32,Signup,2024-05-17,mobile,Undisclosed,557.4,5min
+user_147,purchase,2024-05-29,mobile,"Rs. 50,000",708.7,90min
+user_35,Signup,21/03/2024,desktop,"₹50,000",753.7,1min
+user_68,Signup,2024-05-30,tablet,0.5 lakh,1702.1,15sec
+user_83,Sign Up,08-Feb-24,mobile,Undisclosed,298.1,45sec
+user_111,Purchase,19th March 2024,mobile,"Rs. 50,000",1023.9,15sec
+user_85,PURCHASE,01.04.2024,mobile,0.01 crore,586.7,15sec
+user_82,Purchase,01.01.2024,desktop,0.5 lakh,1636.0,45min
+user_102,Signup,2024-05-03,,0.5 lakh,,2min
+user_95,activate,2024-05-03,mobile,0.0 Cr,443.1,45sec
+user_74,Signup,04.01.2024,desktop,"₹50,000",793.7,45sec
+user_62,signup,2024-01-22,desktop,Undisclosed,374.9,90sec
+user_124,activate,20.05.2024,mobile,0.0 Cr,1839.1,45min
+user_0,PURCHASE,06/02/2024,mobile,"₹50,000",320.0,30sec
+user_13,SIGNUP,2024-02-17,tablet,"₹50,000",549.0,1min
+user_74,Sign Up,9th February 2024,mobile,Undisclosed,89.5,30sec
+user_63,activate,22nd February 2024,mobile,"₹50,000",598.2,30sec
+user_35,churn_risk_view,08/01/2024,mobile,0.0 Cr,1327.9,15sec
+user_132,purchase,06-Apr-24,mobile,"Rs. 50,000",1939.8,30min
+user_113,Sign Up,19th April 2024,desktop,"₹50,000",718.8,45sec
+user_62,ACTIVATE,11th March 2024,tablet,0.5 lakh,856.9,1min
+user_103,activate,2024-04-04,desktop,0.5 lakh,948.8,15sec
+user_68,Sign Up,01/05/2024,tablet,"Rs. 50,000",840.9,2min
+user_86,ACTIVATE,23rd February 2024,tablet,0.0 Cr,434.5,30sec
+user_126,Sign Up,08-Feb-24,mobile,"Rs. 50,000",800.5,30min
+user_105,Activate,20/05/2024,mobile,Undisclosed,344.2,30min
+user_139,Signup,2024-01-20,tablet,Undisclosed,649.0,30sec
+user_127,signup,2024-02-23,desktop,"₹50,000",845.2,90min
+user_142,PURCHASE,05-Feb-24,mobile,0.01 crore,711.1,45min
+user_36,SIGNUP,28-May-24,desktop,0.5 lakh,726.4,45sec
+user_129,Sign Up,21.01.2024,tablet,0.0 Cr,1166.4,90sec
+user_57,signup,25.02.2024,mobile,0.5 lakh,359.3,15sec
+user_69,purchase,29/05/2024,mobile,0.01 crore,587.1,2min
+user_70,SIGNUP,16th May 2024,mobile,"Rs. 50,000",580.4,15min
+user_2,ACTIVATE,13th March 2024,tablet,"₹50,000",838.1,30sec
+user_106,churn_risk_view,31-Jan-24,tablet,0.0 Cr,,15sec
+user_77,purchase,2024-05-21,mobile,Undisclosed,,15min
+user_52,SIGNUP,2024-05-19,desktop,"₹50,000",280.1,30sec
+user_34,activate,18th March 2024,mobile,"₹50,000",448.7,90sec
+user_19,ACTIVATE,24.02.2024,desktop,"Rs. 50,000",193.5,15sec
+user_28,Purchase,2024-04-07,mobile,0.01 crore,892.7,30sec
+user_105,signup,20/04/2024,desktop,0.01 crore,116.4,90sec
+user_93,purchase,13.03.2024,tablet,0.0 Cr,1409.0,45min
+user_56,SIGNUP,2024-01-15,desktop,"Rs. 50,000",672.3,45sec
+user_116,SIGNUP,09-Feb-24,desktop,"₹50,000",800.6,15min
+user_28,Churn_Risk_View,26th February 2024,tablet,0.5 lakh,139.9,90sec
+user_104,SIGNUP,18/05/2024,mobile,"₹50,000",746.8,15sec
+user_35,activate,28.02.2024,mobile,0.0 Cr,12.1,30sec
+user_76,signup,2024-01-09,tablet,0.0 Cr,542.1,15sec
+user_80,Churn_Risk_View,19-Feb-24,mobile,0.0 Cr,514.5,2min
+user_125,Activate,22-May-24,tablet,0.0 Cr,,45sec
+user_62,activate,18/03/2024,tablet,Undisclosed,2158.5,90min
+user_140,Signup,10.01.2024,mobile,"Rs. 50,000",2310.8,15sec
+user_29,Sign Up,7th February 2024,desktop,"Rs. 50,000",663.8,45sec
+user_95,activate,26-May-24,tablet,"₹50,000",800.9,90sec
+user_39,Purchase,2024-05-13,mobile,"Rs. 50,000",819.9,30min
+user_21,Sign Up,12.04.2024,mobile,0.0 Cr,,15sec
+user_71,PURCHASE,2024-02-19,tablet,"Rs. 50,000",398.7,90sec
+user_136,Signup,13-Mar-24,desktop,"₹50,000",224.3,90sec
+user_87,Activate,04.03.2024,tablet,0.0 Cr,1790.1,90sec
+user_42,Signup,04.04.2024,mobile,0.01 crore,1241.6,30sec
+user_35,SIGNUP,14/05/2024,mobile,"Rs. 50,000",359.3,5min
+user_25,churn_risk_view,4th May 2024,N/A,0.0 Cr,2565.5,15min
+user_97,purchase,23.02.2024,desktop,0.01 crore,941.0,1min
+user_11,Purchase,18-Mar-24,mobile,Undisclosed,,15sec
+user_57,ACTIVATE,05-May-24,NA,0.0 Cr,246.9,90sec
+user_126,Purchase,17-Jan-24,tablet,0.0 Cr,1042.2,1min
+user_55,Sign Up,04/02/2024,tablet,0.0 Cr,305.3,90min
+user_113,SIGNUP,04-Jan-24,desktop,"₹50,000",990.4,90min
+user_14,ACTIVATE,2024-03-29,desktop,Undisclosed,1140.8,45min
+user_15,signup,09/02/2024,desktop,"Rs. 50,000",,90sec
+user_38,ACTIVATE,20-Feb-24,desktop,Undisclosed,89.8,5min
+user_106,SIGNUP,26.02.2024,mobile,"₹50,000",,90min
+user_144,purchase,8th February 2024,mobile,0.0 Cr,1271.0,90min
+user_137,ACTIVATE,07/03/2024,mobile,0.01 crore,214.0,2min
+user_10,PURCHASE,25/01/2024,mobile,0.5 lakh,615.7,30min
+user_94,Activate,17th January 2024,desktop,0.5 lakh,61.4,5min
+user_120,ACTIVATE,15/04/2024,desktop,0.01 crore,1306.0,45sec
+user_80,ACTIVATE,2nd January 2024,desktop,0.01 crore,398.7,15min
+user_126,Churn_Risk_View,15-Feb-24,,0.5 lakh,1030.9,1min
+user_111,Signup,05/04/2024,desktop,"₹50,000",1502.7,90sec
+user_95,signup,30/01/2024,Nil,0.0 Cr,148.1,30sec
+user_14,Purchase,25/05/2024,mobile,"Rs. 50,000",373.4,90sec
+user_133,signup,19-Apr-24,mobile,"₹50,000",180.9,5min
+user_32,PURCHASE,09.04.2024,mobile,"Rs. 50,000",209.4,90sec
+user_103,purchase,2024-05-07,tablet,Undisclosed,391.4,45min
+user_143,signup,2024-04-04,mobile,0.0 Cr,235.0,5min
+user_19,signup,28-Jan-24,desktop,"₹50,000",956.2,15min
+user_15,Sign Up,10-Mar-24,desktop,0.5 lakh,1677.3,15min
+user_117,activate,22nd March 2024,mobile,Undisclosed,259.5,45min
+user_140,signup,2024-03-08,mobile,"₹50,000",296.7,30min
+user_93,Sign Up,12th May 2024,mobile,"Rs. 50,000",1357.8,30sec
+user_10,Signup,23/03/2024,desktop,0.0 Cr,,45min
+user_93,ACTIVATE,02.03.2024,tablet,"Rs. 50,000",1273.0,90min
+user_138,Sign Up,9th March 2024,tablet,Undisclosed,1408.5,30sec
+user_45,Signup,2024-05-02,desktop,"₹50,000",1885.5,45min
+user_139,churn_risk_view,29.04.2024,tablet,0.5 lakh,385.8,5min
+user_42,ACTIVATE,2024-05-03,mobile,0.01 crore,107.2,90sec
+user_15,churn_risk_view,2024-01-03,-,0.01 crore,770.8,45min
+user_89,Activate,3rd May 2024,mobile,"Rs. 50,000",2670.9,90sec
+user_89,Purchase,12/04/2024,none,0.5 lakh,138.0,15sec
+user_72,SIGNUP,2024-02-05,mobile,0.5 lakh,185.6,15min
+user_117,Activate,2024-01-06,tablet,Undisclosed,546.1,15sec
+user_11,purchase,18.01.2024,NA,0.01 crore,401.3,45min
+user_52,Signup,26th February 2024,desktop,Undisclosed,844.7,90min
+user_62,Churn_Risk_View,9th May 2024,desktop,0.5 lakh,,90sec
+user_93,Sign Up,2024-02-07,tablet,0.0 Cr,1356.8,2min
+user_8,ACTIVATE,06/02/2024,mobile,"Rs. 50,000",403.6,15sec
+user_126,churn_risk_view,30/01/2024,tablet,0.5 lakh,717.8,90sec
+user_3,signup,invalid-date,tablet,0.0 Cr,111.0,15sec
+user_136,activate,12/01/2024,desktop,0.01 crore,897.5,1min
+user_12,Sign Up,08/03/2024,desktop,"Rs. 50,000",38.8,15sec
+user_109,SIGNUP,2024-05-13,desktop,"Rs. 50,000",1239.0,5min
+user_9,activate,30/03/2024,tablet,0.0 Cr,378.2,5min
+user_24,Churn_Risk_View,22nd May 2024,mobile,"Rs. 50,000",478.1,45sec
+user_124,activate,19.04.2024,tablet,0.5 lakh,744.8,30min
+user_91,Purchase,07.01.2024,tablet,0.5 lakh,393.8,90min
+user_2,Activate,25-May-24,tablet,0.01 crore,1201.1,15min
+user_144,SIGNUP,17/05/2024,tablet,"Rs. 50,000",846.5,90min
+user_142,Activate,04.04.2024,mobile,0.01 crore,1394.4,90min
+user_17,Churn_Risk_View,05.02.2024,desktop,Undisclosed,1281.7,15min
+user_11,Activate,02/01/2024,desktop,0.0 Cr,1387.5,90min
+user_4,signup,2024-02-06,mobile,"₹50,000",,15min
+user_102,churn_risk_view,29th March 2024,mobile,0.5 lakh,424.3,15min
+user_50,purchase,06-Jan-24,desktop,0.01 crore,986.8,45sec
+user_6,PURCHASE,24-Mar-24,mobile,0.01 crore,614.2,45min
+user_12,churn_risk_view,07.04.2024,desktop,0.01 crore,775.6,15min
+user_137,churn_risk_view,17.04.2024,tablet,0.5 lakh,350.5,30sec
+user_109,purchase,10.02.2024,desktop,0.0 Cr,501.4,90min
+user_74,PURCHASE,03.03.2024,desktop,0.5 lakh,1432.6,45sec
+user_86,SIGNUP,2024-05-17,desktop,"₹50,000",301.4,90min
+user_117,Signup,20-Feb-24,,"Rs. 50,000",513.8,5min
+user_1,churn_risk_view,02.03.2024,desktop,0.01 crore,105.0,30sec
+user_5,Signup,17-Feb-24,desktop,Undisclosed,50.9,30sec
+user_48,purchase,21st January 2024,mobile,0.0 Cr,,1min
+user_67,Sign Up,08-Feb-24,mobile,"₹50,000",1474.8,30sec
+user_87,Activate,21-Jan-24,mobile,"₹50,000",840.4,15min
+user_91,Sign Up,2024-03-21,none,0.5 lakh,994.2,90sec
+user_35,Sign Up,23-Jan-24,desktop,0.5 lakh,562.8,15sec
+user_134,Churn_Risk_View,31.01.2024,desktop,"₹50,000",308.2,90sec
+user_86,purchase,19/01/2024,desktop,0.0 Cr,201.5,30sec
+user_25,Signup,14/02/2024,tablet,"₹50,000",1454.0,15sec
+user_94,signup,3rd March 2024,tablet,0.5 lakh,717.3,90min
+user_47,Purchase,17.01.2024,NULL,0.5 lakh,229.9,30sec
+user_95,PURCHASE,27.02.2024,tablet,0.0 Cr,1131.7,15min
+user_29,SIGNUP,2024-04-29,mobile,0.5 lakh,1203.7,1min
+user_128,purchase,5th May 2024,mobile,"Rs. 50,000",311.0,45min
+user_29,Sign Up,07-Jan-24,NULL,0.0 Cr,1209.0,1min
+user_70,Signup,22-Mar-24,mobile,0.0 Cr,232.6,15sec
+user_14,Sign Up,13-Feb-24,desktop,Undisclosed,937.3,15sec
+user_104,signup,27th April 2024,tablet,"Rs. 50,000",1536.8,15sec
+user_44,Purchase,19.01.2024,mobile,"₹50,000",968.9,30sec
+user_43,Signup,02/04/2024,tablet,"Rs. 50,000",927.0,90sec
+user_122,signup,2024-03-03,desktop,0.01 crore,1372.4,30sec
+user_65,churn_risk_view,26.01.2024,desktop,0.0 Cr,455.7,45sec
+user_95,PURCHASE,21st January 2024,mobile,0.01 crore,995.2,2min
+user_88,PURCHASE,27th March 2024,mobile,0.5 lakh,660.6,15sec
+user_36,Activate,18th April 2024,mobile,"Rs. 50,000",410.5,30sec
+user_25,PURCHASE,20-Feb-24,desktop,"₹50,000",1079.9,45sec
+user_100,activate,2024-04-07,tablet,"₹50,000",,15sec
+user_95,activate,17th February 2024,tablet,"Rs. 50,000",331.3,2min
+user_80,Churn_Risk_View,6th April 2024,tablet,"₹50,000",792.1,30sec
+user_58,signup,2024-04-12,desktop,0.5 lakh,284.0,15sec
+user_98,signup,25.03.2024,mobile,Undisclosed,183.7,15sec
+user_40,Signup,12-Mar-24,mobile,0.0 Cr,882.4,5min
+user_114,PURCHASE,14/05/2024,tablet,"Rs. 50,000",352.0,90sec
+user_27,Sign Up,05-May-24,desktop,"₹50,000",631.4,15sec
+user_104,churn_risk_view,3rd March 2024,mobile,0.01 crore,405.8,30sec
+user_78,ACTIVATE,2024-04-15,tablet,0.5 lakh,297.7,15min
+user_29,Purchase,23/02/2024,mobile,0.5 lakh,987.3,15min
+user_107,SIGNUP,31-Jan-24,desktop,"₹50,000",1389.6,15sec
+user_75,PURCHASE,5th April 2024,mobile,0.5 lakh,904.9,5min
+user_71,activate,25-Feb-24,desktop,"₹50,000",1144.0,30min
+user_126,churn_risk_view,17-Apr-24,tablet,"Rs. 50,000",611.2,90sec
+user_25,Purchase,23-Feb-24,desktop,0.5 lakh,308.1,15min
+user_11,Activate,30/05/2024,desktop,"Rs. 50,000",1166.7,15sec
+user_27,activate,27/04/2024,desktop,"₹50,000",522.0,15sec
+user_109,activate,25/04/2024,mobile,0.01 crore,180.7,30min
+user_69,ACTIVATE,2024-01-25,mobile,Undisclosed,99.1,30min
+user_139,Purchase,26-Jan-24,desktop,0.0 Cr,737.3,15sec
+user_1,signup,2024-03-19,mobile,"₹50,000",616.1,45sec
+user_79,signup,06/05/2024,mobile,0.5 lakh,794.3,15sec
+user_98,churn_risk_view,20th January 2024,mobile,0.01 crore,1226.6,30sec
+user_97,Activate,07.04.2024,tablet,0.01 crore,1730.6,15sec
+user_49,Purchase,05/01/2024,mobile,0.5 lakh,425.8,30sec
+user_51,ACTIVATE,17.03.2024,mobile,"Rs. 50,000",1911.2,5min
+user_65,SIGNUP,10th January 2024,desktop,0.0 Cr,413.3,1min
+user_68,purchase,22nd February 2024,tablet,0.0 Cr,212.1,5min
+user_2,Sign Up,04.03.2024,desktop,"₹50,000",1215.7,45sec
+user_133,SIGNUP,21st February 2024,desktop,"Rs. 50,000",523.8,45sec
+user_132,SIGNUP,21-Apr-24,N/A,"₹50,000",1467.7,2min
+user_112,Signup,22-Jan-24,tablet,"Rs. 50,000",2118.0,45min
+user_19,activate,18/05/2024,tablet,0.01 crore,581.7,5min
+user_94,activate,21-Apr-24,desktop,0.01 crore,276.5,30min
+user_45,Signup,23rd May 2024,desktop,"₹50,000",660.7,30sec
+user_109,Purchase,14.02.2024,tablet,Undisclosed,1345.5,45sec
+user_13,SIGNUP,2024-04-08,N/A,Undisclosed,,90sec
+user_53,ACTIVATE,1st January 2024,desktop,"Rs. 50,000",1648.3,90sec
+user_37,purchase,2024-01-14,desktop,0.0 Cr,990.1,90sec
+user_137,churn_risk_view,2024-01-19,mobile,"₹50,000",1630.7,1min
+user_114,Purchase,18.03.2024,desktop,"Rs. 50,000",909.1,90min
+user_141,Sign Up,05/05/2024,desktop,0.5 lakh,2018.4,5min
+user_114,purchase,27th April 2024,mobile,0.0 Cr,246.8,30sec
+user_90,Activate,2024-01-21,mobile,Undisclosed,544.1,30sec
+user_11,Purchase,26-May-24,desktop,0.5 lakh,952.6,45min
+user_108,Signup,03/04/2024,mobile,"Rs. 50,000",1453.0,15sec
+user_17,SIGNUP,2024-01-16,tablet,"Rs. 50,000",,90min
+user_81,Purchase,8th May 2024,desktop,Undisclosed,435.5,90sec
+user_130,Sign Up,4th May 2024,tablet,"Rs. 50,000",2665.3,15sec
+user_87,signup,2024-05-30,desktop,0.5 lakh,,30min
+user_80,ACTIVATE,12-Mar-24,tablet,"₹50,000",458.8,30sec
+user_124,purchase,19-Mar-24,tablet,Undisclosed,2014.4,45sec
+user_32,SIGNUP,2024-01-01,desktop,0.5 lakh,1553.3,90sec
+user_137,Sign Up,14/04/2024,desktop,0.5 lakh,191.9,30sec
+user_68,activate,17-Apr-24,desktop,0.0 Cr,425.2,30sec
+user_87,ACTIVATE,2024-01-15,tablet,Undisclosed,403.3,2min
+user_96,purchase,2024-04-27,mobile,"₹50,000",975.0,15sec
+user_50,Purchase,2024-05-16,mobile,0.5 lakh,663.0,45sec
+user_26,activate,14-Feb-24,desktop,"₹50,000",1181.5,30sec
+user_92,Churn_Risk_View,20.02.2024,NA,0.01 crore,,15sec
+user_104,ACTIVATE,02.04.2024,desktop,"Rs. 50,000",484.6,2min
+user_47,SIGNUP,26th January 2024,desktop,"₹50,000",649.0,1min
+user_97,Signup,24th January 2024,mobile,"₹50,000",581.4,30sec
+user_91,Activate,2024-04-12,tablet,0.5 lakh,,45min
+user_0,activate,2024-01-03,tablet,0.01 crore,1099.9,90sec
+user_11,ACTIVATE,28-Apr-24,desktop,0.5 lakh,333.1,1min
+user_47,ACTIVATE,12/01/2024,-,0.0 Cr,1762.1,1min
+user_67,Purchase,04/01/2024,desktop,"Rs. 50,000",513.2,45sec
+user_128,Sign Up,29.05.2024,tablet,Undisclosed,229.5,45min
+user_125,Churn_Risk_View,15/05/2024,tablet,0.0 Cr,22.5,30min
+user_35,churn_risk_view,06/01/2024,tablet,"Rs. 50,000",129.3,90sec
+user_130,SIGNUP,2024-01-05,tablet,0.01 crore,1120.3,45min
+user_66,Purchase,2024-04-27,mobile,0.5 lakh,1416.3,5min
+user_144,Sign Up,25.03.2024,NULL,0.0 Cr,336.7,90min
+user_42,churn_risk_view,04/04/2024,mobile,0.0 Cr,366.8,15sec
+user_10,Activate,21-Apr-24,tablet,"Rs. 50,000",351.6,90sec
+user_82,Activate,21st May 2024,tablet,0.0 Cr,447.1,30min
+user_82,Purchase,29-Mar-24,tablet,0.0 Cr,207.7,90min
+user_134,purchase,8th April 2024,desktop,"₹50,000",977.5,90min
+user_91,PURCHASE,unknown,desktop,"Rs. 50,000",437.0,30sec
+user_144,purchase,22/02/2024,mobile,0.5 lakh,452.6,45sec
+user_71,ACTIVATE,7th February 2024,tablet,0.0 Cr,393.0,15sec
+user_12,purchase,22.01.2024,Nil,0.01 crore,602.4,45sec
+user_102,Activate,12-Apr-24,desktop,"₹50,000",1836.5,90sec
+user_103,SIGNUP,5th February 2024,tablet,0.01 crore,1021.8,30sec
+user_113,signup,09.02.2024,mobile,0.01 crore,1148.0,30sec
+user_116,activate,28th March 2024,mobile,0.5 lakh,1484.3,90sec
+user_0,activate,24-Apr-24,desktop,Undisclosed,686.3,15sec
+user_94,ACTIVATE,18/01/2024,desktop,0.0 Cr,1333.7,15min
+user_133,Purchase,03-Mar-24,tablet,"Rs. 50,000",71.5,45sec
+user_83,ACTIVATE,18th March 2024,tablet,0.5 lakh,781.4,90sec
+user_144,PURCHASE,14-Feb-24,desktop,"₹50,000",622.2,5min
+user_53,activate,2024-04-02,mobile,0.01 crore,259.2,30min
+user_67,SIGNUP,17-May-24,desktop,"Rs. 50,000",248.9,45sec
+user_24,SIGNUP,10.04.2024,desktop,0.5 lakh,336.0,45min
+user_124,signup,18/03/2024,tablet,Undisclosed,684.4,2min
+user_105,SIGNUP,12th February 2024,NA,0.01 crore,956.9,90sec
+user_125,SIGNUP,2024-03-03,tablet,"₹50,000",735.3,45min
+user_118,Activate,7th January 2024,,"₹50,000",248.4,15min
+user_146,Sign Up,10/03/2024,tablet,0.01 crore,324.5,30sec
+user_140,Signup,29th May 2024,desktop,"Rs. 50,000",477.9,45sec
+user_14,Signup,26/04/2024,desktop,0.5 lakh,380.3,1min
+user_12,SIGNUP,29-Apr-24,tablet,0.5 lakh,1571.0,90min
+user_133,PURCHASE,2024-01-06,mobile,0.5 lakh,203.6,90min
+user_131,Sign Up,14.02.2024,mobile,0.0 Cr,885.4,15sec
+user_99,Signup,2024-04-19,tablet,0.5 lakh,,30min
+user_27,PURCHASE,29th May 2024,tablet,0.01 crore,568.6,2min
+user_67,churn_risk_view,10-Mar-24,mobile,0.01 crore,1352.1,15sec
+user_21,churn_risk_view,24th February 2024,tablet,0.5 lakh,,15sec
+user_131,Activate,18/03/2024,desktop,0.5 lakh,680.5,2min
+user_82,purchase,9th March 2024,mobile,"Rs. 50,000",,90min
+user_11,Churn_Risk_View,2024-05-26,desktop,"Rs. 50,000",1158.0,45sec
+user_106,activate,2024-02-17,desktop,"Rs. 50,000",506.4,15sec
+user_57,PURCHASE,11/02/2024,desktop,"Rs. 50,000",3341.6,15min
+user_5,PURCHASE,09.04.2024,mobile,"Rs. 50,000",632.7,30min
+user_115,ACTIVATE,14/01/2024,desktop,Undisclosed,1735.3,90min
+user_30,Signup,2024-03-26,tablet,0.01 crore,432.3,15sec
+user_140,SIGNUP,2024-05-10,Nil,0.01 crore,81.7,45sec
+user_1,SIGNUP,2024-04-14,mobile,0.01 crore,174.5,45sec
+user_77,Signup,13-Jan-24,mobile,0.0 Cr,1863.3,90sec
+user_116,churn_risk_view,26th January 2024,desktop,0.01 crore,1708.7,15sec
+user_1,Churn_Risk_View,25.03.2024,tablet,0.0 Cr,175.9,90min
+user_116,ACTIVATE,2024-04-13,desktop,Undisclosed,833.9,90sec
+user_120,Signup,2024-03-01,desktop,"Rs. 50,000",904.6,90min
+user_77,purchase,2024-05-18,tablet,"Rs. 50,000",309.4,15sec
+user_87,Activate,2024-03-15,tablet,0.01 crore,189.0,45min
+user_13,Activate,03/05/2024,desktop,0.01 crore,799.2,90sec
+user_75,signup,9th May 2024,mobile,0.01 crore,853.5,45sec
+user_46,Signup,2024-04-14,desktop,0.0 Cr,222.5,90min
+user_52,Purchase,25th May 2024,mobile,0.0 Cr,1769.9,90sec
+user_61,Sign Up,01/04/2024,mobile,"Rs. 50,000",346.6,1min
+user_61,Signup,14/01/2024,desktop,Undisclosed,803.0,15min
+user_0,Signup,12th April 2024,mobile,"Rs. 50,000",1087.1,45sec
+user_12,Purchase,09.01.2024,desktop,0.01 crore,589.1,45sec
+user_2,SIGNUP,6th March 2024,mobile,Undisclosed,1685.8,45sec
+user_142,Activate,18th April 2024,tablet,"₹50,000",890.9,30sec
+user_8,Churn_Risk_View,24th January 2024,tablet,0.5 lakh,3039.4,30sec
+user_40,signup,12-May-24,desktop,0.0 Cr,1038.6,15min
+user_76,Signup,2024-01-30,mobile,"Rs. 50,000",,15sec
+user_38,ACTIVATE,06.01.2024,tablet,Undisclosed,1286.5,45min
+user_135,signup,07.05.2024,mobile,"Rs. 50,000",815.3,15sec
+user_114,signup,05/03/2024,mobile,"Rs. 50,000",184.2,45sec
+user_51,Churn_Risk_View,04.01.2024,mobile,0.5 lakh,520.3,15min
+user_85,Signup,2024-04-24,desktop,0.0 Cr,431.8,90sec
+user_144,Activate,20-Apr-24,tablet,0.01 crore,,15sec
+user_32,PURCHASE,2024-03-01,desktop,0.0 Cr,3104.1,90sec
+user_87,Churn_Risk_View,17th May 2024,mobile,0.0 Cr,399.4,30sec
+user_77,Churn_Risk_View,29/01/2024,tablet,0.0 Cr,516.8,45sec
+user_17,Activate,15/02/2024,tablet,"Rs. 50,000",373.1,30min
+user_87,PURCHASE,18.03.2024,desktop,"Rs. 50,000",923.9,90sec
+user_11,churn_risk_view,2024-02-10,mobile,"₹50,000",316.3,90sec
+user_12,signup,25/05/2024,desktop,"Rs. 50,000",470.5,30min
+user_32,activate,03-Apr-24,mobile,"₹50,000",342.3,45sec
+user_37,signup,2024-04-29,desktop,0.01 crore,368.9,45min
+user_16,Signup,13-May-24,mobile,0.01 crore,325.9,30sec
+user_106,Activate,16/04/2024,mobile,0.0 Cr,,90sec
+user_103,Signup,24th March 2024,mobile,Undisclosed,,1min
+user_17,Sign Up,20/03/2024,mobile,0.01 crore,381.5,5min
+user_31,activate,12/04/2024,tablet,Undisclosed,119.6,2min
+user_78,ACTIVATE,29/02/2024,mobile,0.0 Cr,467.5,45sec
+user_85,signup,26-Apr-24,mobile,0.5 lakh,264.4,30sec
+user_25,Sign Up,2024-02-15,?,"Rs. 50,000",301.1,45sec
+user_32,signup,04-Mar-24,desktop,0.01 crore,814.8,1min
+user_13,SIGNUP,2024-03-10,desktop,Undisclosed,325.4,45sec
+user_124,activate,2024-05-12,tablet,"₹50,000",1611.9,45sec
+user_120,Activate,29th January 2024,desktop,"Rs. 50,000",1214.1,30min
+user_30,purchase,2024-04-15,tablet,0.01 crore,490.9,30min
+user_117,SIGNUP,21-Apr-24,mobile,"Rs. 50,000",874.0,90sec
+user_48,churn_risk_view,25/02/2024,NA,"₹50,000",837.0,90sec
+user_38,ACTIVATE,04.05.2024,mobile,0.01 crore,873.2,5min
+user_133,Churn_Risk_View,2024-01-30,tablet,0.0 Cr,797.6,90sec
+user_97,PURCHASE,26.03.2024,mobile,"₹50,000",,5min
+user_28,Signup,15.03.2024,desktop,"₹50,000",640.6,15sec
+user_113,ACTIVATE,13.05.2024,desktop,0.01 crore,1814.5,90sec
+user_9,ACTIVATE,2024-04-21,desktop,Undisclosed,1430.4,15sec
+user_89,SIGNUP,2024-04-03,mobile,Undisclosed,,90sec
+user_34,Purchase,30th March 2024,desktop,0.5 lakh,1524.9,90sec
+user_126,Signup,22-May-24,desktop,"Rs. 50,000",404.5,15sec
+user_74,signup,27th March 2024,desktop,0.0 Cr,566.0,30sec
+user_60,Activate,2024-05-13,desktop,0.5 lakh,1497.6,30sec
+user_7,SIGNUP,28th May 2024,mobile,0.5 lakh,187.7,45sec
+user_80,purchase,10-Mar-24,tablet,0.01 crore,,90sec
+user_103,Signup,2024-01-15,mobile,0.01 crore,,90min
+user_47,ACTIVATE,2024-04-02,tablet,"₹50,000",873.7,1min
+user_86,signup,18.01.2024,tablet,0.5 lakh,175.8,45min
+user_142,SIGNUP,07/04/2024,mobile,0.0 Cr,631.3,2min
+user_40,Activate,07/03/2024,tablet,"₹50,000",263.7,90sec
+user_28,Activate,2024-05-16,tablet,"₹50,000",484.0,30sec
+user_6,churn_risk_view,8th March 2024,tablet,"₹50,000",552.2,5min
+user_36,ACTIVATE,18.03.2024,tablet,"₹50,000",370.5,15min
+user_26,Activate,2024-01-29,mobile,"₹50,000",625.7,45sec
+user_79,SIGNUP,2024-03-20,NULL,"Rs. 50,000",286.0,90sec
+user_67,Sign Up,31/03/2024,mobile,0.01 crore,728.3,45sec
+user_54,Sign Up,25-Apr-24,mobile,0.0 Cr,828.1,45sec
+user_18,Signup,02/01/2024,desktop,0.5 lakh,593.5,15min
+user_22,Sign Up,10.01.2024,tablet,"₹50,000",1304.1,15min
+user_112,SIGNUP,15/03/2024,tablet,0.0 Cr,2822.0,45sec
+user_103,Churn_Risk_View,2024-01-28,N/A,0.5 lakh,557.3,45sec
+user_113,signup,2024-05-15,desktop,"Rs. 50,000",1004.3,2min
+user_68,SIGNUP,14-Mar-24,desktop,0.01 crore,2075.7,45sec
+user_95,activate,11-Feb-24,desktop,Undisclosed,1177.0,30sec
+user_149,Sign Up,29.05.2024,desktop,"₹50,000",581.6,90sec
+user_77,Churn_Risk_View,19-Apr-24,tablet,0.5 lakh,1121.2,2min
+user_62,Activate,2024-02-09,tablet,Undisclosed,201.4,1min
+user_123,Churn_Risk_View,2024-04-09,mobile,"₹50,000",596.2,45min
+user_99,Signup,04-Feb-24,desktop,"Rs. 50,000",824.8,90sec
+user_92,purchase,4th May 2024,tablet,0.5 lakh,551.3,1min
+user_149,signup,08.02.2024,-,"₹50,000",,15sec
+user_108,Sign Up,TBD,mobile,0.0 Cr,689.0,15sec
+user_49,Activate,15-May-24,tablet,0.0 Cr,750.1,30sec
+user_67,Activate,15.05.2024,tablet,0.01 crore,135.8,15sec
+user_140,Signup,2024-02-04,mobile,0.01 crore,2669.4,30sec
+user_111,Activate,2024-03-02,tablet,Undisclosed,210.8,15sec
+user_146,SIGNUP,28th February 2024,mobile,"Rs. 50,000",674.2,1min
+user_149,PURCHASE,07.03.2024,desktop,0.5 lakh,573.9,2min
+user_71,ACTIVATE,04.03.2024,tablet,"₹50,000",,30sec
+user_133,Activate,07/01/2024,mobile,0.01 crore,1108.8,15sec
+user_123,churn_risk_view,15/05/2024,mobile,0.5 lakh,,90sec
+user_101,Signup,11th April 2024,mobile,0.0 Cr,132.4,45min
+user_119,ACTIVATE,28/02/2024,mobile,"Rs. 50,000",884.8,45sec
+user_65,activate,25-Apr-24,mobile,"Rs. 50,000",737.6,30sec
+user_100,Signup,28/04/2024,desktop,0.5 lakh,1386.8,15sec
+user_8,Signup,10.05.2024,tablet,0.5 lakh,102.0,30sec
+user_134,Sign Up,21st February 2024,mobile,0.01 crore,574.8,15min
+user_5,Sign Up,20/05/2024,desktop,Undisclosed,558.6,90sec
+user_83,signup,31/03/2024,mobile,"₹50,000",215.1,45sec
+user_53,signup,13-Jan-24,desktop,"₹50,000",1279.4,30sec
+user_36,Churn_Risk_View,11th March 2024,mobile,0.0 Cr,508.1,1min
+user_101,Sign Up,2024-02-26,tablet,0.01 crore,,15min
+user_4,SIGNUP,2024-04-09,tablet,Undisclosed,743.2,45sec
+user_125,Sign Up,14.04.2024,tablet,Undisclosed,790.7,45sec
+user_104,Signup,2024-05-26,mobile,0.01 crore,638.9,30sec
+user_83,Sign Up,08-May-24,tablet,0.01 crore,559.5,45min
+user_50,purchase,03.04.2024,mobile,0.01 crore,1239.6,30min
+user_45,Sign Up,12.04.2024,desktop,Undisclosed,775.9,45sec
+user_120,SIGNUP,31/01/2024,mobile,0.5 lakh,1823.8,45sec
+user_11,PURCHASE,24.03.2024,desktop,0.0 Cr,274.0,1min
+user_140,Purchase,27.02.2024,desktop,0.01 crore,112.4,1min
+user_145,activate,1st April 2024,mobile,0.5 lakh,1292.5,30min
+user_15,Sign Up,02-Jan-24,desktop,Undisclosed,2731.8,30sec
+user_99,Signup,28-Jan-24,tablet,"Rs. 50,000",361.9,5min
+user_100,Sign Up,13.01.2024,tablet,0.01 crore,533.6,45sec
+user_131,ACTIVATE,TBD,desktop,"Rs. 50,000",1990.6,15sec
+user_127,ACTIVATE,2024-05-30,tablet,0.01 crore,323.3,45min
+user_115,churn_risk_view,13th April 2024,tablet,0.01 crore,702.4,90min
+user_7,Signup,07.03.2024,tablet,0.0 Cr,1490.0,90min
+user_57,signup,2024-05-07,desktop,0.5 lakh,707.8,90sec
+user_119,Signup,29.04.2024,desktop,"₹50,000",1175.2,90sec
+user_82,Signup,13/03/2024,desktop,0.5 lakh,709.4,15sec
+user_100,Signup,21/03/2024,desktop,"₹50,000",508.6,45sec
+user_62,Activate,2024-03-09,desktop,"₹50,000",172.7,45min
+user_38,Sign Up,10th January 2024,desktop,0.01 crore,88.3,2min
+user_28,activate,10th February 2024,tablet,0.5 lakh,1183.7,15min
+user_26,PURCHASE,2024-02-09,tablet,"₹50,000",290.4,90sec
+user_65,SIGNUP,04.04.2024,tablet,"Rs. 50,000",372.3,15min
+user_79,Activate,25/02/2024,desktop,0.0 Cr,,90sec
+user_102,purchase,2024-05-24,desktop,0.5 lakh,1019.1,15sec
+user_102,purchase,27/01/2024,desktop,"₹50,000",918.1,45sec
+user_149,signup,23/02/2024,desktop,0.5 lakh,973.2,15sec
+user_18,churn_risk_view,10/02/2024,?,"Rs. 50,000",,90sec
+user_37,Activate,10th May 2024,tablet,"₹50,000",692.9,45min
+user_42,Signup,2024-05-20,mobile,"₹50,000",418.0,1min
+user_74,Purchase,07-Mar-24,tablet,0.01 crore,983.8,90sec
+user_112,Activate,9th February 2024,mobile,0.0 Cr,1375.9,90sec
+user_0,Sign Up,10.03.2024,desktop,Undisclosed,1254.0,90sec
+user_15,purchase,4th February 2024,desktop,Undisclosed,732.5,15min
+user_19,Sign Up,12.05.2024,tablet,"₹50,000",563.4,90min
+user_94,ACTIVATE,17th January 2024,mobile,0.01 crore,1319.7,30min
+user_4,ACTIVATE,22nd January 2024,tablet,0.0 Cr,429.0,1min
+user_124,Sign Up,27.01.2024,desktop,"₹50,000",109.1,45sec
+user_95,Signup,23rd April 2024,tablet,"₹50,000",3594.2,15sec
+user_13,Activate,28/01/2024,mobile,Undisclosed,,45sec
+user_44,Signup,09-Jan-24,tablet,0.0 Cr,375.6,90sec
+user_58,ACTIVATE,2024-04-18,desktop,0.5 lakh,675.0,45sec
+user_103,Signup,13.03.2024,desktop,0.01 crore,,1min
+user_58,Purchase,23rd April 2024,tablet,0.0 Cr,274.4,90sec
+user_22,activate,27/04/2024,desktop,"Rs. 50,000",474.7,45sec
+user_86,signup,08/05/2024,tablet,0.01 crore,,90sec
+user_81,purchase,2024-02-07,mobile,Undisclosed,68.3,5min
+user_136,ACTIVATE,5th March 2024,tablet,0.01 crore,604.2,1min
+user_30,Sign Up,08/05/2024,tablet,0.0 Cr,,30sec
+user_88,churn_risk_view,06/05/2024,desktop,0.5 lakh,790.6,90sec
+user_16,Churn_Risk_View,13.03.2024,tablet,0.01 crore,806.9,30min
+user_64,Sign Up,1st May 2024,mobile,0.0 Cr,,30sec
+user_109,Activate,08/05/2024,tablet,"Rs. 50,000",645.6,45min
+user_71,churn_risk_view,2nd January 2024,tablet,0.5 lakh,1719.9,1min
+user_46,activate,26-Apr-24,tablet,0.5 lakh,507.4,30min
+user_122,PURCHASE,03/03/2024,desktop,"₹50,000",502.3,90sec
+user_15,Activate,29-Apr-24,tablet,Undisclosed,746.9,90sec
+user_61,Sign Up,04-Mar-24,tablet,"Rs. 50,000",,30min
+user_107,purchase,2024-02-18,mobile,"₹50,000",1524.7,5min
+user_101,SIGNUP,16.04.2024,desktop,0.0 Cr,699.4,90min
+user_7,PURCHASE,12-Feb-24,tablet,0.5 lakh,698.7,90min
+user_69,Churn_Risk_View,09/04/2024,mobile,0.0 Cr,962.5,15min
+user_42,Purchase,18.05.2024,mobile,0.5 lakh,1056.4,15sec
+user_111,PURCHASE,16th March 2024,desktop,0.0 Cr,673.6,30min
+user_7,Sign Up,03/03/2024,desktop,"Rs. 50,000",26.8,1min
+user_56,ACTIVATE,9th March 2024,tablet,"Rs. 50,000",905.3,1min
+user_127,Signup,10/01/2024,desktop,"Rs. 50,000",2133.9,2min
+user_43,Purchase,20th May 2024,mobile,0.01 crore,,30min
+user_133,Purchase,27-Feb-24,N/A,"Rs. 50,000",838.6,15min
+user_102,Activate,27/04/2024,desktop,0.01 crore,1080.6,2min
+user_53,signup,17/02/2024,tablet,0.01 crore,615.4,90sec
+user_61,ACTIVATE,2024-03-08,tablet,"Rs. 50,000",652.9,15sec
+user_21,Signup,02-Feb-24,tablet,0.5 lakh,402.4,15min
+user_108,signup,20/05/2024,mobile,Undisclosed,142.2,1min
+user_83,Sign Up,13-Apr-24,desktop,"₹50,000",910.4,2min
+user_118,Purchase,28th May 2024,desktop,0.0 Cr,1182.9,45min
+user_34,Activate,24-May-24,mobile,0.01 crore,156.7,45sec
+user_36,PURCHASE,16-Jan-24,tablet,"₹50,000",480.3,15sec
+user_95,Purchase,05.05.2024,mobile,0.5 lakh,2351.5,45min
+user_36,SIGNUP,TBD,tablet,"₹50,000",827.2,45min
+user_149,signup,21-Feb-24,tablet,"₹50,000",327.0,2min
+user_122,activate,26-May-24,,0.01 crore,,5min
+user_104,ACTIVATE,3rd January 2024,mobile,0.5 lakh,400.5,30min
+user_17,ACTIVATE,2024-02-21,tablet,"Rs. 50,000",187.4,30min
+user_29,PURCHASE,2024-02-08,mobile,0.0 Cr,,15min
+user_41,signup,14.05.2024,tablet,0.01 crore,879.8,15sec
+user_39,SIGNUP,18th January 2024,desktop,0.5 lakh,,1min
+user_125,churn_risk_view,14th January 2024,desktop,0.5 lakh,159.1,1min
+user_74,purchase,10.01.2024,mobile,0.5 lakh,,1min
+user_94,churn_risk_view,20/04/2024,desktop,"Rs. 50,000",250.1,2min
+user_91,Sign Up,2024-04-27,tablet,0.5 lakh,905.3,5min
+user_80,Churn_Risk_View,22nd April 2024,mobile,"Rs. 50,000",,45min
+user_101,Signup,03.03.2024,mobile,Undisclosed,430.9,45sec
+user_126,ACTIVATE,17-Jan-24,desktop,0.01 crore,931.4,90min
+user_73,activate,18-May-24,tablet,"Rs. 50,000",92.5,90sec
+user_138,SIGNUP,06.02.2024,tablet,"₹50,000",1140.3,90sec
+user_42,ACTIVATE,2024-03-01,mobile,"Rs. 50,000",277.7,1min
+user_8,SIGNUP,2024-03-07,desktop,"Rs. 50,000",1396.1,90sec
+user_100,purchase,29-Feb-24,mobile,0.01 crore,503.2,90min
+user_131,activate,18th March 2024,tablet,"₹50,000",1528.3,15sec
+user_17,activate,19-Jan-24,mobile,0.5 lakh,381.9,30min
+user_87,Activate,27-Mar-24,desktop,"Rs. 50,000",559.1,45sec
+user_6,PURCHASE,2024-02-20,desktop,0.01 crore,459.7,90min
+user_22,churn_risk_view,24th January 2024,mobile,0.5 lakh,781.3,90min
+user_53,SIGNUP,09.04.2024,tablet,Undisclosed,133.1,5min
+user_49,PURCHASE,2024-03-07,tablet,0.01 crore,,30min
+user_61,ACTIVATE,11-Mar-24,desktop,"Rs. 50,000",543.5,90sec
+user_147,Signup,26th March 2024,tablet,0.0 Cr,576.4,45min
+user_90,activate,21-Apr-24,NA,"₹50,000",441.2,45min
+user_81,signup,2024-05-29,desktop,0.5 lakh,377.5,5min
+user_13,signup,24-Jan-24,mobile,0.01 crore,1149.2,5min
+user_144,SIGNUP,18/03/2024,mobile,0.5 lakh,1259.5,30sec
+user_136,Sign Up,30th April 2024,tablet,"₹50,000",416.8,30min
+user_120,Signup,25.01.2024,tablet,Undisclosed,810.6,2min
+user_71,Churn_Risk_View,2024-01-19,tablet,"Rs. 50,000",534.6,90min
+user_26,Sign Up,29th May 2024,desktop,0.01 crore,1442.6,45sec
+user_74,PURCHASE,23-May-24,desktop,Undisclosed,297.8,5min
+user_24,PURCHASE,2024-02-10,tablet,0.5 lakh,867.3,15sec
+user_37,Signup,2024-05-18,tablet,0.01 crore,1243.8,90sec
+user_3,Churn_Risk_View,18.02.2024,mobile,"₹50,000",80.6,2min
+user_106,signup,21.04.2024,desktop,"₹50,000",727.3,5min
+user_39,PURCHASE,21-Apr-24,desktop,0.5 lakh,688.5,90min
+user_101,Sign Up,22-Mar-24,desktop,0.0 Cr,153.8,90sec
+user_0,Signup,11th January 2024,mobile,0.5 lakh,1174.2,1min
+user_65,Churn_Risk_View,29th March 2024,desktop,Undisclosed,208.9,90min
+user_58,SIGNUP,26.03.2024,mobile,"Rs. 50,000",610.7,30min
+user_6,purchase,16/01/2024,desktop,0.0 Cr,915.3,90min
+user_38,activate,16/05/2024,tablet,0.5 lakh,924.6,45sec
+user_120,ACTIVATE,14/01/2024,desktop,"₹50,000",1033.0,45sec
+user_31,SIGNUP,17.05.2024,desktop,"₹50,000",1068.7,15min
+user_134,Activate,05-Apr-24,desktop,"₹50,000",1203.1,90min
+user_77,Signup,06.02.2024,desktop,0.01 crore,,30sec
+user_109,Signup,13.05.2024,desktop,0.0 Cr,263.7,1min
+user_119,activate,2024-05-12,tablet,"₹50,000",55.9,90min
+user_32,Sign Up,25-Mar-24,tablet,"₹50,000",157.9,45min
+user_145,activate,27th May 2024,mobile,0.0 Cr,,30sec
+user_97,SIGNUP,13-Feb-24,tablet,"Rs. 50,000",89.1,90sec
+user_73,Activate,02.01.2024,desktop,0.01 crore,837.2,45sec
+user_55,signup,09-Jan-24,mobile,"Rs. 50,000",316.5,90sec
+user_99,purchase,2024-04-28,mobile,0.0 Cr,1254.7,15min
+user_148,Activate,1st February 2024,tablet,"₹50,000",430.1,30min
+user_142,ACTIVATE,2024-05-26,desktop,0.01 crore,,1min
+user_50,Churn_Risk_View,06.05.2024,tablet,0.0 Cr,342.7,90sec
+user_76,PURCHASE,06-Mar-24,mobile,"₹50,000",277.9,45sec
+user_99,churn_risk_view,21-Apr-24,tablet,0.01 crore,1268.3,30min
+user_11,Signup,13/04/2024,-,"₹50,000",582.3,90min
+user_67,purchase,26/02/2024,desktop,0.01 crore,342.5,15sec
+user_129,signup,25th April 2024,mobile,0.0 Cr,192.3,45sec
+user_66,ACTIVATE,22.04.2024,tablet,"₹50,000",1088.7,15min
+user_103,Activate,2024-03-21,tablet,"₹50,000",430.5,1min
+user_80,Signup,2024-05-13,desktop,"Rs. 50,000",,5min
+user_42,Purchase,30-May-24,mobile,Undisclosed,285.4,1min
+user_119,SIGNUP,25-Jan-24,tablet,"₹50,000",558.5,15sec
+user_9,signup,1st April 2024,tablet,0.5 lakh,598.0,90sec
+user_19,ACTIVATE,2024-05-03,desktop,0.5 lakh,172.1,45sec
+user_108,churn_risk_view,22-Jan-24,mobile,Undisclosed,615.6,30sec
+user_10,ACTIVATE,14th January 2024,mobile,0.01 crore,1308.4,30sec
+user_102,activate,2024-01-28,desktop,"₹50,000",590.1,2min
+user_109,activate,22/03/2024,mobile,"₹50,000",647.9,5min
+user_56,SIGNUP,2024-02-20,tablet,"Rs. 50,000",660.4,1min
+user_72,signup,2024-03-28,mobile,"₹50,000",830.0,15min
+user_16,Purchase,6th February 2024,mobile,0.01 crore,712.0,5min
+user_10,Sign Up,2024-05-18,mobile,0.0 Cr,491.8,45min
+user_103,ACTIVATE,03.01.2024,desktop,"₹50,000",22.6,90min
+user_56,activate,19th May 2024,desktop,0.01 crore,,15min
+user_110,PURCHASE,15-Feb-24,tablet,"Rs. 50,000",1410.4,2min
+user_126,Churn_Risk_View,5th February 2024,mobile,"Rs. 50,000",1357.7,15sec
+user_33,Sign Up,24th April 2024,desktop,"Rs. 50,000",1130.2,45sec
+user_140,activate,15-Apr-24,desktop,"Rs. 50,000",1301.3,2min
+user_127,Signup,invalid-date,desktop,0.5 lakh,1345.6,90sec
+user_133,signup,2024-03-20,desktop,"₹50,000",598.5,45sec
+user_48,Sign Up,2024-01-31,mobile,0.0 Cr,383.6,30sec
+user_1,Churn_Risk_View,22.01.2024,desktop,"₹50,000",477.9,15min
+user_124,Signup,11/05/2024,tablet,"Rs. 50,000",177.4,45sec
+user_109,Signup,15/05/2024,desktop,0.0 Cr,,15sec
+user_79,Sign Up,11-Feb-24,tablet,"Rs. 50,000",391.3,45sec
+user_32,Purchase,16/04/2024,tablet,0.5 lakh,556.1,5min
+user_32,signup,23.03.2024,desktop,0.5 lakh,2094.3,30min
+user_47,SIGNUP,10.05.2024,desktop,"Rs. 50,000",1494.2,90min
+user_114,activate,21/01/2024,tablet,0.5 lakh,921.7,45sec
+user_101,activate,unknown,desktop,"₹50,000",209.6,1min
+user_3,SIGNUP,2024-04-09,desktop,0.0 Cr,377.7,90min
+user_122,Activate,25th January 2024,mobile,0.01 crore,315.0,1min
+user_7,PURCHASE,24.01.2024,mobile,0.01 crore,487.7,45sec
+user_105,ACTIVATE,18th January 2024,mobile,"Rs. 50,000",,30sec
+user_65,Signup,25/02/2024,tablet,0.0 Cr,349.8,1min
+user_58,Activate,23rd March 2024,mobile,"₹50,000",1589.4,30min
+user_127,activate,06.03.2024,desktop,0.01 crore,500.2,90min
+user_39,PURCHASE,31st January 2024,tablet,0.5 lakh,129.9,30min
+user_34,purchase,19th April 2024,tablet,0.01 crore,569.7,90sec
+user_102,PURCHASE,11-Apr-24,desktop,Undisclosed,1984.4,45sec
+user_148,SIGNUP,2024-05-23,desktop,0.01 crore,443.5,90sec
+user_121,ACTIVATE,05.01.2024,mobile,0.0 Cr,,45sec
+user_95,Signup,26.05.2024,desktop,"₹50,000",353.1,1min
+user_127,Sign Up,2024-02-15,tablet,0.0 Cr,163.1,90sec
+user_124,SIGNUP,06/03/2024,mobile,"₹50,000",692.2,45sec
+user_49,ACTIVATE,2024-02-21,desktop,"₹50,000",,30sec
+user_78,Purchase,----,desktop,"₹50,000",393.4,15sec
+user_24,PURCHASE,8th April 2024,N/A,"Rs. 50,000",2346.1,15min
+user_118,activate,29-Feb-24,tablet,0.5 lakh,817.9,90min
+user_130,activate,9th April 2024,desktop,"Rs. 50,000",214.9,5min
+user_50,activate,10/02/2024,mobile,0.0 Cr,,5min
+user_105,SIGNUP,02-Jan-24,desktop,0.0 Cr,80.7,45sec
+user_128,PURCHASE,06/04/2024,desktop,0.5 lakh,332.1,45min
+user_125,Activate,11-Apr-24,tablet,0.01 crore,1346.8,90min
+user_113,Signup,21st January 2024,desktop,0.01 crore,1513.3,30min
+user_126,ACTIVATE,2024-02-13,tablet,0.0 Cr,149.4,30sec
+user_60,signup,22.04.2024,desktop,0.0 Cr,348.2,45min
+user_30,Activate,04-Mar-24,tablet,0.01 crore,1463.3,30min
+user_22,Purchase,31.03.2024,mobile,0.01 crore,901.2,15sec
+user_58,Activate,16th May 2024,mobile,"Rs. 50,000",164.5,45sec
+user_110,Signup,10-Jan-24,desktop,0.0 Cr,562.2,30sec
+user_17,Sign Up,14th January 2024,N/A,0.0 Cr,583.2,45sec
+user_51,churn_risk_view,12/05/2024,desktop,0.01 crore,1246.7,45sec
+user_87,ACTIVATE,6th January 2024,tablet,Undisclosed,686.3,90sec
+user_15,ACTIVATE,03/05/2024,tablet,0.5 lakh,2058.2,90sec
+user_48,SIGNUP,05.05.2024,tablet,0.5 lakh,258.6,90sec
+user_2,signup,05.05.2024,tablet,0.01 crore,26.4,90min
+user_135,Activate,22-Feb-24,desktop,0.5 lakh,223.2,45min
+user_72,PURCHASE,2nd January 2024,mobile,0.0 Cr,,90sec
+user_65,Churn_Risk_View,03.03.2024,desktop,0.0 Cr,289.5,45min
+user_80,Signup,2024-05-30,?,0.01 crore,1035.4,15sec
+user_33,signup,12/04/2024,tablet,0.5 lakh,329.5,2min
+user_7,activate,22.04.2024,desktop,"₹50,000",865.1,30sec
+user_91,Activate,25-Feb-24,-,0.0 Cr,747.9,90sec
+user_135,Signup,1st February 2024,mobile,0.0 Cr,525.0,45min
+user_52,churn_risk_view,30th May 2024,desktop,0.01 crore,506.2,2min
+user_37,Purchase,18.02.2024,desktop,"₹50,000",514.9,45min
+user_134,churn_risk_view,21st January 2024,mobile,0.0 Cr,12.9,45min
+user_26,Purchase,27-Mar-24,tablet,"₹50,000",1880.3,5min
+user_73,Signup,2024-04-14,none,0.01 crore,1728.6,30min
+user_15,Signup,09/05/2024,desktop,"Rs. 50,000",120.7,90min
+user_94,Signup,13-Mar-24,tablet,0.0 Cr,1336.3,90sec
+user_84,Churn_Risk_View,03.04.2024,tablet,0.01 crore,484.5,1min
+user_87,purchase,2024-04-17,mobile,0.01 crore,670.5,2min
+user_96,purchase,18/03/2024,desktop,0.01 crore,1668.6,45min
+user_70,churn_risk_view,27-Jan-24,mobile,0.01 crore,112.9,45min
+user_111,Signup,17.02.2024,mobile,"Rs. 50,000",1480.4,2min
+user_91,churn_risk_view,02.01.2024,mobile,"₹50,000",191.2,15min
+user_82,ACTIVATE,10.02.2024,desktop,0.0 Cr,248.9,30sec
+user_147,ACTIVATE,12/05/2024,N/A,Undisclosed,732.1,30sec
+user_44,signup,12/01/2024,mobile,0.5 lakh,965.3,2min
+user_0,Activate,2024-03-01,tablet,"₹50,000",691.7,45min
+user_105,SIGNUP,25-Apr-24,mobile,0.01 crore,353.6,45sec
+user_123,Purchase,12/03/2024,desktop,Undisclosed,1547.6,30min
+user_113,Sign Up,24-Mar-24,desktop,0.0 Cr,426.6,90sec
+user_98,Activate,25th February 2024,mobile,"Rs. 50,000",853.0,30sec
+user_149,Churn_Risk_View,03.01.2024,desktop,"Rs. 50,000",825.2,5min
+user_46,purchase,05/02/2024,mobile,0.5 lakh,480.7,30sec
+user_58,Activate,04-May-24,mobile,"₹50,000",586.3,45sec
+user_126,SIGNUP,08-May-24,desktop,0.01 crore,697.3,90sec
+user_117,activate,08.05.2024,mobile,0.5 lakh,2767.8,90sec
+user_67,churn_risk_view,24/02/2024,none,"Rs. 50,000",341.7,2min
+user_22,Sign Up,2024-05-10,tablet,"₹50,000",101.7,15sec
+user_87,activate,14.04.2024,mobile,0.01 crore,,45sec
+user_128,Signup,01.05.2024,mobile,"₹50,000",894.1,30sec
+user_19,Signup,05-May-24,mobile,0.01 crore,845.8,2min
+user_5,ACTIVATE,26/03/2024,mobile,"₹50,000",540.4,1min
+user_89,PURCHASE,17th February 2024,mobile,"₹50,000",526.3,2min
+user_95,activate,2024-05-03,mobile,0.0 Cr,443.1,45sec
+user_58,Activate,23rd March 2024,mobile,"₹50,000",1589.4,30min
+user_133,Signup,29th May 2024,mobile,0.0 Cr,665.4,30sec
+user_28,Signup,15.03.2024,desktop,"₹50,000",640.6,15sec
+user_51,ACTIVATE,17.03.2024,mobile,"Rs. 50,000",1911.2,5min
+user_1,signup,2024-03-19,mobile,"₹50,000",616.1,45sec
+user_136,ACTIVATE,5th March 2024,tablet,0.01 crore,604.2,1min
+user_48,SIGNUP,05.05.2024,tablet,0.5 lakh,258.6,90sec
+user_61,Sign Up,04-Mar-24,tablet,"Rs. 50,000",,30min
+user_19,Sign Up,12.05.2024,tablet,"₹50,000",563.4,90min
+user_57,ACTIVATE,05-May-24,NA,0.0 Cr,246.9,90sec
+user_107,Churn_Risk_View,09-Apr-24,mobile,"₹50,000",1372.9,90min
+user_14,Signup,12.05.2024,mobile,"Rs. 50,000",562.4,1min
+user_83,Signup,15.02.2024,tablet,0.0 Cr,767.8,5min
+user_109,purchase,10.02.2024,desktop,0.0 Cr,501.4,90min
+user_37,churn_risk_view,23-May-24,mobile,0.01 crore,1392.6,15sec
+user_46,Signup,18th February 2024,mobile,"Rs. 50,000",2091.1,30sec
+user_38,ACTIVATE,06.01.2024,tablet,Undisclosed,1286.5,45min
+user_43,Purchase,20th May 2024,mobile,0.01 crore,,30min
+user_2,ACTIVATE,21/03/2024,desktop,Undisclosed,1277.3,90min
+user_30,Activate,04-Mar-24,tablet,0.01 crore,1463.3,30min
+user_55,SIGNUP,20-Feb-24,mobile,"₹50,000",2586.2,5min
+user_4,SIGNUP,20.05.2024,tablet,0.5 lakh,197.0,15sec
+user_72,SIGNUP,2024-02-05,mobile,0.5 lakh,185.6,15min
+user_53,activate,2024-04-02,mobile,0.01 crore,259.2,30min
+user_61,Signup,14/01/2024,desktop,Undisclosed,803.0,15min
+user_88,PURCHASE,27th March 2024,mobile,0.5 lakh,660.6,15sec
+user_14,Sign Up,2024-05-22,mobile,0.0 Cr,833.7,90sec
+user_52,SIGNUP,2024-05-19,desktop,"₹50,000",280.1,30sec
+user_106,signup,21.04.2024,desktop,"₹50,000",727.3,5min
+user_19,Signup,05-May-24,mobile,0.01 crore,845.8,2min
+user_136,activate,18-Apr-24,desktop,0.5 lakh,203.7,30sec
+user_148,Activate,1st February 2024,tablet,"₹50,000",430.1,30min
+user_95,activate,17th February 2024,tablet,"Rs. 50,000",331.3,2min
+user_23,signup,1st February 2024,mobile,"₹50,000",141.4,30sec
+user_49,Signup,2024-01-01,tablet,"₹50,000",511.8,5min
+user_29,Sign Up,07-Jan-24,NULL,0.0 Cr,1209.0,1min
+user_104,SIGNUP,03.02.2024,tablet,"₹50,000",235.4,1min
+user_119,SIGNUP,25-Jan-24,tablet,"₹50,000",558.5,15sec

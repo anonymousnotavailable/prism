@@ -25,15 +25,19 @@ from modules import ai_analyst, data_engine, type_coercion  # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
 SAMPLES_DIR = EVAL_DIR.parent / "samples"
+HELL_SAMPLES_DIR = SAMPLES_DIR / "hell"
 QUESTIONS_PATH = EVAL_DIR / "questions.json"
 RESULTS_PATH = EVAL_DIR / "eval_results.md"
 
 
 def _prep_dataset(filename: str) -> tuple[pd.DataFrame, dict]:
-    """Load a sample CSV and auto-apply Smart Type Coercion, mirroring how a
-    user would clean it before asking questions in the AI Analyst tab.
+    """Load a sample CSV (checking samples/ then samples/hell/) and
+    auto-apply Smart Type Coercion, mirroring how a user would clean it
+    before asking questions in the AI Analyst tab.
     """
     path = SAMPLES_DIR / filename
+    if not path.exists():
+        path = HELL_SAMPLES_DIR / filename
     with open(path, "rb") as f:
         df, error, _warnings = data_engine.load_data(f)
     if error:
