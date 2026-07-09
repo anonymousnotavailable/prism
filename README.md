@@ -247,9 +247,7 @@ steps to put it on Streamlit Community Cloud for free.
 
 ---
 
-## Screenshots
-
-> _Add screenshots here once the app is running:_
+## Total_Overview
 > - Landing screen (hero, feature cards, sample datasets)
 > - Overview tab — data quality metrics + Column Health
 > - Clean tab — before/after comparison + Cleaning History/Undo in the sidebar
