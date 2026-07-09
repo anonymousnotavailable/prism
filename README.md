@@ -186,8 +186,6 @@ runtime:
 
 ## Why I built this
 
-*(draft — personalize this with your actual story before publishing)*
-
 I wanted one tool that covered the parts of a real data-analysis workflow I
 was otherwise juggling across five different tools — pandas for cleaning, a
 notebook for charts, a separate SQL client for ad-hoc queries, and a
