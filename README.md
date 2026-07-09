@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.50-FF4B4B?logo=streamlit&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Code-Gen Eval](https://img.shields.io/badge/code--gen%20eval-7%2F7%20(partial%20run)-yellow)](eval/eval_results.md)
 
 <!-- demo.gif here -->
 
@@ -35,6 +36,10 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
 - **Anomaly Detection** — scikit-learn's `IsolationForest` flags unusual
   rows with a plain-English reason each (e.g. "salary is 6.4x above the
   column median"), with one-click exclusion
+- **PII Detector** — regex-scans text/categorical columns for emails, phone
+  numbers, and likely person names the moment a dataset becomes active; a
+  privacy banner lists what was found, with one-click masking per column
+  (`j***@gmail.com`) that never displays the raw value first
 
 ### Clean
 - Sidebar cleaning controls: drop/fill (mean, median, mode, custom) missing
@@ -48,6 +53,10 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
   pandas code line; Undo restores a DataFrame snapshot (last 10 steps kept)
 - **Export as Python Script** — downloads a runnable `.py` reproducing every
   logged step, in order, with comments
+- **Cleaning Recipes** — save the current cleaning history as a named,
+  portable JSON recipe; apply a saved recipe to any new file with a
+  per-step applied/skipped log (a step that doesn't apply — a missing
+  column, an unreproducible join — is skipped, never crashes the rest)
 - Before/after comparison view + download the cleaned dataset as CSV
 
 ### Combine
@@ -58,6 +67,10 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
 - Preview shows rows before → after, columns gained, and key match rate
   before committing — "Use as Active Dataset" rewires every other tab onto
   the joined data
+- **Compare mode (drift)** — instead of joining, compare a second dataset
+  (e.g. last month's export) against the active one column by column: mean/
+  median shifts, new/missing categories, and a distribution-overlap chart per
+  column, plus an overall 0-100 drift score highlighting what changed most
 
 ### Visualize
 - Smart chart picker per column type (pie/bar for categoricals, histogram +
@@ -65,6 +78,15 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
   numeric × numeric) — probable ID columns are automatically excluded
 - Correlation heatmap with the top-3 strongest correlations flagged automatically
 - Manual chart builder for full control over axes and chart type
+- **Auto-Dashboard Generator** — "Build My Dashboard": Gemini inspects the
+  schema and returns a JSON spec (KPI cards + 4-6 charts, each with a
+  one-line reason), rendered as a responsive grid; swap or remove any chart
+  without regenerating the rest
+- **Auto-Report Writer** — "Generate Report": an executive-style write-up
+  (summary, data quality, key findings with embedded charts, recommendations)
+  in Prism's brand colors, downloadable as PDF (`fpdf2` — no system
+  dependencies, so it deploys cleanly to Streamlit Community Cloud where
+  `weasyprint`'s GTK/Cairo requirement would not) or as standalone HTML
 - One-click export to a self-contained HTML report (quality summary + all charts + stats)
 
 ### SQL Lab
@@ -87,12 +109,58 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
 - Every request sends only the column schema, a 5-row sample, and summary
   statistics — **never the full dataset**
 
+### Auto Analyst
+The flagship v2 feature — one button, a full agentic analysis:
+- "Run Full Analysis": Gemini first drafts a JSON **plan** (quality check →
+  distributions → segments → correlations → time trends if a datetime
+  column exists → conclusions), falling back to a sensible default plan
+  built from column types if Gemini is unavailable or its JSON can't be parsed
+- Each step runs through the exact same self-healing, sandboxed pipeline as
+  the AI Analyst chat tab — a live `st.status` panel shows every step as
+  pending → running → done, with its own generated code and result
+- Ends with an "Analysis Complete" card summarizing the top 5 findings,
+  synthesized by Gemini from everything the steps actually found
+
+### Stats Lab
+- Pick two columns; Stats Lab suggests the statistically appropriate test
+  based on their types — independent t-test, one-way ANOVA, chi-square
+  test of independence, or Pearson correlation significance — with a
+  one-line reason before you run anything
+- Runs the test via `scipy.stats`, then reports a plain-English verdict with
+  the p-value and an effect size (Cohen's d / eta-squared / Cramer's V /
+  Pearson r, each with a small/medium/large label)
+- **Assumption checks**: Shapiro-Wilk normality per group for t-test/ANOVA,
+  expected-cell-count checks for chi-square — surfaced as warnings, not
+  silently ignored
+
+### Forecasting
+*(hidden automatically if the active dataset has no datetime column)*
+- Pick a datetime + numeric column and a horizon (7-90 periods via slider)
+- Fits `statsmodels`' ETS (Exponential Smoothing/Holt-Winters) with a 95%
+  confidence band; falls back to SARIMAX if ETS can't fit the series (e.g.
+  too little history for the seasonal component it picked)
+- Plotly chart with history + forecast + shaded confidence band, a
+  downloadable forecast CSV, and a plain-English reliability caveat scaled
+  to how far out the forecast reaches relative to the available history
+
+### Clustering & Segmentation
+*(warns, but doesn't block, when the active dataset has fewer than 50 rows)*
+- Pick numeric columns; KMeans runs on standardized features with an
+  elbow-method suggestion for K (view the full elbow chart on demand)
+- 2D scatter via PCA, colored by cluster, plus a per-cluster stats table
+  (mean of each column, size, share of the data)
+- "Name Segments with AI" sends the cluster stats to Gemini, which names and
+  describes each segment in one line referencing a real number from the table
+
 ### Throughout
 - Light/dark theme toggle in the sidebar (default: dark cyan)
 - Dismissible first-visit onboarding, a "? Help" expander on every tab,
   `st.toast()` confirmations, and styled error/warning alerts everywhere
-- Runs fully without a Gemini API key — only the AI-dependent parts of AI
-  Analyst and SQL Lab show a friendly "add your key" message instead of breaking
+- Runs fully without a Gemini API key. Features that *require* one (AI
+  Analyst, Auto Analyst, "Explain This Query", "Name Segments with AI") show
+  a friendly "add your key" message instead of breaking; features that only
+  *benefit* from one (Auto-Dashboard Generator, Auto-Report Writer) fall back
+  to a sensible non-AI default spec/narrative built from the data itself
 
 ---
 
@@ -100,17 +168,20 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
 
 ```mermaid
 flowchart LR
-    Upload["Upload<br/>CSV / Excel / sample dataset"] --> Engine["Engine<br/>type detection, quality report, cleaning"]
-    Engine --> Visualize["Visualize<br/>auto-charts, correlation heatmap"]
+    Upload["Upload<br/>CSV / Excel / sample dataset"] --> Engine["Engine<br/>type detection, quality report, cleaning, PII scan"]
+    Engine --> Visualize["Visualize<br/>auto-charts, dashboard builder, report writer"]
     Engine --> SQLLab["SQL Lab<br/>DuckDB queries on the live DataFrame"]
     Engine --> AIAnalyst["AI Analyst<br/>Gemini: plain English to pandas code"]
+    Engine --> AutoAnalyst["Auto Analyst<br/>Gemini plan, then sequential sandboxed steps"]
+    Engine --> StatsForecastCluster["Stats Lab / Forecasting / Clustering<br/>scipy.stats, statsmodels, scikit-learn"]
     AIAnalyst --> Sandbox["Sandboxed exec()<br/>result to table, metric, or chart"]
-    Visualize --> Report["Export: HTML report"]
+    AutoAnalyst --> Sandbox
+    Visualize --> Report["Export: HTML / PDF report"]
 ```
 
 ```
 prism/
-├── app.py                  # Entry point — landing screen, sidebar, 6 tabs, session-state wiring
+├── app.py                  # Entry point — landing screen, sidebar, tabs, session-state wiring
 ├── modules/
 │   ├── data_engine.py       # File loading (incl. multi-sheet Excel), type detection, quality report
 │   ├── cleaning.py          # Null handling, dedup, dtype conversion, code-gen, export_script()
@@ -124,10 +195,20 @@ prism/
 │   ├── sql_lab.py           # DuckDB query execution, example query builder
 │   ├── voice_input.py       # streamlit-mic-recorder wrapper, graceful fallback
 │   ├── ai_analyst.py        # Gemini integration, safe code execution, self-healing retry
-│   ├── report.py            # Standalone HTML report generation
+│   ├── auto_analyst.py      # v2: agentic plan generation + sequential sandboxed execution
+│   ├── stats_lab.py         # v2: test suggestion, scipy.stats execution, plain-English verdicts
+│   ├── forecasting.py       # v2: ETS/SARIMAX forecasting with confidence bands
+│   ├── clustering.py        # v2: KMeans + elbow method + PCA + AI segment naming
+│   ├── drift.py             # v2: dataset-vs-dataset drift report + score
+│   ├── dashboard_builder.py # v2: AI-designed KPI + chart dashboard spec
+│   ├── report_writer.py     # v2: executive PDF/HTML report generation
+│   ├── recipes.py           # v2: save/apply cleaning history as a portable JSON recipe
+│   ├── pii_detector.py      # v2: regex PII scan + one-click masking
+│   ├── report.py            # Standalone HTML report generation (Visualize tab's basic export)
 │   ├── theme.py             # Dark/light CSS + Plotly templates
 │   └── ui.py                # Landing screen, footer, help expanders, onboarding
 ├── samples/                  # sales_data.csv / hr_data.csv / stock_data.csv for "Try a sample dataset"
+├── eval/                     # Code-gen eval harness — questions.json, run_eval.py, eval_results.md
 ├── .streamlit/config.toml   # Theme config
 ├── requirements.txt          # Pinned, tested-together versions
 └── DEPLOYMENT.md             # Streamlit Community Cloud deployment steps
@@ -240,10 +321,37 @@ steps to put it on Streamlit Community Cloud for free.
 | Charts         | Plotly (fully interactive, dark + light templates) |
 | SQL engine     | DuckDB (in-memory, queries the live DataFrame) |
 | Anomaly detection | scikit-learn (`IsolationForest`)     |
+| Statistical testing | `scipy.stats` (t-test, ANOVA, chi-square, Pearson, Shapiro-Wilk) |
+| Forecasting    | `statsmodels` (ETS/Exponential Smoothing, SARIMAX) |
+| Clustering     | scikit-learn (`KMeans`, `PCA`, `StandardScaler`) |
+| PDF reports    | `fpdf2` (pure Python, no system dependencies) + `kaleido` (chart rasterization) |
 | Voice input    | streamlit-mic-recorder (browser speech-to-text) |
 | AI layer       | Google Gemini API (`gemini-2.5-flash`)  |
 | Secrets        | `st.secrets` (Cloud) → `.env` via python-dotenv (local) |
 | Session files  | JSON (not pickle — see architecture note above) |
+
+---
+
+## Code-Gen Eval Harness
+
+A hidden quality-assurance layer that keeps the AI Analyst / Auto Analyst
+pipeline honest: [`eval/questions.json`](eval/questions.json) has 20 fixed
+question-answer pairs against the bundled sample datasets, and
+[`eval/run_eval.py`](eval/run_eval.py) runs each one through the *real*
+pipeline (`ai_analyst.ask_and_execute` — Gemini-generated pandas code,
+executed in the safe-execution sandbox), grades the result against a fixed
+ground truth, and writes the score to
+[`eval/eval_results.md`](eval/eval_results.md).
+
+```bash
+python eval/run_eval.py
+```
+
+The most recent run passed **7/7 (100%)** of the questions it reached before
+hitting the Gemini free-tier's daily quota mid-run — see
+`eval_results.md` for the full breakdown and a note on re-running once quota
+resets. A question that can't be evaluated (quota-blocked) is reported as
+`NOT RUN`, never silently counted as a failure.
 
 ---
 

@@ -19,14 +19,23 @@ import streamlit as st
 from modules import (
     ai_analyst,
     anomaly,
+    auto_analyst,
     cleaning,
+    clustering,
+    dashboard_builder,
     data_engine,
     datetime_intel,
+    drift,
+    forecasting,
     join_engine,
+    pii_detector,
     profiling,
+    recipes,
     report,
+    report_writer,
     session_io,
     sql_lab,
+    stats_lab,
     theme,
     type_coercion,
     ui,
@@ -72,6 +81,21 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
+    "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
+    "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
+    "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
+    "forecast_error": None,  # error from the last forecast attempt, if any
+    "cluster_result": None,  # last "Run Clustering" result dict
+    "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
+    "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
+    "drift_result": None,  # last "Run Drift Comparison" report from the Combine tab's Compare mode
+    "dashboard_spec": None,  # last "Build My Dashboard" spec (kpis + charts), editable via Remove/Swap
+    "auto_report_content": None,  # last "Generate Report" content dict (for PDF/HTML export)
+    "recipe_apply_log": [],  # last "Apply Recipe" per-step applied/skipped log
+    "pii_findings": {},  # PII Detector's scan of the active dataset — {"email"/"phone"/"name": [...]}
 }
 for key, default_value in _DEFAULTS.items():
     if key not in st.session_state:
@@ -129,6 +153,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.raw_df = raw_df
     st.session_state.working_df = working_df
     st.session_state.column_types = data_engine.detect_column_types(working_df)
+    st.session_state.pii_findings = pii_detector.scan_dataframe(working_df, st.session_state.column_types)
     st.session_state.cleaning_log = cleaning_log if cleaning_log is not None else []
     st.session_state.chat_history = chat_history if chat_history is not None else []
     st.session_state.key_insights = []
@@ -146,6 +171,20 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.auto_analyst_plan = None
+    st.session_state.auto_analyst_step_outcomes = []
+    st.session_state.auto_analyst_findings = []
+    st.session_state.auto_analyst_findings_error = None
+    st.session_state.stats_lab_result = None
+    st.session_state.forecast_result = None
+    st.session_state.forecast_error = None
+    st.session_state.cluster_result = None
+    st.session_state.cluster_segment_names = []
+    st.session_state.cluster_segment_error = None
+    st.session_state.drift_result = None
+    st.session_state.dashboard_spec = None
+    st.session_state.auto_report_content = None
+    st.session_state.recipe_apply_log = []
     st.session_state.last_file_name = source_name
 
 
@@ -347,6 +386,44 @@ with st.sidebar:
                 disabled=not st.session_state.cleaning_log,
             )
 
+        # --- Cleaning recipes: save the history above as a named, reusable JSON
+        # recipe, or apply a previously saved one to this dataset. ------------------
+        st.divider()
+        st.markdown("### Cleaning Recipes")
+        recipe_name_input = st.text_input("Recipe name", value="my_cleaning_recipe", key="recipe_name_input")
+        recipe_json_text = recipes.save_recipe(recipe_name_input, st.session_state.cleaning_log)
+        st.download_button(
+            "Save Recipe",
+            data=recipe_json_text.encode("utf-8"),
+            file_name=f"{recipe_name_input or 'prism_recipe'}.json",
+            mime="application/json",
+            use_container_width=True,
+            disabled=not st.session_state.cleaning_log,
+        )
+
+        recipe_file = st.file_uploader("Apply a recipe to this dataset", type=["json"], key="recipe_uploader")
+        if recipe_file is not None:
+            loaded_recipe, recipe_load_error = recipes.load_recipe(recipe_file.getvalue())
+            if recipe_load_error:
+                st.error(recipe_load_error)
+            elif st.button("Apply Recipe", use_container_width=True, key="apply_recipe_btn"):
+                push_undo_snapshot()
+                recipe_result_df, recipe_step_log = recipes.apply_recipe(working_df, loaded_recipe)
+                st.session_state.working_df = recipe_result_df
+                st.session_state.column_types = data_engine.detect_column_types(recipe_result_df)
+                st.session_state.recipe_apply_log = recipe_step_log
+                log_step(
+                    f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'",
+                    f"# Applied recipe: {loaded_recipe.get('name', 'unnamed')}",
+                )
+                st.toast(f"Applied recipe '{loaded_recipe.get('name', 'unnamed')}'.")
+
+        if st.session_state.recipe_apply_log:
+            with st.expander("Recipe apply log", expanded=True):
+                for log_entry in st.session_state.recipe_apply_log:
+                    status_label = "Applied" if log_entry["status"] == "applied" else "Skipped"
+                    st.caption(f"**{status_label}** — {log_entry['description']}: {log_entry['detail']}")
+
         # --- Session save ---------------------------------------------------------
         st.divider()
         session_json = session_io.save_session(
@@ -415,9 +492,24 @@ ui.render_onboarding()
 df = st.session_state.working_df
 column_types = st.session_state.column_types
 
-tab_overview, tab_clean, tab_combine, tab_visualize, tab_sql, tab_ai = st.tabs(
-    ["Overview", "Clean", "Combine", "Visualize", "SQL Lab", "AI Analyst"]
-)
+has_datetime_col = "datetime" in column_types.values()
+
+_tab_names = ["Overview", "Clean", "Combine", "Visualize", "SQL Lab", "AI Analyst", "Auto Analyst", "Stats Lab"]
+if has_datetime_col:
+    _tab_names.append("Forecasting")
+_tab_names.append("Clustering")
+
+_tabs = dict(zip(_tab_names, st.tabs(_tab_names)))
+tab_overview = _tabs["Overview"]
+tab_clean = _tabs["Clean"]
+tab_combine = _tabs["Combine"]
+tab_visualize = _tabs["Visualize"]
+tab_sql = _tabs["SQL Lab"]
+tab_ai = _tabs["AI Analyst"]
+tab_auto = _tabs["Auto Analyst"]
+tab_stats = _tabs["Stats Lab"]
+tab_forecast = _tabs.get("Forecasting")  # None when the dataset has no datetime column
+tab_cluster = _tabs["Clustering"]
 
 # --------------------------------------------------------------------------
 # Overview tab — data quality report, column health, drill-down, anomalies
@@ -442,6 +534,34 @@ with tab_overview:
             f"Fully empty columns detected: {', '.join(quality['all_null_columns'])}. "
             "Consider dropping them in the sidebar's Cleaning Controls."
         )
+
+    if pii_detector.has_findings(st.session_state.pii_findings):
+        st.warning(f"**Privacy notice:** {pii_detector.describe_findings(st.session_state.pii_findings)}")
+        with st.expander("PII Detector — details & masking", expanded=False):
+            for pii_type, label in [("email", "Emails"), ("phone", "Phone numbers"), ("name", "Likely names")]:
+                entries = st.session_state.pii_findings.get(pii_type, [])
+                if not entries:
+                    continue
+                st.markdown(f"**{label}**")
+                for entry in entries:
+                    pii_col = entry["column"]
+                    pcol1, pcol2, pcol3 = st.columns([2, 2, 1])
+                    pcol1.write(f"`{pii_col}`")
+                    pcol2.caption(f"{entry['match_pct']}% match — e.g. {entry['sample']}")
+                    with pcol3:
+                        if st.button("Mask", key=f"mask_{pii_type}_{pii_col}", use_container_width=True):
+                            push_undo_snapshot()
+                            masked_df = pii_detector.mask_column(df, pii_col, pii_type)
+                            st.session_state.working_df = masked_df
+                            log_step(
+                                f"Masked {label.lower()} in '{pii_col}'",
+                                f"# Masked {pii_type} values in '{pii_col}' for privacy.",
+                            )
+                            st.session_state.pii_findings = pii_detector.scan_dataframe(
+                                masked_df, st.session_state.column_types
+                            )
+                            st.toast(f"Masked '{pii_col}'.")
+                            st.rerun()
 
     col_left, col_right = st.columns(2)
     with col_left:
@@ -618,7 +738,13 @@ with tab_combine:
     )
 
     st.subheader("Combine with Another File")
-    st.caption("Upload a second dataset and join it onto your active data.")
+    combine_mode = st.radio(
+        "Mode", ["Join datasets", "Compare for drift"], key="combine_mode", horizontal=True,
+    )
+    st.caption(
+        "Upload a second dataset to join it onto your active data, or compare it against your "
+        "active data for dataset drift (e.g. this month vs last month)."
+    )
 
     second_file = st.file_uploader(
         "Upload second CSV or Excel", type=["csv", "xlsx", "xls"], key="second_file_uploader"
@@ -638,12 +764,13 @@ with tab_combine:
                 st.session_state.second_file_name = second_file.name
                 st.session_state.combine_preview_df = None
                 st.session_state.combine_stats = None
+                st.session_state.drift_result = None
                 for w in second_warnings:
                     st.warning(w)
                 st.success(f"Loaded second file: {new_second_df.shape[0]:,} rows x {new_second_df.shape[1]} columns")
 
     if st.session_state.second_df is None:
-        st.info("Upload a second file above to combine it with your active dataset.")
+        st.info("Upload a second file above to combine or compare it with your active dataset.")
     else:
         second_df = st.session_state.second_df
 
@@ -655,81 +782,136 @@ with tab_combine:
             st.caption(f"{st.session_state.second_file_name} — {second_df.shape[0]:,} rows × {second_df.shape[1]} columns")
             st.dataframe(second_df.head(5), use_container_width=True)
 
-        candidates = join_engine.detect_candidate_join_keys(df, second_df)
-        if candidates:
-            st.markdown("**Candidate Join Keys** (matching column names, ranked by value overlap)")
-            candidates_df = pd.DataFrame(candidates).rename(
-                columns={
-                    "column": "Column",
-                    "overlap_pct": "Overlap %",
-                    "left_unique": "Unique (active)",
-                    "right_unique": "Unique (second)",
-                }
-            )
-            st.dataframe(candidates_df, use_container_width=True, hide_index=True)
-            default_left_key = default_right_key = candidates[0]["column"]
+        if combine_mode == "Join datasets":
+            candidates = join_engine.detect_candidate_join_keys(df, second_df)
+            if candidates:
+                st.markdown("**Candidate Join Keys** (matching column names, ranked by value overlap)")
+                candidates_df = pd.DataFrame(candidates).rename(
+                    columns={
+                        "column": "Column",
+                        "overlap_pct": "Overlap %",
+                        "left_unique": "Unique (active)",
+                        "right_unique": "Unique (second)",
+                    }
+                )
+                st.dataframe(candidates_df, use_container_width=True, hide_index=True)
+                default_left_key = default_right_key = candidates[0]["column"]
+            else:
+                st.warning(
+                    "No columns with matching names were found between the two files. "
+                    "Pick a join key manually below."
+                )
+                default_left_key, default_right_key = df.columns[0], second_df.columns[0]
+
+            jc1, jc2, jc3 = st.columns(3)
+            with jc1:
+                left_key = st.selectbox(
+                    "Active dataset key", df.columns.tolist(),
+                    index=df.columns.get_loc(default_left_key) if default_left_key in df.columns else 0,
+                )
+            with jc2:
+                right_key = st.selectbox(
+                    "Second file key", second_df.columns.tolist(),
+                    index=second_df.columns.get_loc(default_right_key) if default_right_key in second_df.columns else 0,
+                )
+            with jc3:
+                join_type = st.selectbox("Join type", ["inner", "left", "right", "outer"])
+            st.caption(join_engine.JOIN_TYPE_DESCRIPTIONS[join_type])
+
+            if st.button("Preview Join", use_container_width=True):
+                try:
+                    joined_df, join_stats = join_engine.join_dataframes(df, second_df, left_key, right_key, join_type)
+                    st.session_state.combine_preview_df = joined_df
+                    st.session_state.combine_stats = join_stats
+                except Exception as e:
+                    st.session_state.combine_preview_df = None
+                    st.session_state.combine_stats = None
+                    st.error(f"Join failed: {e}")
+
+            if st.session_state.combine_preview_df is not None:
+                stats = st.session_state.combine_stats
+                s1, s2, s3, s4 = st.columns(4)
+                s1.metric("Rows Before", f"{stats['rows_before']:,}")
+                s2.metric("Rows After", f"{stats['rows_after']:,}", delta=stats["rows_after"] - stats["rows_before"])
+                s3.metric("Columns Gained", stats["columns_gained"])
+                s4.metric("Key Match Rate", f"{stats['match_pct']}%")
+
+                st.markdown("**Joined Preview**")
+                st.dataframe(st.session_state.combine_preview_df.head(20), use_container_width=True)
+
+                if st.button("Use as Active Dataset", type="primary", use_container_width=True):
+                    new_active_df = st.session_state.combine_preview_df
+                    join_description = (
+                        f"Combined with '{st.session_state.second_file_name}' via a {join_type} join on "
+                        f"'{left_key}' = '{right_key}'"
+                    )
+                    set_active_dataset(
+                        new_active_df.copy(),
+                        new_active_df.copy(),
+                        f"combined:{st.session_state.second_file_name}",
+                        cleaning_log=[
+                            {
+                                "description": join_description,
+                                "code": cleaning.join_code(
+                                    st.session_state.second_file_name, left_key, right_key, join_type
+                                ),
+                            }
+                        ],
+                    )
+                    st.toast("Joined dataset is now active — every tab will use it.")
+                    st.rerun()
+
         else:
-            st.warning(
-                "No columns with matching names were found between the two files. "
-                "Pick a join key manually below."
+            st.caption(
+                f"Comparing active dataset ({df.shape[0]:,} rows) as the baseline against "
+                f"'{st.session_state.second_file_name}' ({second_df.shape[0]:,} rows) as the comparison."
             )
-            default_left_key, default_right_key = df.columns[0], second_df.columns[0]
 
-        jc1, jc2, jc3 = st.columns(3)
-        with jc1:
-            left_key = st.selectbox(
-                "Active dataset key", df.columns.tolist(),
-                index=df.columns.get_loc(default_left_key) if default_left_key in df.columns else 0,
-            )
-        with jc2:
-            right_key = st.selectbox(
-                "Second file key", second_df.columns.tolist(),
-                index=second_df.columns.get_loc(default_right_key) if default_right_key in second_df.columns else 0,
-            )
-        with jc3:
-            join_type = st.selectbox("Join type", ["inner", "left", "right", "outer"])
-        st.caption(join_engine.JOIN_TYPE_DESCRIPTIONS[join_type])
+            if st.button("Run Drift Comparison", type="primary", use_container_width=True):
+                st.session_state.drift_result = drift.compare_datasets(df, second_df, column_types)
 
-        if st.button("Preview Join", use_container_width=True):
-            try:
-                joined_df, join_stats = join_engine.join_dataframes(df, second_df, left_key, right_key, join_type)
-                st.session_state.combine_preview_df = joined_df
-                st.session_state.combine_stats = join_stats
-            except Exception as e:
-                st.session_state.combine_preview_df = None
-                st.session_state.combine_stats = None
-                st.error(f"Join failed: {e}")
+            drift_result = st.session_state.drift_result
+            if drift_result is not None:
+                st.metric("Overall Drift Score", f"{drift_result['overall_drift_score']}/100")
 
-        if st.session_state.combine_preview_df is not None:
-            stats = st.session_state.combine_stats
-            s1, s2, s3, s4 = st.columns(4)
-            s1.metric("Rows Before", f"{stats['rows_before']:,}")
-            s2.metric("Rows After", f"{stats['rows_after']:,}", delta=stats["rows_after"] - stats["rows_before"])
-            s3.metric("Columns Gained", stats["columns_gained"])
-            s4.metric("Key Match Rate", f"{stats['match_pct']}%")
+                if drift_result["columns_only_in_a"]:
+                    st.warning(f"Columns only in the active dataset: {', '.join(drift_result['columns_only_in_a'])}")
+                if drift_result["columns_only_in_b"]:
+                    st.warning(
+                        f"Columns only in '{st.session_state.second_file_name}': "
+                        f"{', '.join(drift_result['columns_only_in_b'])}"
+                    )
 
-            st.markdown("**Joined Preview**")
-            st.dataframe(st.session_state.combine_preview_df.head(20), use_container_width=True)
+                if not drift_result["column_reports"]:
+                    st.info("No shared numeric or categorical columns to compare.")
+                else:
+                    st.markdown("**What changed the most**")
+                    summary_df = pd.DataFrame(
+                        [
+                            {
+                                "Column": r["column"],
+                                "Type": r["type"],
+                                "Drift Score": r["drift_score"],
+                                "Summary": drift.describe_drift(r),
+                            }
+                            for r in drift_result["column_reports"]
+                        ]
+                    )
+                    st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
-            if st.button("Use as Active Dataset", type="primary", use_container_width=True):
-                new_active_df = st.session_state.combine_preview_df
-                join_description = (
-                    f"Combined with '{st.session_state.second_file_name}' via a {join_type} join on "
-                    f"'{left_key}' = '{right_key}'"
-                )
-                set_active_dataset(
-                    new_active_df.copy(),
-                    new_active_df.copy(),
-                    f"combined:{st.session_state.second_file_name}",
-                    cleaning_log=[
-                        {
-                            "description": join_description,
-                            "code": cleaning.join_code(st.session_state.second_file_name, left_key, right_key, join_type),
-                        }
-                    ],
-                )
-                st.toast("Joined dataset is now active — every tab will use it.")
-                st.rerun()
+                    st.markdown("**Column-by-column detail**")
+                    for r in drift_result["column_reports"]:
+                        with st.expander(f"{r['column']} — drift score {r['drift_score']}", expanded=False):
+                            st.plotly_chart(
+                                drift.build_overlap_chart(r), use_container_width=True, key=f"drift_chart_{r['column']}"
+                            )
+                            if r["type"] == "categorical":
+                                if r["new_categories"]:
+                                    st.write(f"**New categories in B:** {', '.join(map(str, r['new_categories']))}")
+                                if r["missing_categories"]:
+                                    st.write(
+                                        f"**Missing categories in B:** {', '.join(map(str, r['missing_categories']))}"
+                                    )
 
 # --------------------------------------------------------------------------
 # Visualize tab — smart auto-charts, correlation heatmap, HTML export
@@ -764,9 +946,9 @@ with tab_visualize:
             for offset, col in enumerate(cols):
                 idx = i + offset
                 if idx < len(chart_items):
-                    _, fig = chart_items[idx]
+                    title, fig = chart_items[idx]
                     with col:
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, key=f"auto_chart_{idx}_{title}")
 
     st.divider()
     st.subheader("Manual Chart Builder")
@@ -799,6 +981,55 @@ with tab_visualize:
         st.plotly_chart(st.session_state.manual_chart_fig, use_container_width=True)
 
     st.divider()
+    st.subheader("Auto-Dashboard")
+    st.caption("One click: Gemini designs a set of KPI cards and 4-6 charts for this dataset.")
+
+    if st.button("Build My Dashboard", use_container_width=True):
+        dashboard_model = ai_analyst.get_model()
+        with st.spinner("Designing your dashboard..."):
+            st.session_state.dashboard_spec = dashboard_builder.generate_dashboard_spec(
+                dashboard_model, df, column_types
+            )
+
+    dashboard_spec = st.session_state.dashboard_spec
+    if dashboard_spec is not None:
+        if dashboard_spec["kpis"]:
+            kpi_cols = st.columns(len(dashboard_spec["kpis"]))
+            for kpi_col, kpi in zip(kpi_cols, dashboard_spec["kpis"]):
+                kpi_value = dashboard_builder.compute_kpi(df, kpi)
+                display_value = f"{kpi_value:,.2f}" if isinstance(kpi_value, float) else kpi_value
+                kpi_col.metric(kpi.get("label", kpi["column"]), display_value if display_value is not None else "—")
+
+        if not dashboard_spec["charts"]:
+            st.info("No charts could be built for this dataset.")
+        else:
+            chart_entries = list(enumerate(dashboard_spec["charts"]))
+            for row_start in range(0, len(chart_entries), 2):
+                row_entries = chart_entries[row_start : row_start + 2]
+                row_cols = st.columns(len(row_entries))
+                for row_col, (chart_idx, chart_spec) in zip(row_cols, row_entries):
+                    with row_col:
+                        dash_fig = dashboard_builder.build_dashboard_chart(df, chart_spec)
+                        if dash_fig is None:
+                            st.warning(f"Couldn't build a chart for '{chart_spec.get('x')}'.")
+                        else:
+                            st.plotly_chart(dash_fig, use_container_width=True, key=f"dash_chart_{chart_idx}")
+                            if chart_spec.get("reason"):
+                                st.caption(chart_spec["reason"])
+
+                        remove_col, swap_col = st.columns(2)
+                        with remove_col:
+                            if st.button("Remove", key=f"dash_remove_{chart_idx}", use_container_width=True):
+                                dashboard_spec["charts"].pop(chart_idx)
+                                st.session_state.dashboard_spec = dashboard_spec
+                                st.rerun()
+                        with swap_col:
+                            if st.button("Swap", key=f"dash_swap_{chart_idx}", use_container_width=True):
+                                dashboard_spec["charts"][chart_idx] = dashboard_builder.swap_chart_type(chart_spec)
+                                st.session_state.dashboard_spec = dashboard_spec
+                                st.rerun()
+
+    st.divider()
     st.subheader("Export Report")
     st.caption("Generates a standalone HTML file with the data quality summary, all charts, and key stats.")
 
@@ -814,6 +1045,47 @@ with tab_visualize:
         mime="text/html",
         use_container_width=True,
     )
+
+    st.divider()
+    st.subheader("Auto-Report Writer")
+    st.caption(
+        "One click: an executive-style write-up — summary, data quality, key findings with "
+        "embedded charts, and recommendations — exportable as PDF or HTML."
+    )
+
+    if st.button("Generate Report", use_container_width=True):
+        report_model = ai_analyst.get_model()
+        with st.spinner("Writing your report..."):
+            st.session_state.auto_report_content = report_writer.build_report_content(
+                report_model, df, quality_for_export, column_types, charts, top_corr
+            )
+
+    report_content = st.session_state.auto_report_content
+    if report_content is not None:
+        st.markdown(f"**Executive Summary**  \n{report_content['executive_summary']}")
+        if report_content["findings_error"]:
+            st.warning(report_content["findings_error"])
+
+        report_pdf_bytes = report_writer.generate_pdf_report(report_content, st.session_state.last_file_name or "dataset")
+        report_html_text = report_writer.generate_html_report(report_content, st.session_state.last_file_name or "dataset")
+
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            st.download_button(
+                "Download Report (PDF)",
+                data=report_pdf_bytes,
+                file_name="prism_analysis_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        with rc2:
+            st.download_button(
+                "Download Report (HTML)",
+                data=report_html_text.encode("utf-8"),
+                file_name="prism_analysis_report.html",
+                mime="text/html",
+                use_container_width=True,
+            )
 
 # --------------------------------------------------------------------------
 # SQL Lab tab — run raw SQL against the active dataset via DuckDB (registered
@@ -983,7 +1255,7 @@ with tab_ai:
                     }
                 )
 
-        for msg in st.session_state.chat_history:
+        for msg_idx, msg in enumerate(st.session_state.chat_history):
             if msg["role"] == "user":
                 with st.chat_message("user"):
                     st.write(msg["content"])
@@ -1021,6 +1293,330 @@ with tab_ai:
                         st.write(result)
 
                     if msg.get("chart_fig") is not None:
-                        st.plotly_chart(msg["chart_fig"], use_container_width=True)
+                        st.plotly_chart(msg["chart_fig"], use_container_width=True, key=f"chat_chart_{msg_idx}")
+
+# --------------------------------------------------------------------------
+# Auto Analyst tab — agentic "Run Full Analysis": Gemini drafts an ordered
+# plan, each step runs through the same safe-execution sandbox as the AI
+# Analyst chat, then Gemini synthesizes the results into 5 headline findings.
+# --------------------------------------------------------------------------
+with tab_auto:
+    ui.render_help_expander(
+        "One click: Gemini plans an exploratory analysis (quality check, distributions, "
+        "segments, correlations, time trends if applicable, conclusions), runs each step "
+        "through the safe-execution sandbox, and summarizes the top findings."
+    )
+
+    st.subheader("Auto Analyst")
+
+    auto_model = ai_analyst.get_model()
+
+    if auto_model is None:
+        st.warning(ai_analyst.GEMINI_SETUP_HELP)
+    else:
+        if st.button("Run Full Analysis", type="primary", use_container_width=True):
+            plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
+            step_outcomes = []
+            step_history: list[dict] = []
+
+            with st.status("Running full analysis...", expanded=True) as run_status:
+                for i, step in enumerate(plan, 1):
+                    run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
+                    outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
+                    step_outcomes.append(outcome)
+                    step_history.append({"role": "user", "content": step["question"]})
+                    step_history.append(
+                        {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
+                    )
+                    if outcome.get("ask_error") or outcome.get("error"):
+                        run_status.write(
+                            f"Step {i}/{len(plan)} — {step['title']}: failed "
+                            f"({outcome.get('ask_error') or outcome.get('error')})"
+                        )
+                    else:
+                        run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
+                run_status.update(label="Analysis complete", state="complete", expanded=False)
+
+            with st.spinner("Synthesizing top findings..."):
+                findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
+
+            st.session_state.auto_analyst_plan = plan
+            st.session_state.auto_analyst_step_outcomes = step_outcomes
+            st.session_state.auto_analyst_findings = findings
+            st.session_state.auto_analyst_findings_error = findings_error
+
+        if st.session_state.auto_analyst_step_outcomes:
+            st.divider()
+            st.markdown("### Analysis Complete")
+
+            if st.session_state.auto_analyst_findings_error:
+                st.error(st.session_state.auto_analyst_findings_error)
+            elif st.session_state.auto_analyst_findings:
+                cards_html = "".join(
+                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                    f'<div class="insight-text">{finding}</div></div>'
+                    for i, finding in enumerate(st.session_state.auto_analyst_findings)
+                )
+                st.markdown(cards_html, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("**Step-by-step results**")
+            for i, outcome in enumerate(st.session_state.auto_analyst_step_outcomes, 1):
+                with st.expander(f"Step {i}: {outcome['title']}", expanded=False):
+                    st.caption(outcome["question"])
+
+                    if outcome.get("ask_error"):
+                        st.error(outcome["ask_error"])
+                        continue
+
+                    if outcome.get("retried"):
+                        st.caption(
+                            f"First attempt failed ({outcome.get('original_error')}) — "
+                            "Gemini corrected it automatically."
+                        )
+
+                    if outcome.get("code"):
+                        st.code(outcome["code"], language="python")
+
+                    if outcome.get("error"):
+                        st.error(outcome["error"])
+                        continue
+
+                    result = outcome.get("result")
+                    if isinstance(result, pd.DataFrame):
+                        st.dataframe(result, use_container_width=True)
+                    elif isinstance(result, pd.Series):
+                        st.dataframe(result.to_frame(name="value"), use_container_width=True)
+                    elif result is not None:
+                        st.write(result)
+
+# --------------------------------------------------------------------------
+# Stats Lab tab — guided statistical testing. Pick two columns, get a
+# suggested test (t-test / ANOVA / chi-square / Pearson correlation) with a
+# one-line reason, run it via scipy.stats, and see a plain-English verdict
+# plus normality/assumption-check warnings.
+# --------------------------------------------------------------------------
+with tab_stats:
+    ui.render_help_expander(
+        "Pick two columns and Stats Lab suggests the right statistical test, runs it via "
+        "scipy.stats, and explains the result in plain English — with assumption-check warnings."
+    )
+
+    st.subheader("Stats Lab")
+
+    testable_cols = [c for c, t in column_types.items() if t in ("numeric", "categorical")]
+    if len(testable_cols) < 2:
+        st.info("Need at least 2 numeric or categorical columns to run a statistical test.")
+    else:
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            stats_col_a = st.selectbox("Column A", testable_cols, key="stats_col_a")
+        with sc2:
+            remaining_cols = [c for c in testable_cols if c != stats_col_a]
+            stats_col_b = st.selectbox("Column B", remaining_cols, key="stats_col_b")
+
+        suggestion = stats_lab.suggest_test(df, column_types, stats_col_a, stats_col_b)
+
+        if suggestion.get("error"):
+            st.warning(suggestion["error"])
+        else:
+            st.info(
+                f"**Suggested test: {stats_lab.TEST_LABELS[suggestion['test']]}** — {suggestion['reason']}"
+            )
+
+            if st.button("Run Test", type="primary", use_container_width=True):
+                st.session_state.stats_lab_result = stats_lab.run_test(df, suggestion)
+
+            result = st.session_state.stats_lab_result
+            if result is not None:
+                if result.get("error"):
+                    st.error(result["error"])
+                else:
+                    st.markdown(f"**{stats_lab.interpret_result(result)}**")
+
+                    rc1, rc2, rc3 = st.columns(3)
+                    rc1.metric("Test statistic", f"{result['statistic']:.4f}")
+                    rc2.metric("p-value", f"{result['p_value']:.4g}")
+                    rc3.metric(result["effect_size_name"], f"{result['effect_size']:.4f}")
+
+                    if "contingency_table" in result:
+                        st.markdown("**Contingency table**")
+                        st.dataframe(result["contingency_table"], use_container_width=True)
+
+                    if "means" in result:
+                        st.markdown("**Group means**")
+                        means_df = pd.DataFrame(
+                            {
+                                "Group": list(result["means"].keys()),
+                                "Mean": list(result["means"].values()),
+                                "n": [result["groups"][g] for g in result["means"]],
+                            }
+                        )
+                        st.dataframe(means_df, use_container_width=True, hide_index=True)
+
+                    for warning_msg in stats_lab.normality_warnings(result):
+                        st.warning(warning_msg)
+
+# --------------------------------------------------------------------------
+# Forecasting tab — only rendered when the dataset has a datetime column.
+# Pick a datetime + numeric column, get a statsmodels forecast (Exponential
+# Smoothing, falling back to SARIMAX) with a confidence band, a horizon
+# slider, a downloadable CSV, and a plain-English reliability caveat.
+# --------------------------------------------------------------------------
+if tab_forecast is not None:
+    with tab_forecast:
+        ui.render_help_expander(
+            "Pick a datetime + numeric column to project a forecast with a confidence band, "
+            "using statsmodels (Exponential Smoothing, falling back to SARIMAX)."
+        )
+
+        st.subheader("Forecasting")
+
+        numeric_cols_for_forecast = [c for c, t in column_types.items() if t == "numeric"]
+        if not numeric_cols_for_forecast:
+            st.info("No numeric column detected — Forecasting needs one to project into the future.")
+        else:
+            datetime_cols_for_forecast = [c for c, t in column_types.items() if t == "datetime"]
+
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                forecast_dt_col = st.selectbox("Datetime column", datetime_cols_for_forecast, key="forecast_dt_col")
+            with fc2:
+                forecast_num_col = st.selectbox("Numeric column", numeric_cols_for_forecast, key="forecast_num_col")
+            with fc3:
+                forecast_horizon = st.slider("Horizon (periods)", min_value=7, max_value=90, value=30, key="forecast_horizon")
+
+            if st.button("Generate Forecast", type="primary", use_container_width=True):
+                series, freq, prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+                if prep_error:
+                    st.session_state.forecast_result = None
+                    st.session_state.forecast_error = prep_error
+                else:
+                    with st.spinner("Fitting forecast model..."):
+                        forecast_outcome = forecasting.run_forecast(series, forecast_horizon, freq)
+                    if forecast_outcome.get("error"):
+                        st.session_state.forecast_result = None
+                        st.session_state.forecast_error = forecast_outcome["error"]
+                    else:
+                        st.session_state.forecast_result = forecast_outcome
+                        st.session_state.forecast_error = None
+
+            if st.session_state.forecast_error:
+                st.error(st.session_state.forecast_error)
+            elif st.session_state.forecast_result is not None:
+                forecast_outcome = st.session_state.forecast_result
+                if forecast_outcome.get("warning"):
+                    st.caption(forecast_outcome["warning"])
+                st.caption(f"Model used: {forecast_outcome['model_used']}")
+
+                forecast_fig = forecasting.build_forecast_chart(
+                    forecast_outcome["history"], forecast_outcome["forecast"], f"{forecast_num_col} forecast"
+                )
+                st.plotly_chart(forecast_fig, use_container_width=True)
+
+                st.info(
+                    forecasting.forecast_caveat(
+                        len(forecast_outcome["history"]), len(forecast_outcome["forecast"]), forecast_outcome["model_used"]
+                    )
+                )
+
+                st.download_button(
+                    "Download Forecast CSV",
+                    data=forecast_outcome["forecast"].reset_index().to_csv(index=False).encode("utf-8"),
+                    file_name="prism_forecast.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+# --------------------------------------------------------------------------
+# Clustering tab — KMeans on standardized numeric columns with an
+# elbow-method K suggestion, a 2D PCA scatter colored by cluster, and an
+# optional Gemini pass to name/describe each segment in one line.
+# --------------------------------------------------------------------------
+with tab_cluster:
+    ui.render_help_expander(
+        "Pick numeric columns to segment your data with KMeans — an elbow-method suggestion "
+        "picks K for you, and a 2D PCA scatter shows the resulting clusters."
+    )
+
+    st.subheader("Clustering & Segmentation")
+
+    if len(df) < clustering.MIN_ROWS_FOR_CLUSTERING:
+        st.warning(
+            f"This dataset has only {len(df)} rows — clustering results below "
+            f"{clustering.MIN_ROWS_FOR_CLUSTERING} rows can be unstable. Proceed with caution."
+        )
+
+    numeric_cols_for_cluster = [c for c, t in column_types.items() if t == "numeric"]
+    if len(numeric_cols_for_cluster) < 2:
+        st.info("Need at least 2 numeric columns to run clustering.")
+    else:
+        selected_cluster_cols = st.multiselect(
+            "Numeric columns to cluster on",
+            numeric_cols_for_cluster,
+            default=numeric_cols_for_cluster[: min(5, len(numeric_cols_for_cluster))],
+            key="cluster_cols",
+        )
+
+        if len(selected_cluster_cols) < 2:
+            st.info("Pick at least 2 numeric columns.")
+        else:
+            clean_row_count = df[selected_cluster_cols].dropna().shape[0]
+            if clean_row_count < 4:
+                st.error(
+                    f"Only {clean_row_count} complete rows across the selected columns — "
+                    "need at least 4 to cluster."
+                )
+            else:
+                suggested_k, inertias = clustering.suggest_k(df, selected_cluster_cols)
+                max_k = max(2, min(clustering.MAX_K, clean_row_count - 1))
+
+                if inertias:
+                    with st.expander("Elbow method chart", expanded=False):
+                        st.plotly_chart(clustering.build_elbow_chart(inertias), use_container_width=True)
+
+                k_choice = st.slider(
+                    "Number of clusters (K)", min_value=2, max_value=max_k,
+                    value=min(suggested_k, max_k), key="cluster_k",
+                )
+                st.caption(f"Elbow-method suggestion: K={min(suggested_k, max_k)}")
+
+                if st.button("Run Clustering", type="primary", use_container_width=True):
+                    st.session_state.cluster_result = clustering.run_clustering(df, selected_cluster_cols, k_choice)
+                    st.session_state.cluster_segment_names = []
+                    st.session_state.cluster_segment_error = None
+
+                cluster_result = st.session_state.cluster_result
+                if cluster_result is not None:
+                    if cluster_result.get("error"):
+                        st.error(cluster_result["error"])
+                    else:
+                        st.plotly_chart(
+                            clustering.build_scatter(
+                                cluster_result["scatter_df"], cluster_result["pca_explained_variance"]
+                            ),
+                            use_container_width=True,
+                        )
+
+                        st.markdown("**Cluster stats** (mean of each column, per cluster)")
+                        st.dataframe(cluster_result["cluster_stats"], use_container_width=True)
+
+                        if st.button("Name Segments with AI", key="name_segments_btn"):
+                            cluster_model = ai_analyst.get_model()
+                            if cluster_model is None:
+                                st.warning(ai_analyst.GEMINI_SETUP_HELP)
+                            else:
+                                with st.spinner("Naming segments..."):
+                                    names, name_error = clustering.name_segments(
+                                        cluster_model, cluster_result["cluster_stats"]
+                                    )
+                                st.session_state.cluster_segment_names = names
+                                st.session_state.cluster_segment_error = name_error
+
+                        if st.session_state.cluster_segment_error:
+                            st.error(st.session_state.cluster_segment_error)
+                        elif st.session_state.cluster_segment_names:
+                            for segment_desc in st.session_state.cluster_segment_names:
+                                st.info(segment_desc)
 
 ui.render_footer()

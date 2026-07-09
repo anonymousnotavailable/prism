@@ -1,0 +1,122 @@
+[
+  {
+    "id": 1,
+    "dataset": "sales_data.csv",
+    "question": "What is the total quantity sold across all orders?",
+    "check": {"type": "numeric", "expected": 3567.0, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 2,
+    "dataset": "sales_data.csv",
+    "question": "What is the total revenue across all orders?",
+    "check": {"type": "numeric", "expected": 1080822.0, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 3,
+    "dataset": "sales_data.csv",
+    "question": "What is the average revenue per order?",
+    "check": {"type": "numeric", "expected": 2214.80, "tolerance_pct": 3.0}
+  },
+  {
+    "id": 4,
+    "dataset": "sales_data.csv",
+    "question": "Which region generated the highest total revenue?",
+    "check": {"type": "contains_text", "expected": "West"}
+  },
+  {
+    "id": 5,
+    "dataset": "sales_data.csv",
+    "question": "Which product had the highest total quantity sold?",
+    "check": {"type": "contains_text", "expected": "Desk Chair"}
+  },
+  {
+    "id": 6,
+    "dataset": "sales_data.csv",
+    "question": "How many unique products are there?",
+    "check": {"type": "numeric", "expected": 8, "tolerance_pct": 0}
+  },
+  {
+    "id": 7,
+    "dataset": "sales_data.csv",
+    "question": "How many unique regions are there?",
+    "check": {"type": "numeric", "expected": 4, "tolerance_pct": 0}
+  },
+  {
+    "id": 8,
+    "dataset": "hr_data.csv",
+    "question": "What is the average salary across all employees?",
+    "check": {"type": "numeric", "expected": 79788.32, "tolerance_pct": 3.0}
+  },
+  {
+    "id": 9,
+    "dataset": "hr_data.csv",
+    "question": "What is the maximum salary in the dataset?",
+    "check": {"type": "numeric", "expected": 500000.0, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 10,
+    "dataset": "hr_data.csv",
+    "question": "Which department has the highest average salary?",
+    "check": {"type": "contains_text", "expected": "Marketing"}
+  },
+  {
+    "id": 11,
+    "dataset": "hr_data.csv",
+    "question": "How many unique departments are there?",
+    "check": {"type": "numeric", "expected": 6, "tolerance_pct": 0}
+  },
+  {
+    "id": 12,
+    "dataset": "hr_data.csv",
+    "question": "How many employees have attrition marked as Yes?",
+    "check": {"type": "numeric", "expected": 47, "tolerance_pct": 0, "abs_tolerance": 1}
+  },
+  {
+    "id": 13,
+    "dataset": "hr_data.csv",
+    "question": "How many employees have attrition marked as No?",
+    "check": {"type": "numeric", "expected": 247, "tolerance_pct": 0, "abs_tolerance": 1}
+  },
+  {
+    "id": 14,
+    "dataset": "hr_data.csv",
+    "question": "How many total employees are in the dataset?",
+    "check": {"type": "numeric", "expected": 300, "tolerance_pct": 0}
+  },
+  {
+    "id": 15,
+    "dataset": "stock_data.csv",
+    "question": "What is the average closing price across all rows?",
+    "check": {"type": "numeric", "expected": 87.40, "tolerance_pct": 3.0}
+  },
+  {
+    "id": 16,
+    "dataset": "stock_data.csv",
+    "question": "What is the highest high price recorded?",
+    "check": {"type": "numeric", "expected": 101.58, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 17,
+    "dataset": "stock_data.csv",
+    "question": "What is the lowest low price recorded?",
+    "check": {"type": "numeric", "expected": 70.63, "tolerance_pct": 2.0}
+  },
+  {
+    "id": 18,
+    "dataset": "stock_data.csv",
+    "question": "What is the total trading volume across all rows?",
+    "check": {"type": "numeric", "expected": 395095205, "tolerance_pct": 3.0}
+  },
+  {
+    "id": 19,
+    "dataset": "stock_data.csv",
+    "question": "Which ticker has the highest average closing price?",
+    "check": {"type": "contains_text", "expected": "ACME"}
+  },
+  {
+    "id": 20,
+    "dataset": "stock_data.csv",
+    "question": "How many unique tickers are there in the dataset?",
+    "check": {"type": "numeric", "expected": 2, "tolerance_pct": 0}
+  }
+]

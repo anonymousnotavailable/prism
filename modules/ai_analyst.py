@@ -112,7 +112,7 @@ def get_model(api_key: Optional[str] = None):
     return genai.GenerativeModel(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT)
 
 
-def _build_data_context(df: pd.DataFrame, column_types: dict[str, str]) -> str:
+def build_data_context(df: pd.DataFrame, column_types: dict[str, str]) -> str:
     """Summarize the dataframe's schema, a 5-row sample, and summary stats.
 
     This — never the full dataset — is what goes to Gemini on every request.
@@ -132,7 +132,7 @@ def _build_data_context(df: pd.DataFrame, column_types: dict[str, str]) -> str:
     )
 
 
-def _history_to_contents(chat_history: list[dict]) -> list[dict]:
+def history_to_contents(chat_history: list[dict]) -> list[dict]:
     """Convert app-level chat history into Gemini's {role, parts} turn format.
 
     Assistant turns are represented by the code they produced (or the error,
@@ -157,13 +157,13 @@ def _history_to_contents(chat_history: list[dict]) -> list[dict]:
 _CODE_BLOCK_RE = re.compile(r"```(?:python)?\s*(.*?)```", re.DOTALL)
 
 
-def _extract_code(response_text: str) -> str:
+def extract_code(response_text: str) -> str:
     """Pull the first ```python ...``` block out of Gemini's reply, or fall back to the raw text."""
     match = _CODE_BLOCK_RE.search(response_text)
     return match.group(1).strip() if match else response_text.strip()
 
 
-def _call_gemini(model, contents) -> tuple[str, Optional[str]]:
+def call_gemini(model, contents) -> tuple[str, Optional[str]]:
     """Shared error handling around model.generate_content — used by both the
     chat and key-insights flows so quota/auth failures read the same way everywhere.
     """
@@ -191,7 +191,7 @@ def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:
         "for a non-technical stakeholder. Do not restate the raw SQL back verbatim.\n\n"
         f"```sql\n{sql}\n```"
     )
-    text, error = _call_gemini(model, prompt)
+    text, error = call_gemini(model, prompt)
     if error:
         return "", error
     return text.strip(), None
@@ -204,14 +204,14 @@ def ask_question(
 
     Returns (code, error). On an API error, code is "" and error explains why.
     """
-    context = _build_data_context(df, column_types)
+    context = build_data_context(df, column_types)
     user_turn = {"role": "user", "parts": [f"Data context:\n{context}\n\nQuestion: {question}"]}
-    contents = _history_to_contents(chat_history) + [user_turn]
+    contents = history_to_contents(chat_history) + [user_turn]
 
-    text, error = _call_gemini(model, contents)
+    text, error = call_gemini(model, contents)
     if error:
         return "", error
-    return _extract_code(text), None
+    return extract_code(text), None
 
 
 def execute_code_safely(code: str, df: pd.DataFrame):
@@ -278,17 +278,17 @@ def ask_and_execute(
         "(use only df/pd/np, assign the answer to `result`, and return only a single "
         "```python code block)."
     )
-    contents = _history_to_contents(chat_history + [{"role": "user", "content": question}])
+    contents = history_to_contents(chat_history + [{"role": "user", "content": question}])
     contents.append({"role": "user", "parts": [retry_prompt]})
 
-    text, retry_ask_error = _call_gemini(model, contents)
+    text, retry_ask_error = call_gemini(model, contents)
     if retry_ask_error:
         return {
             "code": code, "result": None, "error": exec_error,
             "ask_error": f"Retry request failed: {retry_ask_error}", "retried": True, "original_error": exec_error,
         }
 
-    corrected_code = _extract_code(text)
+    corrected_code = extract_code(text)
     corrected_result, corrected_error = execute_code_safely(corrected_code, df)
     return {
         "code": corrected_code,
@@ -360,7 +360,7 @@ _INSIGHTS_PROMPT_TEMPLATE = (
 _BULLET_RE = re.compile(r"^\s*\d+[.)]\s*(.+)$")
 
 
-def _parse_numbered_bullets(text: str) -> list[str]:
+def parse_numbered_bullets(text: str) -> list[str]:
     bullets = [m.group(1).strip() for line in text.splitlines() if (m := _BULLET_RE.match(line))]
     if not bullets:
         # Gemini didn't follow the numbering format — fall back to non-empty lines.
@@ -381,7 +381,7 @@ def generate_key_insights(
     findings with their leading numbering already stripped, ready to render
     as cards.
     """
-    context = _build_data_context(df, column_types)
+    context = build_data_context(df, column_types)
     missing_summary = (
         ", ".join(f"{col}: {pct}%" for col, pct in quality_report["missing_by_column"].items() if pct > 0) or "none"
     )
@@ -405,7 +405,7 @@ def generate_key_insights(
         correlation_summary=correlation_summary,
     )
 
-    text, error = _call_gemini(model, prompt)
+    text, error = call_gemini(model, prompt)
     if error:
         return [], error
-    return _parse_numbered_bullets(text), None
+    return parse_numbered_bullets(text), None
