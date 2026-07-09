@@ -38,7 +38,7 @@ step that can leak a secret if something's misconfigured.
 Then create a new repository on GitHub and push:
 
 ```bash
-git remote add origin https://github.com/<your-username>/prism.git
+git remote add origin https://github.com/anonymousnotavailable/prism.git
 git branch -M main
 git push -u origin main
 ```
@@ -50,7 +50,7 @@ git push -u origin main
 1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
 2. Click **"New app"**.
 3. Fill in the deploy form:
-   - **Repository:** `<your-username>/prism`
+   - **Repository:** `anonymousnotavailable/prism`
    - **Branch:** `main`
    - **Main file path:** `app.py`
 4. (Optional) Click **"Advanced settings"** to pin a Python version — Prism

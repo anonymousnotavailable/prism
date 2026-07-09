@@ -9,7 +9,7 @@
 <!-- demo.gif here -->
 
 Developed by **Prathmesh Katkade** —
-[GitHub](https://github.com/your-username) ·
+[GitHub](https://github.com/anonymousnotavailable) ·
 [LinkedIn](https://linkedin.com/in/your-profile)
 
 ---
@@ -202,7 +202,7 @@ deliberately rather than defaulted into.
 ## Run locally
 
 ```bash
-git clone https://github.com/your-username/prism.git
+git clone https://github.com/anonymousnotavailable/prism.git
 cd prism
 python -m venv .venv
 .venv\Scripts\activate        # Windows — use `source .venv/bin/activate` on macOS/Linux
@@ -281,5 +281,5 @@ MIT — see [`LICENSE`](LICENSE).
 ---
 
 Developed by **Prathmesh Katkade** —
-[GitHub](https://github.com/your-username) ·
+[GitHub](https://github.com/anonymousnotavailable) ·
 [LinkedIn](https://linkedin.com/in/your-profile)

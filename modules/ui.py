@@ -14,7 +14,7 @@ from typing import Optional
 import streamlit as st
 
 DEVELOPER_NAME = "Prathmesh Katkade"
-GITHUB_URL = "https://github.com/your-username"
+GITHUB_URL = "https://github.com/anonymousnotavailable"
 LINKEDIN_URL = "https://linkedin.com/in/your-profile"
 
 SAMPLE_DATA_DIR = Path(__file__).resolve().parent.parent / "samples"
