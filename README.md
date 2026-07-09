@@ -249,15 +249,35 @@ steps to put it on Streamlit Community Cloud for free.
 
 ## Screenshots
 
-| | |
-|---|---|
-| **Landing screen** — hero, feature cards, sample datasets ||
-| **Overview** — data quality metrics + Column Health ||
-| **Clean** — before/after comparison + Cleaning History/Undo ||
-| **Visualize** — auto-generated chart grid + correlation heatmap ||
-| **SQL Lab** — example query loaded, results with row count + execution time ||
-| **AI Analyst** — a question answered with a generated chart ||
-| **Combine** — candidate join-key table + before/after row-count preview ||
+### 1. Landing Screen
+Your first stop — hero banner with "Your AI-Powered Data Analyst" tagline, 4 feature cards highlighting the core capabilities (Clean, Visualize, Ask AI, SQL Lab), and 3 sample datasets ready to explore without uploading your own data. Perfect entry point for both first-time users and those with their own CSV.
+
+![Landing Screen](docs/screenshots/landing.png)
+
+### 2. Overview
+Data quality at a glance — rows/columns metrics, missing % per column, duplicate count, and memory usage. The **Missing Values by Column** table reveals data completeness patterns, and the system auto-detects column types. Perfect for your first look at a messy dataset to understand what needs cleaning.
+
+![Overview Tab](docs/screenshots/overview.png)
+
+### 3. Clean
+**Before vs After** metrics at the top (rows, columns, missing cells) track your progress. The **Cleaning Log** shows every action with its equivalent pandas code line. Sidebar **Cleaning Controls** include Handle Missing Values, Duplicates & Columns, Fix Column Types, Smart Type Coercion, and Datetime Features — all with full undo history (last 10 steps) and a **Reset to Original Data** button. Export cleaned data as CSV or a runnable Python script.
+
+![Clean Tab](docs/screenshots/clean.png)
+
+### 4. SQL Lab
+Run raw SQL directly against your dataset via DuckDB. The table is auto-registered as `data`. 4 clickable example queries (`SELECT *`, `GROUP BY`, `WHERE`, `ORDER BY + LIMIT`) auto-fill with your real column names. Results show row count and execution time; errors are caught and displayed in styled alerts. "Explain This Query" sends your SQL to Gemini for a plain-English summary.
+
+![SQL Lab Tab](docs/screenshots/sql-lab.png)
+
+### 5. AI Analyst
+Chat with your data in plain English — typed or by voice. Gemini generates pandas code, executed in a locked-down sandbox, with results displayed as tables, metric cards, or charts. The **"Generate Key Insights"** button produces 5 analyst-style findings (each citing actual data numbers) rendered as styled cards — e.g., "The dataset exhibits a very low fraud rate, with only 76 transactions (0.15% of total) flagged as fraudulent." Self-healing retry on errors; no access to the real dataset, only schema + sample.
+
+![AI Analyst Tab](docs/screenshots/ai-analyst.png)
+
+### 6. Combine
+Upload a second dataset and join it to your active one. Auto-detect candidate keys by name overlap and value overlap (Jaccard %), see a before/after preview with row counts, columns gained, and key match rate. Commit with one click — rewires all other tabs to work with the joined result.
+
+![Combine Tab](docs/screenshots/combine.png)
 
 ---
 
