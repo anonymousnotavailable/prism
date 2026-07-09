@@ -247,7 +247,8 @@ steps to put it on Streamlit Community Cloud for free.
 
 ---
 
-## Total_Overview
+## Screenshots
+
 > - Landing screen (hero, feature cards, sample datasets)
 > - Overview tab — data quality metrics + Column Health
 > - Clean tab — before/after comparison + Cleaning History/Undo in the sidebar
