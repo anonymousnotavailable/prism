@@ -264,17 +264,22 @@ Data quality at a glance — rows/columns metrics, missing % per column, duplica
 
 ![Clean Tab](docs/screenshots/clean.png)
 
-### 4. SQL Lab
+### 4. Visualize
+Smart chart picker per column type — pie/bar for categoricals, histogram + boxplot for numerics, line trend for datetime × numeric, scatter for numeric × numeric — with probable ID columns automatically excluded from auto-charts. A correlation heatmap flags the top-3 strongest relationships automatically, and the Manual Chart Builder gives full control over axes and chart type when auto mode doesn't show what you need. Export everything to a self-contained HTML report.
+
+![Visualize Tab](docs/screenshots/visualize.png)
+
+### 5. SQL Lab
 Run raw SQL directly against your dataset via DuckDB. The table is auto-registered as `data`. 4 clickable example queries (`SELECT *`, `GROUP BY`, `WHERE`, `ORDER BY + LIMIT`) auto-fill with your real column names. Results show row count and execution time; errors are caught and displayed in styled alerts. "Explain This Query" sends your SQL to Gemini for a plain-English summary.
 
 ![SQL Lab Tab](docs/screenshots/sql-lab.png)
 
-### 5. AI Analyst
+### 6. AI Analyst
 Chat with your data in plain English — typed or by voice. Gemini generates pandas code, executed in a locked-down sandbox, with results displayed as tables, metric cards, or charts. The **"Generate Key Insights"** button produces 5 analyst-style findings (each citing actual data numbers) rendered as styled cards — e.g., "The dataset exhibits a very low fraud rate, with only 76 transactions (0.15% of total) flagged as fraudulent." Self-healing retry on errors; no access to the real dataset, only schema + sample.
 
 ![AI Analyst Tab](docs/screenshots/ai-analyst.png)
 
-### 6. Combine
+### 7. Combine
 Upload a second dataset and join it to your active one. Auto-detect candidate keys by name overlap and value overlap (Jaccard %), see a before/after preview with row counts, columns gained, and key match rate. Commit with one click — rewires all other tabs to work with the joined result.
 
 ![Combine Tab](docs/screenshots/combine.png)
