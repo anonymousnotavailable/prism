@@ -249,19 +249,15 @@ steps to put it on Streamlit Community Cloud for free.
 
 ## Screenshots
 
-Drop your own PNGs into `docs/screenshots/` using the filenames below (see
-`docs/screenshots/README.md` for exact instructions), then push — GitHub
-renders them inline automatically, no upload step needed.
-
 | | |
 |---|---|
-| **Landing screen** — hero, feature cards, sample datasets | ![Landing screen](docs/screenshots/landing.png) |
-| **Overview** — data quality metrics + Column Health | ![Overview tab](docs/screenshots/overview.png) |
-| **Clean** — before/after comparison + Cleaning History/Undo | ![Clean tab](docs/screenshots/clean.png) |
-| **Visualize** — auto-generated chart grid + correlation heatmap | ![Visualize tab](docs/screenshots/visualize.png) |
-| **SQL Lab** — example query loaded, results with row count + execution time | ![SQL Lab tab](docs/screenshots/sql-lab.png) |
-| **AI Analyst** — a question answered with a generated chart | ![AI Analyst tab](docs/screenshots/ai-analyst.png) |
-| **Combine** — candidate join-key table + before/after row-count preview | ![Combine tab](docs/screenshots/combine.png) |
+| **Landing screen** — hero, feature cards, sample datasets ||
+| **Overview** — data quality metrics + Column Health ||
+| **Clean** — before/after comparison + Cleaning History/Undo ||
+| **Visualize** — auto-generated chart grid + correlation heatmap ||
+| **SQL Lab** — example query loaded, results with row count + execution time ||
+| **AI Analyst** — a question answered with a generated chart ||
+| **Combine** — candidate join-key table + before/after row-count preview ||
 
 ---
 
