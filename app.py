@@ -12,6 +12,8 @@ Run with:  streamlit run app.py
 Developed by Prathmesh Katkade.
 """
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -19,6 +21,7 @@ import streamlit as st
 from modules import (
     ai_analyst,
     anomaly,
+    atlas,
     cleaning,
     data_engine,
     datetime_intel,
@@ -27,6 +30,7 @@ from modules import (
     report,
     session_io,
     sql_lab,
+    story_mode,
     theme,
     type_coercion,
     ui,
@@ -72,6 +76,17 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "active_section": "Overview",  # which nav pill is selected — replaces st.tabs() so
+                                    # Atlas's "navigate" voice command can actually switch it
+    "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
+    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
+    "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
+    "atlas_greeted": False,  # plays the on-load greeting exactly once per session
+    "story_mode_active": False,  # True while the Story Mode overlay is showing
+    "story_slide_index": 0,
+    "story_paused": False,
+    "demo_mode_running": False,  # True while hands-free Demo Mode is executing
+    "demo_done": False,  # True once the scripted Demo Mode walkthrough has finished narrating
 }
 for key, default_value in _DEFAULTS.items():
     if key not in st.session_state:
@@ -150,6 +165,204 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
 
 
 # --------------------------------------------------------------------------
+# Atlas command registry — the concrete Prism actions the intent router can
+# execute. Registered once (idempotently, on every rerun) so atlas.dispatch()
+# can look them up by action name after classify_intent() routes an
+# utterance here. Every function takes a single `target` argument (may be
+# None) and returns nothing — side effects land in st.session_state, same
+# as every other mutation in this file.
+# --------------------------------------------------------------------------
+_NAV_ALIASES = {t.lower(): t for t in atlas.TAB_NAMES}
+_SAMPLE_ALIASES = {name.lower(): name for name in ui.SAMPLE_DATASETS}
+
+
+def _cmd_load_sample(target) -> None:
+    if st.session_state.working_df is not None:
+        atlas.say_only("You've already got a dataset loaded — say \"reset\" in the sidebar first if you want to swap it.")
+        return
+    label = _SAMPLE_ALIASES.get(str(target).strip().lower()) if target else None
+    label = label or "Sales"
+    sample_df = ui.load_sample_dataframe(label)
+    set_active_dataset(sample_df, sample_df.copy(), f"sample:{label.lower()}.csv")
+    announce_ambient_insights(
+        sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+    )
+
+
+def _cmd_navigate(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    if not target:
+        atlas.say_only("Which section — Overview, Clean, Combine, Visualize, SQL Lab, or AI Analyst?")
+        return
+    section = _NAV_ALIASES.get(str(target).strip().lower())
+    if not section:
+        atlas.say_only(f"I don't have a '{target}' section.")
+        return
+    st.session_state.active_section = section
+    st.session_state.story_mode_active = False
+
+
+def _cmd_clean_nulls(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    if not atlas.guarded("clean_nulls", target, "This fills or drops missing values across the whole dataset."):
+        return
+    working = st.session_state.working_df
+    null_cols = [c for c in working.columns if working[c].isna().sum() > 0]
+    if not null_cols:
+        atlas.say_only("No missing values to clean — the dataset's already complete.")
+        return
+    push_undo_snapshot()
+    new_df = working
+    for col in null_cols:
+        strategy = "fill_median" if st.session_state.column_types.get(col) == "numeric" else "fill_mode"
+        new_df = cleaning.handle_nulls(new_df, col, strategy)
+        log_step(f"Atlas: applied '{strategy}' to column '{col}'", cleaning.nulls_code(col, strategy))
+    st.session_state.working_df = new_df
+    st.session_state.column_types = data_engine.detect_column_types(new_df)
+    atlas.say_only(f"Done — cleaned {len(null_cols)} column(s) with missing values.")
+
+
+def _cmd_run_auto_analysis(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    model = ai_analyst.get_model()
+    if model is None:
+        atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+        return
+    df_, column_types_ = st.session_state.working_df, st.session_state.column_types
+    quality = data_engine.get_data_quality_report(df_, column_types_)
+    _, top_corr = visualization.plot_correlation_heatmap(df_)
+    insights, err = ai_analyst.generate_key_insights(model, df_, quality, column_types_, top_corr)
+    st.session_state.key_insights = insights
+    st.session_state.key_insights_error = err
+    st.session_state.active_section = "AI Analyst"
+    if err:
+        atlas.say_only(f"Analysis hit a snag: {err}")
+    else:
+        atlas.say_only(f"Done — {len(insights)} key findings are up in the AI Analyst tab.")
+
+
+def _cmd_generate_report(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    st.session_state.active_section = "Visualize"
+    atlas.say_only("Your report's ready to download from the Visualize tab's Export Report section.")
+
+
+def _cmd_build_dashboard(target) -> None:
+    _cmd_navigate("Visualize")
+    if st.session_state.working_df is not None:
+        atlas.say_only("Here's your auto-generated dashboard.")
+
+
+def _cmd_run_recipe(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    recipe = (target or "standard cleanup").strip().lower()
+    if recipe not in ("standard cleanup", "standard", "cleanup", "hell mode", "hell mode cleaning"):
+        atlas.say_only("I only know the 'standard cleanup' recipe so far.")
+        return
+    if not atlas.guarded(
+        "run_recipe", target,
+        "This runs the standard cleanup recipe: fill missing values, drop duplicate rows, and drop empty columns.",
+    ):
+        return
+    push_undo_snapshot()
+    df_ = st.session_state.working_df
+    null_cols = [c for c in df_.columns if df_[c].isna().sum() > 0]
+    for col in null_cols:
+        strategy = "fill_median" if st.session_state.column_types.get(col) == "numeric" else "fill_mode"
+        df_ = cleaning.handle_nulls(df_, col, strategy)
+    df_, removed = cleaning.remove_duplicates(df_)
+    all_null_cols = [c for c, t in data_engine.detect_column_types(df_).items() if t == "all_null"]
+    if all_null_cols:
+        df_ = cleaning.drop_columns(df_, all_null_cols)
+    st.session_state.working_df = df_
+    st.session_state.column_types = data_engine.detect_column_types(df_)
+    log_step("Atlas: ran the 'standard cleanup' recipe", "# standard cleanup recipe")
+    atlas.say_only(f"Recipe complete — {len(null_cols)} column(s) cleaned, {removed} duplicate row(s) removed.")
+
+
+def _cmd_start_story_mode(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    st.session_state.story_mode_active = True
+    st.session_state.story_slide_index = 0
+
+
+def _cmd_demo_mode(target) -> None:
+    st.session_state.demo_mode_running = True
+    st.session_state.demo_done = False
+    st.session_state.story_mode_active = False
+
+
+def _cmd_next(target) -> None:
+    if st.session_state.story_mode_active:
+        story_mode.advance_slide(1)
+    else:
+        atlas.say_only("There's no story in progress.")
+
+
+def _cmd_previous(target) -> None:
+    if st.session_state.story_mode_active:
+        story_mode.advance_slide(-1)
+    else:
+        atlas.say_only("There's no story in progress.")
+
+
+def announce_ambient_insights(df, quality: dict) -> None:
+    """Item 5 (ambient insights) — after ANY fresh dataset load, Atlas
+    proactively summarizes row/column count, the two most important quality
+    findings, and one suggested next action, ending with a question. A
+    "yes"/"do it" reply then routes through the normal intent router as a
+    'confirm' for whichever guarded command that question implies.
+    """
+    findings = []
+    if quality["total_missing_pct"] > 0:
+        findings.append(f"{quality['total_missing_pct']}% of cells missing")
+    if quality["duplicate_rows"] > 0:
+        findings.append(f"{quality['duplicate_rows']} duplicate row(s)")
+    if quality["all_null_columns"]:
+        findings.append(f"{len(quality['all_null_columns'])} fully empty column(s)")
+
+    if findings:
+        summary = (
+            f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns. "
+            f"I'm seeing {' and '.join(findings[:2])}. Shall I clean these?"
+        )
+    else:
+        summary = (
+            f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns — "
+            "looking clean already. Want me to run auto-analysis?"
+        )
+    atlas.say_only(summary)
+
+
+for _action, _fn in {
+    "navigate": _cmd_navigate,
+    "load_sample": _cmd_load_sample,
+    "clean_nulls": _cmd_clean_nulls,
+    "run_auto_analysis": _cmd_run_auto_analysis,
+    "generate_report": _cmd_generate_report,
+    "build_dashboard": _cmd_build_dashboard,
+    "run_recipe": _cmd_run_recipe,
+    "start_story_mode": _cmd_start_story_mode,
+    "demo_mode": _cmd_demo_mode,
+    "next": _cmd_next,
+    "previous": _cmd_previous,
+}.items():
+    atlas.register_command(_action, _fn)
+
+
+# --------------------------------------------------------------------------
 # Sidebar — upload, theme toggle, cleaning controls + history, per the
 # spec's UI layout. Rendered on every page, including the landing screen.
 # --------------------------------------------------------------------------
@@ -163,6 +376,7 @@ with st.sidebar:
         key="theme_mode",
         format_func=lambda k: theme.THEMES[k]["label"],
     )
+    st.toggle("Atlas voice", key="atlas_voice_enabled", help="Mute/unmute all spoken replies.")
 
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
 
@@ -179,6 +393,9 @@ with st.sidebar:
                 for w in load_warnings:
                     st.warning(w)
                 st.success(f"Loaded {new_df.shape[0]:,} rows x {new_df.shape[1]} columns")
+                announce_ambient_insights(
+                    new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
+                )
 
     working_df = st.session_state.working_df
 
@@ -376,6 +593,100 @@ with st.sidebar:
 
 
 # --------------------------------------------------------------------------
+# Atlas — persistent voice/typed command bar + orb, present on every screen
+# (landing included, so "load sample data" works before any dataset exists).
+# Every utterance (voice or typed) goes through the same
+# atlas.handle_utterance() -> classify_intent() router; APP_COMMAND and
+# CHITCHAT are fully handled inside atlas.py via the command registry above,
+# DATA_QUESTION is handed back here so it can run through the existing,
+# already-tested ai_analyst.ask_and_execute() pipeline — the same one typed
+# questions used before Atlas existed, now shared by both input paths so
+# follow-ups ("now by month") work identically regardless of how the
+# previous turn arrived.
+#
+# Processing is deliberately NOT done here, immediately after capture — see
+# _process_atlas_utterance() below and its two call sites. Streamlit drops a
+# keyed widget's persisted session_state value if that widget isn't
+# instantiated during a script run; calling st.rerun() here, before
+# st.segmented_control("Navigate", ..., key="active_section") ever runs on
+# the tabbed page, would skip that widget for this pass and silently reset
+# the active section back to "Overview" on the next one. Confirmed by
+# isolated repro before landing on this structure — not a hypothetical.
+# --------------------------------------------------------------------------
+atlas.render_pending_confirmation_ui()
+atlas.render_orb()
+
+if not st.session_state.atlas_greeted and st.session_state.working_df is None:
+    st.session_state.atlas_greeted = True
+    atlas.say_only('Systems online. Upload a dataset or say "load sample data" to begin.')
+
+_atlas_utterance = None
+with st.container(key="atlas_command_bar"):
+    mic_col, hint_col = st.columns([1, 4])
+    with mic_col:
+        if voice_input.is_available():
+            voice_text = voice_input.record_question(key="atlas_global_mic")
+            if voice_text and voice_text != st.session_state.last_voice_text:
+                st.session_state.last_voice_text = voice_text
+                atlas.set_state("listening")
+                _atlas_utterance = voice_text
+        else:
+            st.caption("Voice input unavailable — mic permission denied or package missing. Type a command below.")
+    with hint_col:
+        if st.session_state.get("atlas_last_heard"):
+            st.caption(f'Atlas heard: "{st.session_state.atlas_last_heard}"')
+
+typed_command = st.chat_input('Ask Atlas anything, or type a command — e.g. "clean the nulls"')
+if typed_command:
+    _atlas_utterance = typed_command
+
+
+def _process_atlas_utterance(utterance: Optional[str]) -> None:
+    """Route `utterance` through the intent router and always end in
+    st.rerun(). Call this only from a point where every keyed widget for
+    this page has already been instantiated this run — see the module-level
+    comment above for why.
+    """
+    if not utterance:
+        return
+    st.session_state.atlas_last_heard = utterance
+    intent = atlas.handle_utterance(utterance)
+
+    if intent["type"] == "DATA_QUESTION":
+        if st.session_state.working_df is None:
+            atlas.say_only("Upload data first and I'll get to work.")
+        else:
+            data_model = ai_analyst.get_model()
+            if data_model is None:
+                atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+            else:
+                question = intent.get("question") or utterance
+                with st.spinner("Thinking..."):
+                    outcome = ai_analyst.ask_and_execute(
+                        data_model, st.session_state.working_df, st.session_state.column_types,
+                        question, st.session_state.chat_history[:-1],
+                    )
+                chart_fig = None
+                if not outcome["ask_error"] and not outcome["error"] and ai_analyst.question_implies_chart(question):
+                    chart_fig = ai_analyst.build_chart_from_result(outcome["result"], question)
+                st.session_state.chat_history.append(
+                    {
+                        "role": "assistant", "question": question, "code": outcome["code"],
+                        "result": outcome["result"], "error": outcome["error"], "ask_error": outcome["ask_error"],
+                        "retried": outcome.get("retried", False), "original_error": outcome.get("original_error"),
+                        "chart_fig": chart_fig,
+                    }
+                )
+                atlas.set_state("speaking")
+                if outcome.get("ask_error") or outcome.get("error"):
+                    atlas.speak(outcome.get("ask_error") or outcome.get("error"))
+                else:
+                    atlas.speak("Here's what I found — check the AI Analyst tab.")
+        st.session_state.active_section = "AI Analyst"
+    st.rerun()
+
+
+# --------------------------------------------------------------------------
 # Main area
 # --------------------------------------------------------------------------
 st.title("Prism")
@@ -394,6 +705,9 @@ if st.session_state.working_df is None:
         sample_df = ui.load_sample_dataframe(chosen_sample)
         set_active_dataset(sample_df, sample_df.copy(), f"sample:{chosen_sample.lower()}.csv")
         st.toast(f"Loaded the {chosen_sample} sample dataset.")
+        announce_ambient_insights(
+            sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+        )
         st.rerun()
 
     st.divider()
@@ -411,6 +725,10 @@ if st.session_state.working_df is None:
             st.rerun()
 
     ui.render_footer()
+    # Safe to process here: the landing page has no keyed nav widget for an
+    # early st.rerun() to skip (see the long comment above the Atlas command
+    # bar). Once a dataset loads, this branch is never reached again.
+    _process_atlas_utterance(_atlas_utterance)
     st.stop()
 
 # ---------------------------------------------------------------------------
@@ -421,14 +739,31 @@ ui.render_onboarding()
 df = st.session_state.working_df
 column_types = st.session_state.column_types
 
-tab_overview, tab_clean, tab_combine, tab_visualize, tab_sql, tab_ai = st.tabs(
-    ["Overview", "Clean", "Combine", "Visualize", "SQL Lab", "AI Analyst"]
-)
+if st.session_state.demo_mode_running:
+    story_mode.render_demo_mode(set_active_dataset)
+elif st.session_state.story_mode_active:
+    story_mode.render_story_mode()
+else:
+    # A controllable nav — not st.tabs(), which has no API to switch the
+    # active tab from Python. Bound to session_state so Atlas's "navigate"
+    # command (_cmd_navigate, above) can actually change it: set
+    # st.session_state.active_section then st.rerun(), and this widget
+    # picks the new value up on the next render. Using elif below (instead
+    # of tabs' render-everything-then-hide-with-CSS model) also means only
+    # the active section's code runs each rerun, not all six.
+    st.segmented_control("Navigate", atlas.TAB_NAMES, key="active_section")
+
+# Every keyed widget for whichever branch above just ran (segmented_control,
+# or Story/Demo Mode's own internal buttons) has now been instantiated this
+# pass, so it's finally safe to let an utterance's handling call st.rerun().
+_process_atlas_utterance(_atlas_utterance)
 
 # --------------------------------------------------------------------------
 # Overview tab — data quality report, column health, drill-down, anomalies
 # --------------------------------------------------------------------------
-with tab_overview:
+if st.session_state.demo_mode_running or st.session_state.story_mode_active:
+    pass
+elif st.session_state.active_section == "Overview":
     ui.render_help_expander(
         "A full data-quality audit: missing values, outliers, column types, and summary "
         "stats — plus per-column health, a drill-down, and anomaly detection below."
@@ -565,7 +900,7 @@ with tab_overview:
 # Clean tab — before/after comparison + cleaned dataset download
 # (the actual cleaning controls live in the sidebar, per the spec's layout)
 # --------------------------------------------------------------------------
-with tab_clean:
+elif st.session_state.active_section == "Clean":
     ui.render_help_expander(
         "Review exactly what changed since upload. Cleaning actions themselves live in the "
         "sidebar's Cleaning Controls, Datetime Features, and Type Coercion tools."
@@ -617,7 +952,7 @@ with tab_clean:
 # AI Analyst) to operate on the joined data, since they all just read
 # st.session_state.working_df.
 # --------------------------------------------------------------------------
-with tab_combine:
+elif st.session_state.active_section == "Combine":
     ui.render_help_expander(
         "Upload a second file and join it onto your active dataset by a detected or "
         "manually chosen key."
@@ -740,7 +1075,7 @@ with tab_combine:
 # --------------------------------------------------------------------------
 # Visualize tab — smart auto-charts, correlation heatmap, HTML export
 # --------------------------------------------------------------------------
-with tab_visualize:
+elif st.session_state.active_section == "Visualize":
     ui.render_help_expander(
         "Auto-picked charts per column type, a correlation heatmap, and a manual chart "
         "builder for full control."
@@ -826,7 +1161,7 @@ with tab_visualize:
 # as table "data"), with clickable example queries and an optional
 # AI-generated plain-English explanation of whatever query is in the editor.
 # --------------------------------------------------------------------------
-with tab_sql:
+elif st.session_state.active_section == "SQL Lab":
     ui.render_help_expander(
         "Run raw SQL against your active dataset via DuckDB — registered as a table named `data`."
     )
@@ -900,7 +1235,7 @@ with tab_sql:
 # Backed by Google Gemini (gemini-2.5-flash). Key comes from a .env file
 # (GEMINI_API_KEY) via python-dotenv — see README for setup.
 # --------------------------------------------------------------------------
-with tab_ai:
+elif st.session_state.active_section == "AI Analyst":
     ui.render_help_expander(
         "Ask questions about your data in plain English — by typing or by voice — and get "
         "pandas-powered answers."
@@ -936,65 +1271,21 @@ with tab_ai:
         st.divider()
         st.markdown("**Ask a question about your data**")
         st.caption(
-            "Every question sends Gemini the column schema, a 5-row sample, and summary "
-            "statistics — never the full dataset."
+            "Ask Atlas anything from the command bar at the top — by voice or by typing — and it "
+            "lands here. Every question sends Gemini the column schema, a 5-row sample, and "
+            "summary statistics; never the full dataset."
         )
-
-        voice_col, _ = st.columns([1, 3])
-        with voice_col:
-            if voice_input.is_available():
-                voice_text = voice_input.record_question()
-                if voice_text and voice_text != st.session_state.last_voice_text:
-                    st.session_state.last_voice_text = voice_text
-                    st.session_state.pending_voice_question = voice_text
-            else:
-                st.caption(
-                    "Voice input unavailable — install `streamlit-mic-recorder` to enable it, "
-                    "or type your question below."
-                )
-
-        typed_question = st.chat_input("e.g. What's the average value of column X by category Y?")
-
-        final_question = None
-        if st.session_state.pending_voice_question:
-            final_question = st.session_state.pending_voice_question
-            st.session_state.pending_voice_question = None
-        if typed_question:
-            final_question = typed_question
-
-        if final_question:
-            st.session_state.chat_history.append({"role": "user", "content": final_question})
-            with st.spinner("Thinking..."):
-                outcome = ai_analyst.ask_and_execute(
-                    gemini_model, df, column_types, final_question, st.session_state.chat_history[:-1]
-                )
-                chart_fig = None
-                if (
-                    not outcome["ask_error"]
-                    and not outcome["error"]
-                    and ai_analyst.question_implies_chart(final_question)
-                ):
-                    chart_fig = ai_analyst.build_chart_from_result(outcome["result"], final_question)
-                st.session_state.chat_history.append(
-                    {
-                        "role": "assistant",
-                        "question": final_question,
-                        "code": outcome["code"],
-                        "result": outcome["result"],
-                        "error": outcome["error"],
-                        "ask_error": outcome["ask_error"],
-                        "retried": outcome.get("retried", False),
-                        "original_error": outcome.get("original_error"),
-                        "chart_fig": chart_fig,
-                    }
-                )
 
         for msg in st.session_state.chat_history:
             if msg["role"] == "user":
                 with st.chat_message("user"):
-                    st.write(msg["content"])
+                    st.write(msg.get("content", ""))
             else:
                 with st.chat_message("assistant"):
+                    if msg.get("atlas_note"):
+                        st.write(msg["atlas_note"])
+                        continue
+
                     if msg.get("ask_error"):
                         st.error(msg["ask_error"])
                         continue

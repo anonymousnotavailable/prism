@@ -31,6 +31,11 @@ SAMPLE_DATASETS = {
         "file": "stock_data.csv",
         "description": "400 daily OHLCV rows across 2 tickers — includes a multi-week date gap.",
     },
+    "Startup Funding": {
+        "file": "indian_startup_funding_messy.csv",
+        "description": "274 Indian startup funding rounds — mixed currency/date formats, dupes. "
+        "Also what Atlas's Demo Mode uses.",
+    },
 }
 
 # Inline stroke-icons (Lucide-derived paths) — vector, themeable via

@@ -9,3 +9,5 @@ python-dotenv==1.2.1
 duckdb==1.4.5
 streamlit-mic-recorder==0.0.8
 scikit-learn==1.6.1
+edge-tts==7.2.8
+gTTS==2.5.4
