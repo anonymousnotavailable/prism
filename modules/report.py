@@ -11,20 +11,33 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+# Standalone exported artifact — always rendered in Prism's default
+# "Graphite" palette regardless of which theme was active in the live app,
+# so a shared report looks the same for every recipient.
 REPORT_CSS = """
 <style>
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0a0e17; color: #e0f7fa; padding: 2rem; }
-  h1 { color: #00e5ff; border-bottom: 2px solid #00e5ff; padding-bottom: 0.5rem; }
-  h2 { color: #00e5ff; margin-top: 2.5rem; }
-  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-  th, td { border: 1px solid #26344a; padding: 6px 10px; text-align: left; font-size: 0.9rem; }
-  th { background: #111827; color: #00e5ff; }
-  tr:nth-child(even) { background: #0f1520; }
-  .metric-row { display: flex; gap: 2rem; flex-wrap: wrap; margin: 1rem 0; }
-  .metric { background: #111827; border: 1px solid #26344a; border-radius: 8px; padding: 1rem 1.5rem; }
-  .metric .value { font-size: 1.6rem; color: #00e5ff; font-weight: 600; }
-  .metric .label { font-size: 0.85rem; color: #9fb3c8; }
-  .footer { margin-top: 3rem; color: #6b7d94; font-size: 0.8rem; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  body {
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(180deg, #0A0C10 0%, #0D1016 100%);
+    color: #F1F5F9;
+    padding: 2.5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { color: #F1F5F9; font-weight: 800; letter-spacing: -0.02em; border-bottom: 2px solid #22D3EE; padding-bottom: 0.6rem; }
+  h2 { color: #22D3EE; font-weight: 700; margin-top: 2.75rem; }
+  h3 { color: #F1F5F9; font-weight: 600; }
+  p { color: #8A97A8; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; border-radius: 10px; overflow: hidden; }
+  th, td { border: 1px solid #232833; padding: 8px 12px; text-align: left; font-size: 0.9rem; }
+  th { background: #12151B; color: #22D3EE; font-weight: 600; }
+  tr:nth-child(even) { background: #12151B; }
+  .metric-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+  .metric { background: #12151B; border: 1px solid #232833; border-radius: 12px; padding: 1rem 1.5rem; }
+  .metric .value { font-size: 1.6rem; color: #22D3EE; font-weight: 700; }
+  .metric .label { font-size: 0.82rem; color: #8A97A8; }
+  .footer { margin-top: 3rem; color: #8A97A8; font-size: 0.8rem; border-top: 1px solid #232833; padding-top: 1.25rem; }
 </style>
 """
 

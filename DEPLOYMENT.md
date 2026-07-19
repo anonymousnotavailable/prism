@@ -121,6 +121,36 @@ installing).
 
 ---
 
+## Alternative: Render
+
+A root-level `render.yaml` is included for deploying the Streamlit app to
+[Render](https://render.com) instead of Streamlit Community Cloud —
+useful if you're already hosting other services (like Atlas, or Prism's
+`api/` FastAPI microservice) there and want everything in one place.
+
+1. In the Render dashboard: **New → Blueprint**, point it at this repo.
+   Render reads `render.yaml` at the repo root and provisions a `prism` web
+   service running `streamlit run app.py --server.port $PORT --server.address
+   0.0.0.0 --server.headless true` on the free plan.
+2. Open the new service's **Environment** tab and set `GEMINI_API_KEY` (it's
+   declared with `sync: false` in `render.yaml`, meaning Render provisions
+   the variable slot but won't auto-fill it from anywhere — you paste the
+   value in yourself, same idea as a Streamlit Cloud secret).
+3. Trigger a deploy (pushing to the connected branch does this automatically
+   afterward, same as Streamlit Cloud).
+
+This is a separate service from `api/render.yaml`, which deploys Prism's
+FastAPI analysis core (`prism-api`) for Atlas's connector — the two can run
+side by side under the same Render account without conflicting; they're
+independent blueprints in different directories.
+
+Note: this repo's automated tooling can prepare and commit `render.yaml`
+correctly, but actually provisioning the Blueprint and setting the secret
+requires dashboard (or Render API token) access that isn't available from
+here — that last step is on whoever holds the Render account.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

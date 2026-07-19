@@ -38,8 +38,8 @@ def get_overview_stats(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _cyan_gradient_color(norm_value: float) -> str:
-    """Blend from the app's card background (#111827) to accent cyan (#00e5ff)."""
-    start, end = (17, 24, 39), (0, 229, 255)
+    """Blend from the Graphite theme's card surface (#12151B) to its accent (#22D3EE)."""
+    start, end = (18, 21, 27), (34, 211, 238)
     norm_value = max(0.0, min(1.0, norm_value))
     r, g, b = (int(s + (e - s) * norm_value) for s, e in zip(start, end))
     return f"rgb({r}, {g}, {b})"
@@ -72,7 +72,7 @@ def style_describe_table(stats_df: pd.DataFrame):
                 styles.append("")
                 continue
             norm = (v - col_min) / span if span else 0.5
-            text_color = "#05070d" if norm > 0.6 else "#e0f7fa"
+            text_color = "#04141A" if norm > 0.6 else "#F1F5F9"
             styles.append(f"background-color: {_cyan_gradient_color(norm)}; color: {text_color}")
         return styles
 

@@ -124,10 +124,13 @@ prism/
 │   ├── sql_lab.py           # DuckDB query execution, example query builder
 │   ├── voice_input.py       # streamlit-mic-recorder wrapper, graceful fallback
 │   ├── ai_analyst.py        # Gemini integration, safe code execution, self-healing retry
+│   ├── atlas.py             # Voice operator: intent router, command registry, TTS, persona, orb
+│   ├── story_mode.py        # Voice-narrated insight slides + the scripted hands-free Demo Mode
 │   ├── report.py            # Standalone HTML report generation
-│   ├── theme.py             # Dark/light CSS + Plotly templates
+│   ├── theme.py             # Multi-theme (Graphite/Midnight/Arctic) CSS + matching Plotly templates
 │   └── ui.py                # Landing screen, footer, help expanders, onboarding
-├── samples/                  # sales_data.csv / hr_data.csv / stock_data.csv for "Try a sample dataset"
+├── samples/                  # sales/hr/stock/indian_startup_funding_messy.csv for "Try a sample dataset"
+├── eval/atlas_eval.py        # 8-utterance accuracy check for Atlas's intent router
 ├── .streamlit/config.toml   # Theme config
 ├── requirements.txt          # Pinned, tested-together versions
 └── DEPLOYMENT.md             # Streamlit Community Cloud deployment steps
@@ -181,6 +184,92 @@ runtime:
   consolidating into a few large files, each new capability got its own
   small module — more files, but each one explainable in isolation (useful
   when the whole point of the project is being able to walk through it).
+
+---
+
+## Atlas Voice Operator
+
+Atlas is a JARVIS-style voice/typed operator layered over the whole app —
+not just another chat box. Every utterance, spoken into the persistent mic
+or typed into the command bar at the top of every screen, goes through one
+router before anything happens.
+
+### The intent router
+
+`modules/atlas.py`'s `classify_intent()` is a single Gemini call per
+utterance, constrained to return strict JSON:
+
+```json
+{"type": "APP_COMMAND | DATA_QUESTION | CHITCHAT",
+ "action": "navigate | clean_nulls | run_auto_analysis | generate_report | ...",
+ "target": "<tab name, column name, or null>",
+ "question": "<verbatim question if DATA_QUESTION, else null>",
+ "spoken_reply": "<1-2 sentences, said aloud>"}
+```
+
+Why route through a classifier instead of letting the AI Analyst's own
+Gemini call just handle everything? Because "clean the nulls" and "what's
+the average revenue by region" need to go to two completely different
+places — one mutates `st.session_state.working_df` through the cleaning
+module, the other reads it through a sandboxed pandas-code pipeline. A
+single, cheap, structured-output call up front means the router's whole
+job is deciding *where to send* an utterance, not answering it — the two
+concerns stay separable, testable, and (mostly) provider-agnostic.
+
+**Malformed JSON gets exactly one retry** (re-asking with "respond with
+ONLY the JSON object this time"), then a graceful spoken fallback — the
+router never raises into the app underneath it, and neither does the TTS
+layer, which cascades **edge-tts → gTTS → text-only** for the same reason.
+
+**Dispatch** goes through `atlas.COMMAND_REGISTRY`, a plain
+`{action_name: function}` dict `app.py` populates with its own functions
+at import time — `atlas.py` owns *routing*, never the app-specific
+mutations. `DATA_QUESTION` is the one type atlas.py deliberately does
+*not* execute itself: it hands the parsed question back to `app.py`, which
+feeds it into the same `ai_analyst.ask_and_execute()` pipeline typed
+questions always used — so voice and typed questions share one
+`chat_history`, and a follow-up like "now by month" works identically
+regardless of which path the previous turn came in on.
+
+### Destructive actions are two-phase, always
+
+Nothing that mutates data executes from a single utterance. Any destructive
+command calls `atlas.guarded(action, target, message)` first: the first
+call stages a confirmation (spoken + on-screen Confirm/Cancel) and returns
+without touching the data; only a matching `confirm` — voice or click —
+re-dispatches the *same* action, at which point `guarded()` sees it was
+already approved and lets it through.
+
+### Navigation had to stop being `st.tabs()`
+
+`st.tabs()` has no API to switch the active tab from Python, so a voice
+"go to Visualize" command had nothing to actually do. The tab bar became a
+`st.segmented_control` bound to `st.session_state.active_section` instead
+— setting that key and calling `st.rerun()` genuinely switches sections,
+and the six tab bodies became an `if/elif` chain (only the active
+section's code runs each rerun now, rather than all six every time, which
+`st.tabs()` did unconditionally).
+
+### Story Mode / Demo Mode
+
+Neither existed before Atlas — both are new. Story Mode turns
+`generate_key_insights()`'s findings into voice-narrated slides with
+Previous/Next/Pause controls (plus voice "next"/"previous"); auto-advance
+is a best-effort word-count-based timer, not a true "audio ended" signal —
+Streamlit has no built-in channel for that without a full bidirectional
+custom component, so treat auto-advance as a nice-to-have and the manual
+controls as the reliable path. Demo Mode is a scripted, fully hands-free
+walkthrough (`say "demo mode"`) over a bundled synthetic dataset
+(`samples/indian_startup_funding_messy.csv`): quality scan → hell-mode
+cleaning → auto-analysis → top 3 findings → "That's what I can do."
+
+### Eval harness
+
+`eval/atlas_eval.py` runs 8 utterances (5 commands, 1 data question, 1
+chitchat, 1 confirm) through the real `classify_intent()` and checks
+type/action/target accuracy — `python -m eval.atlas_eval` from the project
+root. Needs `GEMINI_API_KEY` configured; it reports that plainly and exits
+rather than pretending to pass.
 
 ---
 
