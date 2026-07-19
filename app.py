@@ -67,7 +67,7 @@ _DEFAULTS = {
     "combine_stats": None,  # stats dict for the last previewed join
     "last_voice_text": None,  # dedupes repeated speech_to_text() return values across reruns
     "pending_voice_question": None,  # a transcribed question waiting to be fed into the chat pipeline
-    "theme_mode": "dark",  # "dark" | "light" — sidebar toggle, default dark cyan
+    "theme_mode": theme.DEFAULT_THEME,  # one of theme.THEMES — sidebar selector
     "onboarding_dismissed": False,  # first-visit step-by-step intro, dismissible once per session
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
@@ -156,7 +156,13 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
 with st.sidebar:
     st.markdown("## PRISM")
     st.caption("Auto-EDA · AI Analyst")
-    st.radio("Theme", ["dark", "light"], key="theme_mode", format_func=str.capitalize, horizontal=True)
+    theme_keys = list(theme.THEMES.keys())
+    st.selectbox(
+        "Theme",
+        theme_keys,
+        key="theme_mode",
+        format_func=lambda k: theme.THEMES[k]["label"],
+    )
 
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
 
