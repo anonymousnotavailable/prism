@@ -871,6 +871,7 @@ ui.render_sticky_header(
     quality_for_header["n_rows"],
     quality_for_header["n_cols"],
     data_engine.get_health_score(quality_for_header),
+    quality_for_header.get("memory_usage", ""),
 )
 
 if st.session_state.demo_mode_running:
@@ -910,13 +911,16 @@ elif st.session_state.active_section == "Overview":
     )
 
     quality = data_engine.get_data_quality_report(df, column_types)
+    health_score = data_engine.get_health_score(quality)
+    total_outliers = sum(v["count"] for v in quality["outliers"].values()) if quality["outliers"] else 0
 
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m0, m1, m2, m3, m4 = st.columns(5)
+    with m0:
+        ui.render_health_ring(health_score)
     m1.metric("Rows", f"{quality['n_rows']:,}")
-    m2.metric("Columns", quality["n_cols"])
-    m3.metric("Missing", f"{quality['total_missing_pct']}%")
-    m4.metric("Duplicates", quality["duplicate_rows"])
-    m5.metric("Memory", quality["memory_usage"])
+    m2.metric("Missing", f"{quality['total_missing_pct']}%")
+    m3.metric("Duplicates", quality["duplicate_rows"])
+    m4.metric("Outliers", f"{total_outliers:,}")
 
     if quality["all_null_columns"]:
         st.warning(
@@ -970,9 +974,8 @@ elif st.session_state.active_section == "Overview":
         else:
             st.info("No numeric columns to check for outliers.")
 
-    st.markdown("**Detected Column Types**")
-    types_df = pd.DataFrame({"Column": column_types.keys(), "Detected Type": column_types.values()})
-    st.dataframe(types_df, use_container_width=True, hide_index=True)
+    ui.render_section_label("Column Profiler")
+    ui.render_column_profiler_grid(df, column_types, quality)
 
     st.markdown("**Summary Statistics**")
     st.dataframe(visualization.style_describe_table(visualization.get_overview_stats(df)), use_container_width=True)

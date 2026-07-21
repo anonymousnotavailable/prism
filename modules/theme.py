@@ -21,6 +21,28 @@ import plotly.io as pio
 import streamlit as st
 
 THEMES: dict[str, dict] = {
+    "prism_hud": {
+        "label": "Prism HUD (Dark)",
+        "mode": "dark",
+        "bg": "#07090F",
+        "bg_end": "#0B0E17",
+        "surface": "rgba(15,20,35,.72)",
+        "surface_hover": "#151A2C",
+        "border": "rgba(138,147,166,.16)",
+        "text": "#E6EAF2",
+        "text_muted": "#8A93A6",
+        "accent": "#22D3EE",
+        "accent_rgb": "34, 211, 238",
+        "accent2": "#818CF8",
+        "accent2_rgb": "129, 140, 248",
+        "accent3": "#E879F9",
+        "accent3_rgb": "232, 121, 249",
+        "success": "#34D399",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "on_accent": "#04141A",
+        "chart_colorway": ["#22D3EE", "#818CF8", "#E879F9", "#34D399", "#FBBF24", "#F87171", "#60A5FA", "#94A3B8"],
+    },
     "graphite": {
         "label": "Graphite (Dark)",
         "mode": "dark",
@@ -35,6 +57,8 @@ THEMES: dict[str, dict] = {
         "accent_rgb": "34, 211, 238",
         "accent2": "#A78BFA",
         "accent2_rgb": "167, 139, 250",
+        "accent3": "#F472B6",
+        "accent3_rgb": "244, 114, 182",
         "success": "#34D399",
         "warning": "#FBBF24",
         "danger": "#F87171",
@@ -55,6 +79,8 @@ THEMES: dict[str, dict] = {
         "accent_rgb": "167, 139, 250",
         "accent2": "#22D3EE",
         "accent2_rgb": "34, 211, 238",
+        "accent3": "#F472B6",
+        "accent3_rgb": "244, 114, 182",
         "success": "#34D399",
         "warning": "#FBBF24",
         "danger": "#F87171",
@@ -75,6 +101,8 @@ THEMES: dict[str, dict] = {
         "accent_rgb": "8, 145, 178",
         "accent2": "#7C3AED",
         "accent2_rgb": "124, 58, 237",
+        "accent3": "#DB2777",
+        "accent3_rgb": "219, 39, 119",
         "success": "#059669",
         "warning": "#B45309",
         "danger": "#DC2626",
@@ -83,7 +111,7 @@ THEMES: dict[str, dict] = {
     },
 }
 
-DEFAULT_THEME = "graphite"
+DEFAULT_THEME = "prism_hud"
 
 
 def theme_options() -> dict[str, str]:
@@ -100,7 +128,7 @@ def _tokens(theme_key: str) -> dict:
 _CSS_TEMPLATE = Template(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
     --prism-bg: $bg;
@@ -113,13 +141,26 @@ _CSS_TEMPLATE = Template(
     --prism-accent-rgb: $accent_rgb;
     --prism-accent2: $accent2;
     --prism-accent2-rgb: $accent2_rgb;
+    --prism-accent3: $accent3;
+    --prism-accent3-rgb: $accent3_rgb;
+    --prism-beam: linear-gradient(90deg, $accent, $accent2, $accent3);
     --prism-success: $success;
     --prism-warning: $warning;
     --prism-danger: $danger;
     --prism-on-accent: $on_accent;
     --prism-radius: 14px;
     --prism-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --prism-hud-font: 'Rajdhani', 'Inter', sans-serif;
+    --prism-mono-font: 'IBM Plex Mono', 'JetBrains Mono', monospace;
 }
+
+.hud {
+    font-family: var(--prism-hud-font) !important;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+.mono { font-family: var(--prism-mono-font); }
 
 @keyframes prismFadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes prismShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
@@ -339,14 +380,20 @@ code { color: $accent; }
 .insight-card {
     background: $surface;
     border: 1px solid $border;
-    border-left: 3px solid $accent2;
+    border-left: 3px solid transparent;
     border-radius: 10px;
     padding: 14px 18px;
     margin-bottom: 10px;
-    transition: border-color 0.2s $ease, transform 0.2s $ease;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s $ease;
     animation: prismFadeInUp 0.35s $ease both;
 }
-.insight-card:hover { transform: translateX(2px); border-left-color: $accent; }
+.insight-card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--prism-beam, $accent2);
+}
+.insight-card:hover { transform: translateX(2px); }
 .insight-card .insight-number {
     color: $accent2; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.05em; margin-bottom: 4px;
 }
@@ -426,6 +473,110 @@ h1, h2, h3, h4, .prism-heading {
     animation: prism-shimmer-sweep 1.4s ease-in-out infinite;
 }
 @keyframes prism-shimmer-sweep { to { background-position: -400px 0; } }
+
+/* --- Sprint 1 of the HUD redesign (see DESIGN_BRIEF.md / prism_redesign_mockup.html).
+   Signature rule: --prism-beam appears ONLY in: logo/hero title, the active
+   pipeline step indicator, the Atlas orb, the Atlas energy bar, and an
+   insight-card's left border. Nowhere else — restraint is the design. */
+
+/* Dataset context chip — sticky top-of-page indicator of what's loaded. */
+.prism-dataset-chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 14px; border: 1px solid var(--prism-border); border-radius: 999px;
+    background: var(--prism-surface); backdrop-filter: blur(8px);
+    font-size: 12.5px; color: var(--prism-text);
+}
+.prism-dataset-chip .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--prism-success); box-shadow: 0 0 8px var(--prism-success);
+}
+.prism-dataset-chip .sep { color: var(--prism-text-muted); }
+
+/* Atlas energy bar — Gemini quota usage, beam-filled. */
+.prism-quota { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+.prism-quota .lbl {
+    display: flex; justify-content: space-between; font-size: 10.5px; color: var(--prism-text-muted);
+}
+.prism-quota .bar { height: 5px; border-radius: 999px; background: rgba(138,147,166,.18); overflow: hidden; }
+.prism-quota .fill { height: 100%; border-radius: 999px; background: var(--prism-beam); transition: width .3s var(--prism-ease); }
+
+/* Pipeline sidebar — numbered steps, done / active / locked. */
+.prism-pipeline { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
+.prism-step {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+    color: var(--prism-text-muted); position: relative; border: 1px solid transparent;
+    font-family: var(--prism-hud-font); font-weight: 600; font-size: 13.5px;
+    letter-spacing: .08em; text-transform: uppercase;
+}
+.prism-step .num { font-family: var(--prism-mono-font); font-size: 10.5px; width: 20px; text-transform: none; letter-spacing: 0; }
+.prism-step .st { margin-left: auto; font-size: 10px; text-transform: none; }
+.prism-step.done { color: var(--prism-text); }
+.prism-step.done .st { color: var(--prism-success); }
+.prism-step.active { color: var(--prism-text); background: rgba(var(--prism-accent2-rgb),.10); border-color: rgba(var(--prism-accent2-rgb),.28); }
+.prism-step.active::before {
+    content: ""; position: absolute; left: -1px; top: 6px; bottom: 6px; width: 3px;
+    border-radius: 3px; background: var(--prism-beam);
+}
+.prism-step.locked { opacity: .45; }
+
+/* Data Health ring — conic-gradient score, 0-100. */
+.prism-health-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; }
+.prism-health-ring {
+    width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center;
+}
+.prism-health-ring .in {
+    width: 74px; height: 74px; border-radius: 50%; background: var(--prism-surface-hover, var(--prism-surface));
+    display: grid; place-items: center; font-family: var(--prism-mono-font); font-size: 23px; font-weight: 500;
+    color: var(--prism-text);
+}
+.prism-health-label { font-family: var(--prism-hud-font); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--prism-text-muted); }
+
+/* Column profiler cards. */
+.prism-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.prism-col-card {
+    background: var(--prism-surface); border: 1px solid var(--prism-border); border-radius: var(--prism-radius);
+    padding: 14px 16px; backdrop-filter: blur(8px);
+}
+.prism-col-card .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.prism-col-card .cn { font-family: var(--prism-mono-font); font-size: 13px; color: var(--prism-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prism-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid; margin-left: auto;
+    font-family: var(--prism-hud-font); font-weight: 600; letter-spacing: .08em; flex-shrink: 0;
+}
+.prism-badge.b-num { color: var(--prism-accent); border-color: rgba(var(--prism-accent-rgb),.4); }
+.prism-badge.b-cat { color: var(--prism-accent3); border-color: rgba(var(--prism-accent3-rgb),.4); }
+.prism-badge.b-dt { color: var(--prism-accent2); border-color: rgba(var(--prism-accent2-rgb),.45); }
+.prism-badge.b-txt { color: var(--prism-text-muted); border-color: var(--prism-border); }
+.prism-spark { display: flex; align-items: flex-end; gap: 3px; height: 34px; margin: 8px 0; }
+.prism-spark i { flex: 1; background: linear-gradient(180deg, var(--prism-accent2), rgba(var(--prism-accent2-rgb),.15)); border-radius: 2px 2px 0 0; display: block; }
+.prism-miss { height: 4px; border-radius: 999px; background: rgba(138,147,166,.18); overflow: hidden; margin-top: 8px; }
+.prism-miss i { display: block; height: 100%; background: var(--prism-warning); }
+.prism-col-card .meta { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--prism-text-muted); margin-top: 6px; }
+.prism-col-card .meta span:last-child { text-align: right; white-space: nowrap; }
+
+/* Section label — HUD caption with a trailing rule, used to break up a
+   long tab into scannable zones (Column Profiler, Atlas Insight Feed, ...). */
+.prism-sec {
+    font-family: var(--prism-hud-font); font-weight: 600; font-size: 12.5px;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--prism-text-muted);
+    display: flex; align-items: center; gap: 10px; margin: 4px 0 12px;
+}
+.prism-sec::after { content: ""; flex: 1; height: 1px; background: var(--prism-border); }
+
+/* Pipeline navigation — restyles st.segmented_control (app.py's step
+   router) to read as HUD nav pills instead of generic Streamlit chips.
+   The selected pill gets the beam as its underline, matching the sidebar
+   step indicator's rule (sanctioned beam location #2). */
+div[data-testid="stSegmentedControl"] label {
+    font-family: var(--prism-hud-font) !important;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-size: 13px !important;
+}
+div[data-testid="stSegmentedControl"] label[data-baseweb="radio"][aria-checked="true"],
+div[data-testid="stSegmentedControl"] label[aria-selected="true"] {
+    box-shadow: inset 0 -2px 0 0 var(--prism-accent2);
+}
 </style>
 """
 )

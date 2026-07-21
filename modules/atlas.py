@@ -68,7 +68,10 @@ PERSONA = (
     "user directly, in second person."
 )
 
-TAB_NAMES = ["Overview", "Clean", "Combine", "Visualize", "SQL Lab", "AI Analyst"]
+TAB_NAMES = [
+    "Overview", "Clean", "Hell Mode", "Combine", "Visualize", "SQL Lab", "AI Analyst",
+    "Auto Analyst", "Stats Lab", "Forecasting", "Clustering", "Domain Lens", "ML Lab",
+]  # "Forecasting" is hidden by app.py's nav when the active dataset has no datetime column
 
 ROUTER_SYSTEM_PROMPT = f"""{PERSONA}
 

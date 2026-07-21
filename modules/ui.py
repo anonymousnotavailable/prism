@@ -15,6 +15,8 @@ import random
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
+
 import streamlit as st
 
 DEVELOPER_NAME = "Prathmesh Katkade"
@@ -317,27 +319,142 @@ def render_help_expander(text: str) -> None:
         st.caption(text)
 
 
-def render_sticky_header(dataset_name: str, n_rows: int, n_cols: int, health_score: int) -> None:
-    """Always-visible mini-header: active dataset name, shape, and a 0-100
-    health score, so context never scrolls out of view on a long tab.
+def render_sticky_header(
+    dataset_name: str, n_rows: int, n_cols: int, health_score: int, memory_usage: str = ""
+) -> None:
+    """Always-visible top-of-page dataset context chip (green dot = loaded,
+    filename, shape, size) plus a health score readout, so context never
+    scrolls out of view on a long tab.
     """
     if health_score >= 80:
-        health_label = "Healthy"
+        health_label, health_class = "Healthy", "ok"
     elif health_score >= 50:
-        health_label = "Needs attention"
+        health_label, health_class = "Needs attention", "warn"
     else:
-        health_label = "Poor"
+        health_label, health_class = "Poor", "warn"
 
+    size_part = f' <span class="sep">&middot;</span> {memory_usage}' if memory_usage else ""
     st.markdown(
         f"""
         <div class="glass-card prism-sticky-header">
-            <span class="prism-heading" style="font-weight:700;">{dataset_name}</span>
-            <span class="chip">{n_rows:,} rows &times; {n_cols} cols</span>
-            <span class="chip">Health {health_score}/100 — {health_label}</span>
+            <span class="prism-dataset-chip">
+                <span class="dot" aria-hidden="true"></span>
+                <span class="mono">{dataset_name}</span>
+                <span class="sep">&middot;</span> <b>{n_rows:,} &times; {n_cols}</b>{size_part}
+            </span>
+            <span class="chip v-{health_class}">Health {health_score}/100 — {health_label}</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_section_label(text: str) -> None:
+    """HUD-styled section caption with a trailing rule (Column Profiler,
+    Atlas Insight Feed, ...) — breaks a long tab into scannable zones.
+    """
+    st.markdown(f'<div class="prism-sec">{text}</div>', unsafe_allow_html=True)
+
+
+def render_health_ring(score: int) -> None:
+    """The 0-100 Data Health gauge: a conic-gradient ring (cyan -> indigo ->
+    magenta sweep proportional to score, muted track for the remainder)
+    with the number in the middle. Recomputed after every cleaning action
+    so users watch the score climb — see data_engine.get_health_score().
+    """
+    score = max(0, min(100, score))
+    sweep_deg = round(score / 100 * 360)
+    mid_deg = round(sweep_deg * 0.55)
+    ring = (
+        f"conic-gradient(var(--prism-accent) 0deg, var(--prism-accent2) {mid_deg}deg, "
+        f"var(--prism-accent3) {sweep_deg}deg, rgba(138,147,166,.15) {sweep_deg}deg)"
+    )
+    st.markdown(
+        f"""
+        <div class="prism-health-wrap">
+            <div class="prism-health-ring" style="background:{ring};">
+                <div class="in">{score}</div>
+            </div>
+            <div class="prism-health-label">Data Health</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _spark_bars(values: list[float]) -> str:
+    """8-ish CSS bars (relative-height <i> tags) summarizing a column's
+    shape — a bucketed histogram for numerics, top-N counts for
+    categoricals, or a monthly trend for datetimes. Pure decoration: no
+    axis, no tooltip, just a shape at a glance.
+    """
+    if not values:
+        return ""
+    peak = max(values) or 1
+    bars = "".join(f'<i style="height:{max(6, round(v / peak * 100))}%"></i>' for v in values)
+    return f'<div class="prism-spark" aria-hidden="true">{bars}</div>'
+
+
+def render_column_profiler_grid(df: "pd.DataFrame", column_types: dict, quality: dict) -> None:
+    """Column Profiler: one card per column — type badge (NUM/CAT/DATE,
+    color-coded), a CSS sparkline shaped from the column's own
+    distribution, a missing-value bar, and key stats. Replaces a plain
+    "detected types" table with something a user can actually scan.
+    """
+    missing_by_col = quality.get("missing_by_column", {})
+    cards = []
+    for col in df.columns:
+        col_type = column_types.get(col, "text")
+        series = df[col]
+        missing_pct = missing_by_col.get(col, 0)
+
+        if col_type == "numeric":
+            badge_cls, badge_txt = "b-num", "NUM"
+            clean = series.dropna()
+            if len(clean) > 0:
+                n_bins = max(1, min(8, clean.nunique()))
+                counts = pd.cut(clean, bins=n_bins, duplicates="drop").value_counts(sort=False)
+                spark_values = counts.tolist()
+                mean, std = clean.mean(), clean.std()
+                meta_left = f"μ {mean:,.1f} &middot; σ {std:,.1f}" if pd.notna(mean) else "no data"
+            else:
+                spark_values, meta_left = [], "no data"
+            meta_right = f"{missing_pct}% missing"
+        elif col_type == "categorical":
+            badge_cls, badge_txt = "b-cat", "CAT"
+            counts = series.value_counts().head(5)
+            spark_values = counts.tolist()
+            n_unique = series.nunique()
+            top_val = counts.index[0] if len(counts) else "—"
+            meta_left = f"{n_unique} unique &middot; top: {top_val}"
+            meta_right = f"{missing_pct}% missing"
+        elif col_type == "datetime":
+            badge_cls, badge_txt = "b-dt", "DATE"
+            dt = pd.to_datetime(series, errors="coerce").dropna()
+            if len(dt) > 0:
+                monthly = dt.dt.to_period("M").value_counts().sort_index()
+                spark_values = monthly.tolist()
+                meta_left = f"{dt.min():%b %Y} &rarr; {dt.max():%b %Y}"
+            else:
+                spark_values, meta_left = [], "no data"
+            meta_right = f"{missing_pct}% missing"
+        else:
+            badge_cls, badge_txt = "b-txt", "TEXT"
+            spark_values = []
+            meta_left = f"{series.nunique()} unique"
+            meta_right = f"{missing_pct}% missing"
+
+        cards.append(
+            f'<div class="prism-col-card">'
+            f'<div class="hd"><span class="cn" title="{col}">{col}</span>'
+            f'<span class="prism-badge {badge_cls}">{badge_txt}</span></div>'
+            f"{_spark_bars(spark_values)}"
+            f'<div class="prism-miss"><i style="width:{min(100, missing_pct)}%"></i></div>'
+            f'<div class="meta"><span>{meta_left}</span><span>{meta_right}</span></div>'
+            f"</div>"
+        )
+
+    st.markdown(f'<div class="prism-col-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
 
 def render_empty_state(icon: str, title: str, message: str) -> None:
