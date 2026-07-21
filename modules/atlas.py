@@ -70,7 +70,7 @@ PERSONA = (
 
 TAB_NAMES = [
     "Overview", "Clean", "Hell Mode", "Combine", "Visualize", "SQL Lab", "AI Analyst",
-    "Auto Analyst", "Stats Lab", "Forecasting", "Clustering", "Domain Lens", "ML Lab",
+    "Auto Analyst", "Stats Lab", "Forecasting", "Clustering", "Domain Lens", "Geo Lens", "ML Lab",
 ]  # "Forecasting" is hidden by app.py's nav when the active dataset has no datetime column
 
 ROUTER_SYSTEM_PROMPT = f"""{PERSONA}
@@ -80,9 +80,9 @@ voice) inside Prism. Classify it and respond with STRICT JSON only — no prose,
 markdown code fences, just the JSON object — matching exactly this shape:
 
 {{"type": "APP_COMMAND" | "DATA_QUESTION" | "CHITCHAT",
-  "action": "navigate" | "load_sample" | "clean_nulls" | "run_auto_analysis" | "generate_report" |
-             "build_dashboard" | "run_recipe" | "start_story_mode" | "demo_mode" |
-             "next" | "previous" | "confirm" | "cancel" | "none",
+  "action": "navigate" | "load_sample" | "clean_nulls" | "auto_clean" | "generate_dictionary" |
+             "run_auto_analysis" | "generate_report" | "build_dashboard" | "run_recipe" |
+             "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" | "none",
   "target": "<tab name, column name, or null>",
   "question": "<the data question if type is DATA_QUESTION, else null>",
   "spoken_reply": "<1-2 sentences, in character, said aloud>"}}
@@ -92,6 +92,12 @@ Rules:
   run auto-analysis, generate a report, build a dashboard, run a saved recipe, start
   story mode, start demo mode, or confirm/cancel a pending action. Set "action" (and
   "target" if relevant); leave "question" null.
+- "auto_clean": the user wants the full Auto Cleaner pipeline run ("auto clean this",
+  "clean my messy data", "fix this dataset") — broader than "clean_nulls" (which only
+  fills/drops missing values). Prefer "auto_clean" whenever the request is general
+  ("clean this up") rather than specifically about missing values.
+- "generate_dictionary": the user wants every column documented ("document this dataset",
+  "generate a data dictionary", "explain what each column means").
 - DATA_QUESTION: the user is asking something about THEIR loaded data ("what's the
   average revenue by region", "show me nulls in the age column", "now by month" as a
   follow-up to a prior question). Set "question" to the verbatim question; action is

@@ -112,13 +112,22 @@ def get_model(api_key: Optional[str] = None):
     return genai.GenerativeModel(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT)
 
 
-def build_data_context(df: pd.DataFrame, column_types: dict[str, str]) -> str:
+def build_data_context(
+    df: pd.DataFrame, column_types: dict[str, str], pii_findings: Optional[dict] = None, strict_mode: bool = False
+) -> str:
     """Summarize the dataframe's schema, a 5-row sample, and summary stats.
 
     This — never the full dataset — is what goes to Gemini on every request.
+    When strict_mode is True and pii_findings flags any columns (Indian PII
+    Vault), the sample rows are redacted for those columns first — the
+    model still sees the column exists in the schema, never its values.
     """
     schema_lines = [f"- {col}: {dtype} ({column_types.get(col, 'unknown')})" for col, dtype in df.dtypes.items()]
-    sample = df.head(5).to_string()
+    if strict_mode and pii_findings:
+        from modules import pii_detector
+        sample = pii_detector.build_safe_sample(df, pii_findings, n=5).to_string()
+    else:
+        sample = df.head(5).to_string()
     try:
         stats = df.describe(include="all").transpose().to_string()
     except Exception:
@@ -198,13 +207,21 @@ def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:
 
 
 def ask_question(
-    model, df: pd.DataFrame, column_types: dict[str, str], question: str, chat_history: list[dict]
+    model,
+    df: pd.DataFrame,
+    column_types: dict[str, str],
+    question: str,
+    chat_history: list[dict],
+    pii_findings: Optional[dict] = None,
+    strict_mode: bool = False,
 ) -> tuple[str, Optional[str]]:
     """Ask Gemini to translate a plain-English question into pandas code.
 
     Returns (code, error). On an API error, code is "" and error explains why.
+    strict_mode (Indian PII Vault) redacts flagged columns' sample values —
+    see build_data_context.
     """
-    context = build_data_context(df, column_types)
+    context = build_data_context(df, column_types, pii_findings, strict_mode)
     user_turn = {"role": "user", "parts": [f"Data context:\n{context}\n\nQuestion: {question}"]}
     contents = history_to_contents(chat_history) + [user_turn]
 
@@ -250,7 +267,13 @@ def execute_code_safely(code: str, df: pd.DataFrame):
 
 
 def ask_and_execute(
-    model, df: pd.DataFrame, column_types: dict[str, str], question: str, chat_history: list[dict]
+    model,
+    df: pd.DataFrame,
+    column_types: dict[str, str],
+    question: str,
+    chat_history: list[dict],
+    pii_findings: Optional[dict] = None,
+    strict_mode: bool = False,
 ) -> dict:
     """Full round trip: ask Gemini for code, run it, and self-heal once on failure.
 
@@ -261,8 +284,11 @@ def ask_and_execute(
       ask_error     — set only if the Gemini request itself failed (bad key, quota, network, ...)
       retried       — True if the first attempt failed and a self-healing retry was made
       original_error — the first attempt's error, kept for display when retried is True
+
+    strict_mode (Indian PII Vault) keeps flagged columns' sample values out
+    of every prompt in this round trip, including the self-healing retry.
     """
-    code, ask_error = ask_question(model, df, column_types, question, chat_history)
+    code, ask_error = ask_question(model, df, column_types, question, chat_history, pii_findings, strict_mode)
     if ask_error:
         return {"code": None, "result": None, "error": None, "ask_error": ask_error, "retried": False}
 

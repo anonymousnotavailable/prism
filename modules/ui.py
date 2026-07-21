@@ -395,11 +395,21 @@ def _spark_bars(values: list[float]) -> str:
     return f'<div class="prism-spark" aria-hidden="true">{bars}</div>'
 
 
-def render_column_profiler_grid(df: "pd.DataFrame", column_types: dict, quality: dict) -> None:
+_CURRENCY_NAME_HINTS = ("amount", "revenue", "price", "salary", "cost", "funding", "value", "valuation", "fee", "income")
+
+
+def render_column_profiler_grid(
+    df: "pd.DataFrame", column_types: dict, quality: dict, india_mode: bool = False
+) -> None:
     """Column Profiler: one card per column — type badge (NUM/CAT/DATE,
     color-coded), a CSS sparkline shaped from the column's own
     distribution, a missing-value bar, and key stats. Replaces a plain
     "detected types" table with something a user can actually scan.
+
+    india_mode=True (India Mode toggle): numeric mean/std use Indian digit
+    grouping (1,20,000), and columns whose name suggests currency
+    (revenue, amount, salary, ...) get the compact ₹1.2L/₹3.4Cr form via
+    modules.india.format_inr instead of plain grouping.
     """
     missing_by_col = quality.get("missing_by_column", {})
     cards = []
@@ -416,7 +426,27 @@ def render_column_profiler_grid(df: "pd.DataFrame", column_types: dict, quality:
                 counts = pd.cut(clean, bins=n_bins, duplicates="drop").value_counts(sort=False)
                 spark_values = counts.tolist()
                 mean, std = clean.mean(), clean.std()
-                meta_left = f"μ {mean:,.1f} &middot; σ {std:,.1f}" if pd.notna(mean) else "no data"
+                if pd.notna(mean):
+                    if india_mode:
+                        from modules import india
+                        is_currency = any(hint in col.lower() for hint in _CURRENCY_NAME_HINTS)
+
+                        def _fmt(v: float) -> str:
+                            # Indian grouping is a no-op under 1,000 — for small
+                            # stats (e.g. an average of 7.4), prefer the plain
+                            # decimal over india.indian_comma_group() rounding
+                            # it away to "7".
+                            if is_currency:
+                                return india.format_inr(v)
+                            if abs(v) >= 1000:
+                                return india.indian_comma_group(v)
+                            return f"{v:,.1f}"
+
+                        meta_left = f"μ {_fmt(mean)} &middot; σ {_fmt(std)}"
+                    else:
+                        meta_left = f"μ {mean:,.1f} &middot; σ {std:,.1f}"
+                else:
+                    meta_left = "no data"
             else:
                 spark_values, meta_left = [], "no data"
             meta_right = f"{missing_pct}% missing"

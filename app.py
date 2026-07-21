@@ -23,15 +23,19 @@ from modules import (
     anomaly,
     atlas,
     auto_analyst,
+    autocleaner,
     cleaning,
     clustering,
     dashboard_builder,
+    data_dictionary,
     data_engine,
     datetime_intel,
     domains,
     drift,
     forecasting,
+    geo,
     hellmode,
+    india,
     join_engine,
     mllab,
     pii_detector,
@@ -109,6 +113,14 @@ _DEFAULTS = {
     "hellmode_impute_recs_error": None,  # error from the last AI-recommend-imputation attempt, if any
     "mllab_result": None,  # last "Run Baseline Models" result dict
     "mllab_error": None,  # error from the last baseline model run, if any
+    "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
+    "pending_large_upload": None,  # {"df", "filename"} awaiting a Smart Sampling choice before it becomes active
+    "sample_info": None,  # persistent banner text when the active dataset is a Smart Sampling sample, else None
+    "autocleaner_report": None,  # {"narration", "before_score", "safe_applied", "safe_log"} from the last Auto Clean run
+    "autocleaner_review_queue": [],  # pending REVIEW-tier actions awaiting approve/reject
+    "autocleaner_snapshot": None,  # {working_df, column_types, cleaning_log} captured right before Auto Clean ran —
+                                    # lets "Undo All Auto Clean Changes" restore in one click regardless of how many
+                                    # REVIEW actions were approved afterward, independent of the regular undo_stack
     "active_section": "Overview",  # which nav pill is selected — replaces st.tabs() so
                                     # Atlas's "navigate" voice command can actually switch it
     "pending_active_section": None,  # Atlas commands write here, not directly to
@@ -118,6 +130,8 @@ _DEFAULTS = {
                                       # renders on the NEXT run instead. See its
                                       # apply-and-clear site just above segmented_control.
     "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
+    "pii_strict_mode": False,  # Indian PII Vault: withhold flagged columns' sample values from every LLM call
+    "india_mode": True,  # sidebar toggle — FY labels, Indian number formatting, day-first dates, festival markers
     "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
     "atlas_greeted": False,  # plays the on-load greeting exactly once per session
@@ -223,6 +237,11 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hellmode_impute_recs_error = None
     st.session_state.mllab_result = None
     st.session_state.mllab_error = None
+    st.session_state.data_dictionary_rows = None
+    st.session_state.sample_info = None
+    st.session_state.autocleaner_report = None
+    st.session_state.autocleaner_review_queue = []
+    st.session_state.autocleaner_snapshot = None
     st.session_state.last_file_name = source_name
 
 
@@ -408,6 +427,78 @@ def announce_ambient_insights(df, quality: dict) -> None:
     atlas.say_only(summary)
 
 
+def _run_auto_clean(target=None) -> None:
+    """Shared entry point for the Overview tab's "Auto Clean" button and
+    Atlas's "auto clean" voice command: scan every Hell Mode detector,
+    build a deterministic SAFE/REVIEW plan, auto-apply every SAFE action,
+    and stage REVIEW actions for approve/reject cards.
+
+    One snapshot is captured before anything runs (separate from the
+    regular undo_stack) so "Undo All Auto Clean Changes" can restore the
+    pre-run state in one click regardless of how many REVIEW actions get
+    approved afterward across later reruns.
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+
+    df_ = st.session_state.working_df
+    column_types_ = st.session_state.column_types
+    quality_ = data_engine.get_data_quality_report(df_, column_types_)
+    before_score = data_engine.get_health_score(quality_, column_types_, st.session_state.pii_findings)
+
+    scan_results = autocleaner.scan(df_, column_types_, quality_)
+    plan = autocleaner.build_plan(df_, column_types_, scan_results)
+    narration = autocleaner.narrate_plan(ai_analyst.get_model(), plan, before_score)
+
+    st.session_state.autocleaner_snapshot = {
+        "working_df": df_.copy(), "column_types": dict(column_types_),
+        "cleaning_log": list(st.session_state.cleaning_log),
+    }
+    push_undo_snapshot()
+
+    new_df, new_types, log_entries, applied = autocleaner.execute_safe_actions(df_, column_types_, plan)
+    st.session_state.working_df = new_df
+    st.session_state.column_types = new_types
+    st.session_state.cleaning_log.extend(log_entries)
+    st.session_state.autocleaner_review_queue = [a for a in plan if a["risk"] == "REVIEW"]
+    st.session_state.autocleaner_report = {
+        "narration": narration, "before_score": before_score,
+        "safe_applied": applied, "safe_log": [e["description"] for e in log_entries],
+    }
+    atlas.say_only(narration)
+
+
+def _cmd_generate_dictionary(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    df_ = st.session_state.working_df
+    column_types_ = st.session_state.column_types
+    quality_ = data_engine.get_data_quality_report(df_, column_types_)
+    descriptions, _ = data_dictionary.generate_descriptions(ai_analyst.get_model(), df_, column_types_)
+    st.session_state.data_dictionary_rows = data_dictionary.build_dictionary(df_, column_types_, quality_, descriptions)
+    st.session_state.pending_active_section = "Overview"
+    atlas.say_only(f"Documented all {df_.shape[1]} columns — see the Data Dictionary on the Overview tab.")
+
+
+def _cmd_auto_clean(target) -> None:
+    """Atlas voice/typed entry point — guarded, unlike the Overview tab's
+    button (a direct click is already an unambiguous action; a spoken
+    command gets the same two-phase confirmation as Atlas's other
+    data-mutating commands before _run_auto_clean() actually runs).
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    if not atlas.guarded(
+        "auto_clean", target,
+        "This scans your dataset and applies every safe fix automatically — judgment calls will be shown to you for approval.",
+    ):
+        return
+    _run_auto_clean(target)
+
+
 for _action, _fn in {
     "navigate": _cmd_navigate,
     "load_sample": _cmd_load_sample,
@@ -418,6 +509,8 @@ for _action, _fn in {
     "run_recipe": _cmd_run_recipe,
     "start_story_mode": _cmd_start_story_mode,
     "demo_mode": _cmd_demo_mode,
+    "auto_clean": _cmd_auto_clean,
+    "generate_dictionary": _cmd_generate_dictionary,
     "next": _cmd_next,
     "previous": _cmd_previous,
 }.items():
@@ -439,18 +532,44 @@ with st.sidebar:
         format_func=lambda k: theme.THEMES[k]["label"],
     )
     st.toggle("Atlas voice", key="atlas_voice_enabled", help="Mute/unmute all spoken replies.")
+    st.toggle(
+        "🇮🇳 India Mode", key="india_mode",
+        help="Fiscal-year (Apr–Mar) labels, Indian number grouping (1,20,000 / ₹1.2L), "
+             "day-first date parsing, and festival markers on time-series charts.",
+    )
+    st.toggle(
+        "🔒 Strict mode", key="pii_strict_mode",
+        help="When on, columns flagged by the Indian PII Vault (Aadhaar, PAN, GSTIN, IFSC, "
+             "mobile numbers, emails, names) never have their actual values sent to Gemini — "
+             "the AI Analyst still sees the column exists (schema only), never a real value "
+             "from it. Off by default so the AI Analyst can reason over real examples; turn "
+             "this on for datasets you can't risk sending PII samples for, even briefly.",
+    )
 
     st.markdown("### 📁 Upload")
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
 
-    if uploaded_file is not None and uploaded_file.name != st.session_state.last_file_name:
+    if (
+        uploaded_file is not None
+        and uploaded_file.name != st.session_state.last_file_name
+        and st.session_state.pending_large_upload is None
+    ):
         sheet_choice, sheet_ready = resolve_sheet_choice(uploaded_file, "primary")
         if sheet_ready:
             with st.spinner("Reading and analyzing your data..."):
-                new_df, load_error, load_warnings = data_engine.load_data(uploaded_file, sheet_name=sheet_choice)
+                # max_rows=None: read (near-)the full file rather than the usual
+                # first-MAX_ROWS truncation, so a large file can go through the
+                # Smart Sampling picker below instead of always losing "the tail".
+                new_df, load_error, load_warnings = data_engine.load_data(
+                    uploaded_file, sheet_name=sheet_choice, max_rows=None
+                )
 
             if load_error:
                 st.error(load_error)
+            elif new_df.shape[0] > data_engine.MAX_ROWS:
+                st.session_state.pending_large_upload = {
+                    "df": new_df, "filename": uploaded_file.name, "warnings": load_warnings,
+                }
             else:
                 set_active_dataset(new_df, new_df.copy(), uploaded_file.name)
                 for w in load_warnings:
@@ -459,6 +578,45 @@ with st.sidebar:
                 announce_ambient_insights(
                     new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
                 )
+
+    # --- Smart Sampling — shown once a large file has been read, until the
+    # user picks a sampling method. Kept out of the block above so opening
+    # this picker doesn't re-read the (possibly large) file on every rerun.
+    if st.session_state.pending_large_upload is not None:
+        pending = st.session_state.pending_large_upload
+        pending_df = pending["df"]
+        st.info(
+            f"This file has {pending_df.shape[0]:,} rows — pick how Prism should sample it "
+            f"down to {data_engine.MAX_ROWS:,} to stay responsive."
+        )
+        sample_method = st.radio(
+            "Sampling method", ["Random", "Stratified"], key="smart_sample_method", horizontal=True
+        )
+        strat_col = None
+        if sample_method == "Stratified":
+            cat_cols = [c for c in pending_df.columns if pending_df[c].nunique() <= 50]
+            if cat_cols:
+                strat_col = st.selectbox(
+                    "Preserve proportions by", cat_cols, key="smart_sample_strat_col",
+                    help="Each category in this column keeps the same share of rows as in the full file.",
+                )
+            else:
+                st.caption("No column with 50 or fewer distinct values found — using random sampling instead.")
+                sample_method = "Random"
+        if st.button("Use this sample", key="smart_sample_confirm", use_container_width=True):
+            sampled_df, explanation = data_engine.sample_dataframe(
+                pending_df, sample_method.lower(), data_engine.MAX_ROWS, strat_col
+            )
+            set_active_dataset(sampled_df, sampled_df.copy(), pending["filename"])
+            for w in pending["warnings"]:
+                st.warning(w)
+            st.session_state.sample_info = explanation
+            st.session_state.pending_large_upload = None
+            st.toast("Sample ready.")
+            announce_ambient_insights(
+                sampled_df, data_engine.get_data_quality_report(sampled_df, st.session_state.column_types)
+            )
+            st.rerun()
 
     working_df = st.session_state.working_df
 
@@ -564,6 +722,18 @@ with st.sidebar:
                         f"Extracted datetime features from '{dt_col}'", cleaning.datetime_features_code(dt_col)
                     )
                     st.toast(f"Added {len(added_cols)} new column(s) from '{dt_col}'. ➕")
+
+                if st.session_state.india_mode:
+                    if st.button(
+                        "Add Fiscal Year / Quarter (Apr–Mar)", use_container_width=True,
+                        help='Adds "<column>_fiscal_year" (e.g. "FY2025-26") and "<column>_fiscal_quarter" columns.',
+                    ):
+                        push_undo_snapshot()
+                        new_df = india.add_fiscal_columns(working_df, dt_col)
+                        st.session_state.working_df = new_df
+                        st.session_state.column_types = data_engine.detect_column_types(new_df)
+                        log_step(f"Added fiscal year/quarter from '{dt_col}'", india.fiscal_columns_code(dt_col))
+                        st.toast(f"Added fiscal year/quarter columns from '{dt_col}'. 🇮🇳")
 
                 gaps = datetime_intel.detect_gaps(working_df, dt_col)
                 if gaps:
@@ -767,6 +937,7 @@ def _process_atlas_utterance(utterance: Optional[str]) -> None:
                     outcome = ai_analyst.ask_and_execute(
                         data_model, st.session_state.working_df, st.session_state.column_types,
                         question, st.session_state.chat_history[:-1],
+                        st.session_state.pii_findings, st.session_state.pii_strict_mode,
                     )
                 chart_fig = None
                 if not outcome["ask_error"] and not outcome["error"] and ai_analyst.question_implies_chart(question):
@@ -849,7 +1020,7 @@ column_types = st.session_state.column_types
 _TAB_ICONS = {
     "Overview": "📊", "Clean": "🧹", "Hell Mode": "🔥", "Combine": "🔗", "Visualize": "📈", "SQL Lab": "🗄️",
     "AI Analyst": "💬", "Auto Analyst": "🤖", "Stats Lab": "🧪", "Forecasting": "🔮", "Clustering": "🧩",
-    "Domain Lens": "🔬", "ML Lab": "🧬",
+    "Domain Lens": "🔬", "Geo Lens": "🗺️", "ML Lab": "🧬",
 }
 
 has_datetime_col = "datetime" in column_types.values()
@@ -861,6 +1032,7 @@ if has_datetime_col:
     _nav_options.append("Forecasting")
 _nav_options.append("Clustering")
 _nav_options.append("Domain Lens")
+_nav_options.append("Geo Lens")
 _nav_options.append("ML Lab")
 
 if st.session_state.active_section not in _nav_options:
@@ -881,9 +1053,12 @@ ui.render_sticky_header(
     st.session_state.last_file_name or "Untitled dataset",
     quality_for_header["n_rows"],
     quality_for_header["n_cols"],
-    data_engine.get_health_score(quality_for_header),
+    data_engine.get_health_score(quality_for_header, column_types, st.session_state.pii_findings),
     quality_for_header.get("memory_usage", ""),
 )
+
+if st.session_state.sample_info:
+    st.caption(f"🔬 {st.session_state.sample_info}")
 
 if st.session_state.demo_mode_running:
     story_mode.render_demo_mode(set_active_dataset)
@@ -988,7 +1163,8 @@ elif st.session_state.active_section == "Overview":
     )
 
     quality = data_engine.get_data_quality_report(df, column_types)
-    health_score = data_engine.get_health_score(quality)
+    health_breakdown = data_engine.get_health_breakdown(quality, column_types, st.session_state.pii_findings)
+    health_score = health_breakdown["total"]
     total_outliers = sum(v["count"] for v in quality["outliers"].values()) if quality["outliers"] else 0
 
     m0, m1, m2, m3, m4 = st.columns(5)
@@ -999,6 +1175,95 @@ elif st.session_state.active_section == "Overview":
     m3.metric("Duplicates", quality["duplicate_rows"])
     m4.metric("Outliers", f"{total_outliers:,}")
 
+    with st.expander("How is this score calculated?", expanded=False):
+        for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
+            st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
+        st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    # ------------------------------------------------------------------
+    # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
+    # -> approve/reject REVIEW cards -> a before/after report. See
+    # modules/autocleaner.py for the scan/plan/execute pipeline and
+    # _run_auto_clean() above for how this wires into undo + Atlas voice.
+    # ------------------------------------------------------------------
+    if st.button("🧹 Auto Clean", type="primary", use_container_width=True, help="Scan and fix in one click"):
+        with st.spinner("Atlas is scanning your dataset…"):
+            _run_auto_clean()
+        st.rerun()
+
+    if st.session_state.autocleaner_report:
+        report = st.session_state.autocleaner_report
+        current_quality = data_engine.get_data_quality_report(st.session_state.working_df, st.session_state.column_types)
+        current_score = data_engine.get_health_score(
+            current_quality, st.session_state.column_types, st.session_state.pii_findings
+        )
+        with st.container(border=True):
+            st.info(report["narration"])
+            st.caption(autocleaner.health_delta_line(report["before_score"], current_score))
+            if report["safe_log"]:
+                with st.expander(f"{report['safe_applied']} safe fix(es) applied", expanded=False):
+                    for line in report["safe_log"]:
+                        st.caption(f"✓ {line}")
+
+            queue = st.session_state.autocleaner_review_queue
+            if queue:
+                st.markdown(f"**{len(queue)} action(s) need your judgment**")
+                if st.button("Approve all", key="autoclean_approve_all"):
+                    push_undo_snapshot()
+                    work_df, work_types = st.session_state.working_df, st.session_state.column_types
+                    for review_action in list(queue):
+                        work_df, work_types, description, code = autocleaner.apply_action(
+                            work_df, work_types, review_action
+                        )
+                        log_step(description, code)
+                    st.session_state.working_df = work_df
+                    st.session_state.column_types = work_types
+                    st.session_state.autocleaner_review_queue = []
+                    st.toast("Approved every pending action.")
+                    st.rerun()
+
+                for i, review_action in enumerate(queue):
+                    with st.container(border=True):
+                        rc1, rc2 = st.columns([4, 1])
+                        rc1.markdown(
+                            f"**{autocleaner.ACTION_LABELS.get(review_action['action'], review_action['action'])}** "
+                            f"— `{review_action['column']}`"
+                        )
+                        rc1.caption(f"{review_action['detail']} · {review_action['reason']}")
+                        approve_col, reject_col = rc2.columns(2)
+                        if approve_col.button("✓", key=f"autoclean_approve_{i}", help="Approve", use_container_width=True):
+                            push_undo_snapshot()
+                            new_df, new_types, description, code = autocleaner.apply_action(
+                                st.session_state.working_df, st.session_state.column_types, review_action
+                            )
+                            st.session_state.working_df = new_df
+                            st.session_state.column_types = new_types
+                            log_step(description, code)
+                            st.session_state.autocleaner_review_queue = [
+                                a for a in st.session_state.autocleaner_review_queue if a is not review_action
+                            ]
+                            st.toast("Applied.")
+                            st.rerun()
+                        if reject_col.button("✗", key=f"autoclean_reject_{i}", help="Reject", use_container_width=True):
+                            st.session_state.autocleaner_review_queue = [
+                                a for a in st.session_state.autocleaner_review_queue if a is not review_action
+                            ]
+                            st.rerun()
+            elif report["safe_applied"] or report.get("safe_log"):
+                st.success("All caught up — nothing left to review.")
+
+            if st.session_state.autocleaner_snapshot is not None:
+                if st.button("Undo All Auto Clean Changes", key="autoclean_undo_all"):
+                    snap = st.session_state.autocleaner_snapshot
+                    st.session_state.working_df = snap["working_df"]
+                    st.session_state.column_types = snap["column_types"]
+                    st.session_state.cleaning_log = snap["cleaning_log"]
+                    st.session_state.autocleaner_report = None
+                    st.session_state.autocleaner_review_queue = []
+                    st.session_state.autocleaner_snapshot = None
+                    st.toast("Reverted every Auto Clean change.")
+                    st.rerun()
+
     if quality["all_null_columns"]:
         st.warning(
             f"Fully empty columns detected: {', '.join(quality['all_null_columns'])}. "
@@ -1006,9 +1271,9 @@ elif st.session_state.active_section == "Overview":
         )
 
     if pii_detector.has_findings(st.session_state.pii_findings):
-        st.warning(f"**Privacy notice:** {pii_detector.describe_findings(st.session_state.pii_findings)}")
-        with st.expander("PII Detector — details & masking", expanded=False):
-            for pii_type, label in [("email", "Emails"), ("phone", "Phone numbers"), ("name", "Likely names")]:
+        st.error(f"**Privacy notice:** {pii_detector.describe_findings(st.session_state.pii_findings)}")
+        with st.expander("Indian PII Vault — details & masking", expanded=False):
+            for pii_type, label in pii_detector.PII_TYPE_LABELS.items():
                 entries = st.session_state.pii_findings.get(pii_type, [])
                 if not entries:
                     continue
@@ -1052,7 +1317,40 @@ elif st.session_state.active_section == "Overview":
             st.info("No numeric columns to check for outliers.")
 
     ui.render_section_label("Column Profiler")
-    ui.render_column_profiler_grid(df, column_types, quality)
+    ui.render_column_profiler_grid(df, column_types, quality, st.session_state.india_mode)
+
+    ui.render_section_label("Data Dictionary")
+    if st.button("📖 Generate Data Dictionary", key="gen_data_dict"):
+        with st.spinner("Documenting every column…"):
+            descriptions, dict_error = data_dictionary.generate_descriptions(ai_analyst.get_model(), df, column_types)
+            st.session_state.data_dictionary_rows = data_dictionary.build_dictionary(
+                df, column_types, quality, descriptions
+            )
+        if dict_error:
+            st.warning(f"Gemini description generation hit a snag ({dict_error}) — used templated descriptions instead.")
+
+    if st.session_state.data_dictionary_rows:
+        edited_rows = st.data_editor(
+            pd.DataFrame(st.session_state.data_dictionary_rows), use_container_width=True, hide_index=True,
+            key="data_dictionary_editor", disabled=["Column", "Type", "Example Values", "Missing %", "Notes"],
+        )
+        st.session_state.data_dictionary_rows = edited_rows.to_dict("records")
+        dict_name = st.session_state.last_file_name or "dataset"
+        ddl_col, ddx_col = st.columns(2)
+        with ddl_col:
+            st.download_button(
+                "Download as Markdown",
+                data=data_dictionary.to_markdown(st.session_state.data_dictionary_rows, dict_name).encode("utf-8"),
+                file_name="data_dictionary.md", mime="text/markdown", use_container_width=True,
+            )
+        with ddx_col:
+            st.download_button(
+                "Download as Excel",
+                data=data_dictionary.to_xlsx_bytes(st.session_state.data_dictionary_rows, dict_name),
+                file_name="data_dictionary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
     st.markdown("**Summary Statistics**")
     st.dataframe(visualization.style_describe_table(visualization.get_overview_stats(df)), use_container_width=True)
@@ -1189,13 +1487,30 @@ elif st.session_state.active_section == "Clean":
         st.dataframe(df.head(10), use_container_width=True)
 
     st.divider()
-    st.download_button(
-        "Download Cleaned Dataset (CSV)",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="prism_cleaned_data.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+    dl1, dl2 = st.columns(2)
+    with dl1:
+        st.download_button(
+            "Download Cleaned Dataset (CSV)",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name="prism_cleaned_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with dl2:
+        raw_quality = data_engine.get_data_quality_report(st.session_state.raw_df, column_types)
+        health_before_cert = data_engine.get_health_score(raw_quality, column_types)
+        health_after_cert = data_engine.get_health_score(quality_for_header, column_types, st.session_state.pii_findings)
+        st.download_button(
+            "Download Cleaning Certificate (PDF)",
+            data=report_writer.generate_cleaning_certificate(
+                st.session_state.last_file_name or "dataset", df.shape[0], df.shape[1],
+                health_before_cert, health_after_cert, st.session_state.cleaning_log,
+            ),
+            file_name="prism_cleaning_certificate.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            help="An audit-trail PDF: dataset name, date, health score before/after, and every cleaning action taken.",
+        )
 
 # --------------------------------------------------------------------------
 # Hell Mode tab — a deeper cleaning engine for real-world-messy data: null
@@ -1688,6 +2003,17 @@ elif st.session_state.active_section == "Visualize":
 
     with st.spinner(ui.get_loading_message()):
         charts, top_corr = visualization.auto_generate_charts(df, chart_column_types)
+
+    if st.session_state.india_mode:
+        # Auto-generated trend charts are titled "{num_col} over {dt_col}" —
+        # see modules/visualization.py:auto_generate_charts. Add subtle
+        # festival markers to those specifically, not every chart.
+        for dt_col in (c for c, t in column_types.items() if t == "datetime"):
+            for title, fig in charts.items():
+                if title.endswith(f" over {dt_col}"):
+                    dt_series = pd.to_datetime(df[dt_col], errors="coerce").dropna()
+                    if not dt_series.empty:
+                        india.add_festival_markers(fig, dt_series.min(), dt_series.max())
 
     if top_corr:
         st.markdown("**Top Correlations**")
@@ -2564,6 +2890,66 @@ elif st.session_state.active_section == "Domain Lens":
                     st.plotly_chart(domains.build_credit_utilization_chart(utilization), use_container_width=True)
             except Exception as e:
                 st.error(f"Couldn't compute credit utilization: {e}")
+
+# --------------------------------------------------------------------------
+# Geo Lens tab (v5) — India choropleth. Detects a state/UT column by
+# fuzzy-matching against modules.india's canonical list, lets the user pick
+# a metric + aggregation, and renders a choropleth (data/india_states.geojson)
+# plus a top-5/bottom-5 bar chart. See modules/geo.py for the matching and
+# chart-building logic.
+# --------------------------------------------------------------------------
+elif st.session_state.active_section == "Geo Lens":
+    ui.render_help_expander(
+        "Pick a state/UT column and a metric — Geo Lens fuzzy-matches state names against "
+        "the 28 states + 8 union territories and renders a choropleth of India."
+    )
+    st.subheader("Geo Lens")
+
+    if not geo.is_geojson_available():
+        ui.render_empty_state(
+            "🗺️", "Map data unavailable", "data/india_states.geojson is missing — Geo Lens is skipped until it's restored."
+        )
+    else:
+        state_candidates = geo.detect_state_columns(df, column_types)
+        if not state_candidates:
+            ui.render_empty_state(
+                "🗺️", "No state/UT column detected",
+                "None of this dataset's columns look like Indian state or union territory names.",
+            )
+        else:
+            numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+            if not numeric_cols:
+                ui.render_empty_state(
+                    "🗺️", "No numeric column to map", "Geo Lens needs at least one numeric column to aggregate by state."
+                )
+            else:
+                gc1, gc2, gc3 = st.columns(3)
+                with gc1:
+                    state_col = st.selectbox(
+                        "State / UT column", [c["column"] for c in state_candidates], key="geo_state_col",
+                        format_func=lambda c: f"{c} ({next(sc['match_pct'] for sc in state_candidates if sc['column'] == c)}% matched)",
+                    )
+                with gc2:
+                    metric_col = st.selectbox("Metric column", numeric_cols, key="geo_metric_col")
+                with gc3:
+                    agg = st.selectbox("Aggregation", ["sum", "mean", "count", "median"], key="geo_agg")
+
+                fig, unmatched, state_totals = geo.build_choropleth(df, state_col, metric_col, agg)
+                if fig is None:
+                    st.error("Could not build the choropleth — the map data may be missing.")
+                else:
+                    map_col, bar_col = st.columns([3, 2])
+                    with map_col:
+                        st.plotly_chart(fig, use_container_width=True)
+                    with bar_col:
+                        bt_fig = geo.top_bottom_chart(state_totals, metric_col)
+                        if bt_fig is not None:
+                            st.plotly_chart(bt_fig, use_container_width=True)
+
+                    if unmatched:
+                        with st.expander(f"{len(unmatched)} unmatched value(s) — excluded from the map", expanded=False):
+                            for value in unmatched:
+                                st.caption(f"'{value}' — no confident match against a state/UT name")
 
 # --------------------------------------------------------------------------
 # ML Lab tab — the data-science bridge: a feature engineering assistant,

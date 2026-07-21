@@ -34,8 +34,16 @@ def get_excel_sheet_names(uploaded_file) -> Optional[list[str]]:
         return None
 
 
+# Hard safety ceiling even when a caller asks for max_rows=None (Smart
+# Sampling's "read the whole thing" path) — protects against a truly
+# pathological upload blowing up server memory. Nothing between this and
+# MAX_ROWS silently loses data; only above HARD_ROW_CEILING does Prism
+# still truncate outright.
+HARD_ROW_CEILING = 500_000
+
+
 def load_data(
-    uploaded_file, sheet_name: Union[str, int] = 0
+    uploaded_file, sheet_name: Union[str, int] = 0, max_rows: Optional[int] = MAX_ROWS
 ) -> tuple[Optional[pd.DataFrame], Optional[str], list[str]]:
     """Read an uploaded CSV/Excel file into a DataFrame.
 
@@ -44,12 +52,19 @@ def load_data(
     are unaffected. Pass an explicit sheet name once the user has picked one
     from get_excel_sheet_names().
 
+    max_rows=MAX_ROWS (default) preserves the original behavior: silently
+    truncate to the first MAX_ROWS rows with a warning. Pass max_rows=None
+    for Smart Sampling's flow, which needs the (near-)full frame so it can
+    offer a *chosen* random/stratified sample instead of always "the first
+    N rows" — still hard-capped at HARD_ROW_CEILING either way.
+
     Returns a (dataframe, error_message, warnings) tuple. On failure,
     dataframe is None and error_message explains why. On success,
     error_message is None and dataframe is ready to use.
     """
     warnings: list[str] = []
     filename = uploaded_file.name.lower()
+    effective_cap = max_rows if max_rows is not None else HARD_ROW_CEILING
 
     try:
         if filename.endswith(".csv"):
@@ -81,15 +96,57 @@ def load_data(
     # Controls) rather than something to silently discard on load.
     df = df.dropna(how="all")
 
-    if df.shape[0] > MAX_ROWS:
-        warnings.append(
-            f"The file has {df.shape[0]:,} rows — Prism sampled the first {MAX_ROWS:,} "
-            "rows to keep the app responsive. The cleaned-data download will only "
-            "reflect this sample."
-        )
-        df = df.head(MAX_ROWS).reset_index(drop=True)
+    if df.shape[0] > effective_cap:
+        if max_rows is None:
+            warnings.append(
+                f"The file has {df.shape[0]:,} rows — even Smart Sampling's full read caps at "
+                f"{HARD_ROW_CEILING:,} rows to protect memory. Truncated to the first {HARD_ROW_CEILING:,}."
+            )
+        else:
+            warnings.append(
+                f"The file has {df.shape[0]:,} rows — Prism sampled the first {MAX_ROWS:,} "
+                "rows to keep the app responsive. The cleaned-data download will only "
+                "reflect this sample."
+            )
+        df = df.head(effective_cap).reset_index(drop=True)
 
     return df, None, warnings
+
+
+def sample_dataframe(
+    df: pd.DataFrame, method: str, target_rows: int, strat_col: Optional[str] = None
+) -> tuple[pd.DataFrame, str]:
+    """Smart Sampling: reduce a large DataFrame to ~target_rows.
+
+    method="random": a uniform random sample.
+    method="stratified": sampled proportionally within each group of
+    strat_col, so category shares in the sample match the full dataset
+    (e.g. if 30% of rows are "West" region in the full data, ~30% of the
+    sampled rows are too) — reproducible via a fixed random_state.
+
+    Returns (sampled_df, explanation) — explanation is the one-line reason
+    shown in the persistent sampling banner.
+    """
+    n_total = len(df)
+    if n_total <= target_rows:
+        return df, ""
+
+    if method == "stratified" and strat_col and strat_col in df.columns:
+        frac = target_rows / n_total
+        sampled = (
+            df.groupby(strat_col, group_keys=False)[df.columns.tolist()]
+            .apply(lambda g: g.sample(frac=frac, random_state=42))
+            .reset_index(drop=True)
+        )
+        explanation = (
+            f"Working on a {len(sampled):,}-row stratified sample of {n_total:,} rows "
+            f"(proportions by '{strat_col}' preserved — each category keeps its original share)."
+        )
+    else:
+        sampled = df.sample(n=target_rows, random_state=42).reset_index(drop=True)
+        explanation = f"Working on a {len(sampled):,}-row random sample of {n_total:,} rows."
+
+    return sampled, explanation
 
 
 def _looks_like_datetime(series: pd.Series) -> bool:
@@ -187,22 +244,65 @@ def get_data_quality_report(df: pd.DataFrame, column_types: dict[str, str]) -> d
     }
 
 
-def get_health_score(quality_report: dict) -> int:
-    """A single 0-100 "at a glance" health score for the sticky mini-header —
-    a fast composite of the same signals already shown in the Overview tab's
-    data quality report, not a rigorous statistical metric.
-    """
-    score = 100.0
-    score -= quality_report["total_missing_pct"] * 0.5
+HEALTH_COMPONENT_WEIGHTS = {
+    "completeness": 30, "consistency": 25, "uniqueness": 15, "validity": 15, "outlier_burden": 15,
+}
 
+
+def get_health_breakdown(
+    quality_report: dict, column_types: dict[str, str], pii_findings: Optional[dict] = None
+) -> dict:
+    """The explainable 0-100 Data Health Score, broken into its 5 weighted
+    components (see HEALTH_COMPONENT_WEIGHTS) so the number is never just
+    "magic" — every component is independently visible in the Overview
+    tab's breakdown expander and the sticky header's mini-badge.
+
+        completeness (30)   — share of non-missing cells
+        consistency  (25)   — share of columns still stuck as free 'text'
+                               instead of a proper type (numeric/date/etc.)
+        uniqueness   (15)   — share of rows that aren't exact duplicates
+        validity     (15)   — unmasked PII exposure + fully-empty columns
+        outlier_burden (15) — average IQR-outlier share across numeric columns
+    """
     n_rows = quality_report["n_rows"] or 1
+    n_cols = quality_report["n_cols"] or 1
+
+    completeness = 30 * (1 - quality_report["total_missing_pct"] / 100)
+
+    text_cols = sum(1 for t in column_types.values() if t == "text")
+    consistency = 25 * (1 - 0.5 * (text_cols / n_cols))
+
     duplicate_pct = 100 * quality_report["duplicate_rows"] / n_rows
-    score -= duplicate_pct * 0.3
+    uniqueness = 15 * (1 - duplicate_pct / 100)
+
+    validity = 15.0
+    if pii_findings:
+        from modules import pii_detector
+        if pii_detector.has_findings(pii_findings):
+            validity -= 7
+    validity -= min(len(quality_report["all_null_columns"]) * 3, 8)
 
     outlier_pcts = [info["pct"] for info in quality_report["outliers"].values()]
-    if outlier_pcts:
-        score -= (sum(outlier_pcts) / len(outlier_pcts)) * 0.2
+    avg_outlier_pct = (sum(outlier_pcts) / len(outlier_pcts)) if outlier_pcts else 0
+    outlier_burden = 15 * (1 - min(avg_outlier_pct, 30) / 30)
 
-    score -= min(len(quality_report["all_null_columns"]) * 5, 20)
+    components = {
+        "completeness": round(max(0, min(30, completeness))),
+        "consistency": round(max(0, min(25, consistency))),
+        "uniqueness": round(max(0, min(15, uniqueness))),
+        "validity": round(max(0, min(15, validity))),
+        "outlier_burden": round(max(0, min(15, outlier_burden))),
+    }
+    components["total"] = max(0, min(100, sum(components.values())))
+    return components
 
-    return max(0, min(100, round(score)))
+
+def get_health_score(
+    quality_report: dict, column_types: Optional[dict[str, str]] = None, pii_findings: Optional[dict] = None
+) -> int:
+    """The single 0-100 number — sticky header badge, Overview's gauge, and
+    every before/after delta. column_types defaults to empty for callers
+    that haven't been updated (consistency component reads as unaffected
+    rather than erroring), but every in-app call site passes it.
+    """
+    return get_health_breakdown(quality_report, column_types or {}, pii_findings)["total"]

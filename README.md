@@ -41,6 +41,68 @@ Organized by tab — this is literally how the app is laid out, top to bottom.
   privacy banner lists what was found, with one-click masking per column
   (`j***@gmail.com`) that never displays the raw value first
 
+### Auto Cleaner
+The flagship v5 feature — one button that scans, plans, and fixes a messy
+dataset, without ever guessing on your behalf:
+
+1. **SCAN** — runs every existing Hell Mode detector (disguised nulls,
+   Indian-formatted numbers, mixed date formats, fuzzy category spellings,
+   mixed measurement units, exact duplicates, missingness, outliers)
+2. **PLAN** — turns the raw findings into a concrete action list, each one
+   tagged **SAFE** or **REVIEW**
+3. **EXECUTE** — every SAFE action applies automatically; every REVIEW
+   action becomes an approve/reject card
+4. **REPORT** — a plain-English narration line, a Data Health Score
+   before/after delta, and a full log of what changed
+
+**The SAFE/REVIEW split is a fixed property of the action type, decided in
+Python — never inferred per-instance by Gemini.** `modules/autocleaner.py`
+hard-codes two sets, `SAFE_ACTIONS` and `REVIEW_ACTIONS`, and every plan
+action's risk tier comes from a membership check against those sets, not
+from a model's opinion:
+
+- **SAFE** (auto-applied instantly): trim whitespace, convert disguised
+  nulls (`"NA"`, `"-"`, ...), parse Indian-formatted numbers (₹/lakh/crore
+  text → real numbers), standardize unambiguous mixed date formats, remove
+  exact duplicate rows — all lossless or trivially reversible
+- **REVIEW** (needs your approve/reject): resolve genuinely ambiguous dates
+  (day-first vs. month-first truly disagree), fill missing values (changes
+  real data), merge fuzzy category spellings, normalize mixed measurement
+  units (which unit becomes the target is a judgment call), remove
+  statistical outliers (could be real extreme values, not errors) — all
+  either lossy or require a choice only a human should make
+
+Gemini's only job in the whole pipeline is the one-line narration ("Scan
+complete. 3 safe fixes applied. 2 need your judgment.") — the plan itself
+and every action's execution are fully deterministic, so Auto Cleaner works
+correctly with zero Gemini API key configured, and a bad or manipulated LLM
+response can never talk its way into a destructive action being marked
+safe. "Undo All Auto Clean Changes" restores the pre-scan snapshot in one
+click, and the whole run exports as a runnable Python script alongside the
+rest of the Clean tab's history. Say "auto clean" to Atlas to trigger it by
+voice.
+
+### India Mode
+A sidebar toggle (default **on**) that reframes number, date, and calendar
+conventions for an Indian audience everywhere in the app, not just one tab:
+
+- **Fiscal year labels** — April-March fiscal years/quarters (`FY2025-26`,
+  `Q1 FY2025-26`), with a one-click "Add Fiscal Year / Quarter" column
+- **Indian number formatting** — one `format_inr()` helper, used
+  everywhere a rupee or large number is displayed: Indian digit grouping
+  (`1,20,000` not `120,000`) and compact lakh/crore notation (`₹1.2L`,
+  `₹3.4Cr`)
+- **Day-first dates** throughout date parsing
+- **Festival awareness** — a bundled `data/festivals.csv` (Holi, Eid,
+  Raksha Bandhan, Dussehra, Diwali) adds dashed marker lines to
+  auto-generated trend charts so spikes around festival dates read as
+  context, not anomalies
+
+Turning it on also switches the PII Detector into **Indian PII Vault**
+mode (Aadhaar/PAN/GSTIN/IFSC/mobile-number detection with
+pattern-preserving masking, e.g. `XXXX-XXXX-1234` for Aadhaar) and unlocks
+**Geo Lens**, a choropleth tab for any state/UT column.
+
 ### Clean
 - Sidebar cleaning controls: drop/fill (mean, median, mode, custom) missing
   values, one-click duplicate removal, column dtype conversion, column dropping
@@ -283,17 +345,22 @@ prism/
 │   ├── dashboard_builder.py # v2: AI-designed KPI + chart dashboard spec
 │   ├── report_writer.py     # v2: executive PDF/HTML report generation
 │   ├── recipes.py           # v2: save/apply cleaning history as a portable JSON recipe
-│   ├── pii_detector.py      # v2: regex PII scan + one-click masking
+│   ├── pii_detector.py      # v2, upgraded v5: regex PII scan + Indian PII Vault (Aadhaar/PAN/GSTIN/IFSC/mobile) + masking
 │   ├── hellmode.py          # v3: null synonyms, Indian number parser, mixed dates, fuzzy cleanup, units, imputation
 │   ├── domains.py           # v3: Product & Banking analytics packs (Domain Lens tab)
 │   ├── mllab.py             # v3: feature engineering, baseline models, class imbalance + SMOTE
 │   ├── story_mode.py        # Voice-narrated insight slides + the scripted hands-free Demo Mode
 │   ├── report.py            # Standalone HTML report generation (Visualize tab's basic export)
 │   ├── theme.py             # Multi-theme (Graphite/Midnight/Arctic) CSS + matching Plotly templates
-│   └── ui.py                # Landing screen, footer, help expanders, onboarding
+│   ├── autocleaner.py       # v5: Auto Cleaner — scan/plan/execute/report, SAFE/REVIEW risk tiers
+│   ├── india.py             # v5: India Mode — fiscal year, format_inr(), day-first dates, festival markers
+│   ├── geo.py                # v5: Geo Lens — state/UT fuzzy matching + choropleth
+│   ├── data_dictionary.py   # v5: Data Dictionary Generator — AI + templated column docs, markdown/xlsx export
+│   └── ui.py                # Landing screen, footer, help expanders, onboarding, column profiler, health ring
 ├── samples/                  # sales/hr/stock/indian_startup_funding_messy.csv for "Try a sample dataset"
 │   └── hell/                 # Deliberately messy datasets exercising every Hell Mode feature
-├── eval/                     # Code-gen eval harness — questions.json, run_eval.py, eval_results.md, atlas_eval.py
+├── data/                     # festivals.csv (India Mode) + india_states.geojson (Geo Lens)
+├── eval/                     # Eval harnesses — questions.json, run_eval.py, autocleaner_eval.py, atlas_eval.py
 ├── .streamlit/config.toml   # Theme config
 ├── requirements.txt          # Pinned, tested-together versions
 └── DEPLOYMENT.md             # Streamlit Community Cloud deployment steps
@@ -533,6 +600,23 @@ hitting the Gemini free-tier's daily quota mid-run — see
 `eval_results.md` for the full breakdown and a note on re-running once quota
 resets. A question that can't be evaluated (quota-blocked) is reported as
 `NOT RUN`, never silently counted as a failure.
+
+A second, separate harness covers Auto Cleaner:
+[`eval/autocleaner_eval.py`](eval/autocleaner_eval.py) runs 5 test cases
+directly against `modules.autocleaner`'s scan → plan → execute pipeline
+over the Hell Mode datasets (e.g. asserting `parse_indian_number` fires on
+a lakh/crore-formatted column and leaves it numeric, or that 40 exact
+duplicate rows drop to 0) and writes
+[`eval/autocleaner_eval_results.md`](eval/autocleaner_eval_results.md).
+Unlike the question eval above, **this one needs no Gemini API key** —
+Auto Cleaner's plan and execution are fully deterministic, so the harness
+never touches the network:
+
+```bash
+python eval/autocleaner_eval.py
+```
+
+The most recent run passed **5/5 (100%)**.
 
 ---
 

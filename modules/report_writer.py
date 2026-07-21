@@ -314,3 +314,86 @@ def generate_pdf_report(report_content: dict, dataset_name: str) -> bytes:
         pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {rec}"))
 
     return bytes(pdf.output())
+
+
+# ==========================================================================
+# Cleaning Certificate — a one-page audit trail (not a marketing report):
+# dataset name, date, Data Health Score before/after, and every cleaning
+# action taken with its outcome, in banking-audit language. Reuses the same
+# fpdf2 helpers as the analysis report above, with its own header/footer.
+# ==========================================================================
+class _CertificatePDF(FPDF):
+    def header(self) -> None:
+        self.set_fill_color(10, 14, 23)
+        self.rect(0, 0, self.w, 20, style="F")
+        self.set_text_color(0, 229, 255)
+        self.set_font("Helvetica", "B", 14)
+        self.set_xy(10, 5)
+        self.cell(0, 10, "PRISM - Data Cleaning Certificate")
+        self.set_text_color(0, 0, 0)
+        self.ln(18)
+
+    def footer(self) -> None:
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(120, 130, 145)
+        self.cell(0, 10, f"Page {self.page_no()} - Prism v5", align="C")
+
+
+def generate_cleaning_certificate(
+    dataset_name: str,
+    n_rows: int,
+    n_cols: int,
+    health_before: int,
+    health_after: int,
+    cleaning_log: list[dict],
+    developer_name: str = "Prathmesh Katkade",
+) -> bytes:
+    """A one-page PDF documenting exactly what was done to a dataset before
+    analysis — positioned as an audit trail a compliance or banking
+    reviewer could sign off on, not a promotional report. cleaning_log is
+    the same list[{"description","code"}] already used for Export as
+    Python Script, so this is always in sync with what actually ran.
+    """
+    pdf = _CertificatePDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    delta = health_after - health_before
+    delta_str = f"+{delta}" if delta >= 0 else str(delta)
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 110, 125)
+    pdf.cell(0, 8, _sanitize_for_pdf(f"Dataset: {dataset_name}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, _sanitize_for_pdf(f"Generated: {generated_at}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, _sanitize_for_pdf(f"Shape: {n_rows:,} rows x {n_cols} columns"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(20, 20, 20)
+    pdf.ln(4)
+
+    _add_section_title(pdf, "Data Health Score")
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, _sanitize_for_pdf(f"{health_before} / 100  ->  {health_after} / 100  ({delta_str})"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.ln(4)
+
+    _add_section_title(pdf, f"Actions Taken ({len(cleaning_log)})")
+    if cleaning_log:
+        for i, step in enumerate(cleaning_log, 1):
+            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {step['description']}"))
+    else:
+        pdf.multi_cell(0, 6, "No cleaning actions were applied to this dataset.")
+    pdf.ln(6)
+
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(100, 110, 125)
+    pdf.multi_cell(
+        0, 5,
+        _sanitize_for_pdf(
+            "This certificate documents the automated (Auto Cleaner, safe-tier) and user-approved "
+            "data cleaning operations applied to the dataset above, in the order they were run. "
+            f"Prepared by {developer_name} using Prism v5."
+        ),
+    )
+
+    return bytes(pdf.output())
