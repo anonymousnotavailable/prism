@@ -212,9 +212,12 @@ def build_plan(df: pd.DataFrame, column_types: dict[str, str], scan_results: dic
 
 _NARRATION_PROMPT = (
     "Auto Cleaner just scanned a dataset and built this action plan:\n{plan_summary}\n\n"
-    "You are Atlas, Prism's data-cleaning assistant. In ONE short sentence (max 25 words), in "
-    "the style 'Scan complete. N safe fixes applied. M need your judgment.', narrate the result "
-    "using the ACTUAL counts above. Return ONLY that sentence — no prose, no quotes, no markdown."
+    "There are {safe_count} safe fix(es) and {review_count} that need review.\n\n"
+    "You are Atlas, Prism's data-cleaning assistant, speaking directly to the user. Write ONE "
+    "plain-English sentence (max 25 words) narrating that result, for example: "
+    f'"Scan complete. 3 safe fixes applied. 2 need your judgment."\n'
+    "Return ONLY that sentence, written in plain English with the real numbers substituted in — "
+    "never Python code, never an f-string, never a code block, never a variable name."
 )
 
 
@@ -236,10 +239,18 @@ def narrate_plan(model, plan: list[dict], health_score: Optional[int] = None) ->
         return default
 
     plan_summary = "\n".join(f"- [{a['risk']}] {a['action']} on {a['column']}: {a['detail']}" for a in plan)
-    text, error = call_gemini(model, _NARRATION_PROMPT.format(plan_summary=plan_summary))
+    prompt = _NARRATION_PROMPT.format(plan_summary=plan_summary, safe_count=safe_count, review_count=review_count)
+    text, error = call_gemini(model, prompt)
     if error or not text or len(text) > 300:
         return default
-    return text.strip().strip('"')
+    cleaned = text.strip().strip('"')
+    # Reject anything that looks like code, not prose — a model can ignore
+    # instructions, but Auto Cleaner's narration must never leak an f-string
+    # or code fence into what's supposed to be a spoken/displayed sentence.
+    code_markers = ("```", "= f", "=f", "\n", "def ", "result =", "python")
+    if any(marker in cleaned for marker in code_markers):
+        return default
+    return cleaned
 
 
 # ==========================================================================
