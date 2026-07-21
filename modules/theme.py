@@ -1,466 +1,476 @@
-"""Theme — dark (default) and light Streamlit styling, plus a matching Plotly template.
+"""Theme — token-driven multi-theme system for Prism's Streamlit chrome and
+matching Plotly templates.
 
-Dark is Prism's brand look (deep navy background, cyan accents); light is a
-straightforward high-contrast alternative for users who prefer it. Both
-`apply_custom_theme()` and `apply_plotly_theme()` take a `mode` ("dark" |
-"light") so app.py's sidebar toggle can switch both together.
+Three curated themes ship by default: Graphite (dark, default), Midnight
+(dark, violet-forward), and Arctic (light). Each is a flat dict of design
+tokens; `_build_css()` turns any of them into the same stylesheet via
+string.Template, so adding a fourth theme is just adding another token
+dict below — no CSS duplication, and no risk of the dark/light copies
+drifting out of sync the way the old two-hardcoded-strings version did.
 
-v2 Part 2 (UI/UX Overhaul) added: Space Grotesk/Inter font pairing, an 8px
-spacing + rounded-xl radius system (CSS custom properties), glassmorphism
-cards, hover lift/glow micro-interactions, a shimmer skeleton-loader class,
-a sticky mini-header, and a responsive rule that stops Streamlit's column
-layout from causing horizontal scroll on narrow viewports.
+`apply_custom_theme()` and `apply_plotly_theme()` both take a theme key
+(one of THEMES) so app.py's sidebar selector can switch both together.
 """
+
+from __future__ import annotations
+
+from string import Template
 
 import plotly.graph_objects as go
 import plotly.io as pio
 import streamlit as st
 
-DARK_TEMPLATE_NAME = "prism_dark"
-LIGHT_TEMPLATE_NAME = "prism_light"
+THEMES: dict[str, dict] = {
+    "graphite": {
+        "label": "Graphite (Dark)",
+        "mode": "dark",
+        "bg": "#0A0C10",
+        "bg_end": "#0D1016",
+        "surface": "#12151B",
+        "surface_hover": "#1A1E27",
+        "border": "#232833",
+        "text": "#F1F5F9",
+        "text_muted": "#8A97A8",
+        "accent": "#22D3EE",
+        "accent_rgb": "34, 211, 238",
+        "accent2": "#A78BFA",
+        "accent2_rgb": "167, 139, 250",
+        "success": "#34D399",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "on_accent": "#04141A",
+        "chart_colorway": ["#22D3EE", "#A78BFA", "#34D399", "#FBBF24", "#F87171", "#60A5FA", "#F472B6", "#94A3B8"],
+    },
+    "midnight": {
+        "label": "Midnight (Dark)",
+        "mode": "dark",
+        "bg": "#0D0B14",
+        "bg_end": "#120F1C",
+        "surface": "#161320",
+        "surface_hover": "#1E1A2C",
+        "border": "#2A2438",
+        "text": "#F5F3FF",
+        "text_muted": "#9B92B5",
+        "accent": "#A78BFA",
+        "accent_rgb": "167, 139, 250",
+        "accent2": "#22D3EE",
+        "accent2_rgb": "34, 211, 238",
+        "success": "#34D399",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "on_accent": "#160B2E",
+        "chart_colorway": ["#A78BFA", "#22D3EE", "#F472B6", "#34D399", "#FBBF24", "#F87171", "#60A5FA", "#94A3B8"],
+    },
+    "arctic": {
+        "label": "Arctic (Light)",
+        "mode": "light",
+        "bg": "#F8FAFC",
+        "bg_end": "#EEF2F7",
+        "surface": "#FFFFFF",
+        "surface_hover": "#F1F5F9",
+        "border": "#E2E8F0",
+        "text": "#0F172A",
+        "text_muted": "#5B6B82",
+        "accent": "#0891B2",
+        "accent_rgb": "8, 145, 178",
+        "accent2": "#7C3AED",
+        "accent2_rgb": "124, 58, 237",
+        "success": "#059669",
+        "warning": "#B45309",
+        "danger": "#DC2626",
+        "on_accent": "#FFFFFF",
+        "chart_colorway": ["#0891B2", "#7C3AED", "#059669", "#B45309", "#DC2626", "#2563EB", "#DB2777", "#64748B"],
+    },
+}
 
-# Shared across both themes: fonts, the 8px spacing / rounded-xl radius
-# system, hover micro-interactions, shimmer loader, sticky header base, and
-# the narrow-viewport column-wrap fix. Color values live in the per-mode
-# blocks below so this stays theme-agnostic.
-_SHARED_CSS = """
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
-
-    :root {
-        --prism-radius-xl: 1.1rem;
-        --prism-radius-lg: 0.9rem;
-        --prism-radius-md: 0.65rem;
-        --prism-space-1: 0.5rem;
-        --prism-space-2: 1rem;
-        --prism-space-3: 1.5rem;
-        --prism-space-4: 2rem;
-    }
-
-    html, body, .stApp, [class*="css"] {
-        font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-    }
-    h1, h2, h3, h4, .prism-heading {
-        font-family: 'Space Grotesk', 'Segoe UI', Arial, sans-serif !important;
-        letter-spacing: 0.01em;
-    }
-
-    .stAlert {
-        border-radius: var(--prism-radius-md);
-    }
-    /* SQL Lab's query editor — force a monospace font like a real code editor */
-    textarea {
-        font-family: 'Consolas', 'Courier New', monospace !important;
-        font-size: 0.9rem !important;
-    }
-
-    /* Larger touch targets + rounded-xl on every interactive control */
-    .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
-        border-radius: var(--prism-radius-lg) !important;
-        padding: 0.6rem 1.3rem !important;
-        min-height: 2.75rem;
-        transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
-    }
-    .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
-        transform: translateY(-2px);
-        filter: brightness(1.05);
-    }
-    .stButton > button:active, .stDownloadButton > button:active {
-        transform: translateY(0);
-    }
-    .stTextInput input, .stTextArea textarea, .stSelectbox > div, .stMultiSelect > div {
-        border-radius: var(--prism-radius-md) !important;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: var(--prism-radius-md) var(--prism-radius-md) 0 0 !important;
-        transition: all 0.18s ease;
-    }
-
-    /* Glassmorphism — used for feature cards, insight cards, empty states,
-       and the sticky mini-header. Alpha/border colors differ per theme. */
-    .glass-card {
-        border-radius: var(--prism-radius-xl);
-        backdrop-filter: blur(14px) saturate(160%);
-        -webkit-backdrop-filter: blur(14px) saturate(160%);
-        transition: transform 0.22s ease, box-shadow 0.22s ease;
-    }
-    .glass-card.hoverable:hover {
-        transform: translateY(-4px);
-    }
-
-    /* Shimmer skeleton loader — an alternative to st.spinner for a couple of
-       longer-running actions, per the v2 spec's "skeleton loaders" ask. */
-    @keyframes prism-shimmer-sweep {
-        0% { background-position: -400px 0; }
-        100% { background-position: 400px 0; }
-    }
-    .prism-shimmer {
-        border-radius: var(--prism-radius-lg);
-        background-image: linear-gradient(90deg, rgba(255,255,255,0.04) 0px,
-            rgba(255,255,255,0.12) 40px, rgba(255,255,255,0.04) 80px);
-        background-size: 400px 100%;
-        animation: prism-shimmer-sweep 1.4s ease-in-out infinite;
-    }
-
-    /* Animated gradient shimmer on the "PRISM" wordmark — deep navy through
-       electric blue to cyan, per the v2 spec. */
-    @keyframes prism-hero-shift {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-    .hero-title-animated {
-        background: linear-gradient(90deg, #0a1a3d, #2979ff, #00e5ff, #2979ff, #0a1a3d);
-        background-size: 300% auto;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        animation: prism-hero-shift 7s ease infinite;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-    }
-
-    /* Sticky mini-header: dataset name, shape, and health score, always visible. */
-    .prism-sticky-header {
-        position: sticky;
-        top: 0;
-        z-index: 999;
-        border-radius: var(--prism-radius-lg);
-        padding: 0.6rem 1.1rem;
-        margin-bottom: var(--prism-space-2);
-        display: flex;
-        align-items: center;
-        gap: var(--prism-space-3);
-        flex-wrap: wrap;
-    }
-    .prism-sticky-header .chip {
-        font-size: 0.82rem;
-        font-weight: 600;
-        padding: 0.15rem 0.6rem;
-        border-radius: 999px;
-    }
-
-    /* Empty-state cards */
-    .prism-empty-state {
-        text-align: center;
-        border-radius: var(--prism-radius-xl);
-        padding: var(--prism-space-4) var(--prism-space-3);
-        margin: var(--prism-space-2) 0;
-    }
-    .prism-empty-state .icon { font-size: 2.2rem; margin-bottom: 0.4rem; }
-    .prism-empty-state .title { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.25rem; }
-    .prism-empty-state .message { font-size: 0.9rem; opacity: 0.85; }
-
-    /* Command palette suggestion chip */
-    .prism-palette-hit {
-        border-radius: var(--prism-radius-lg);
-        padding: 0.75rem 1rem;
-        margin-top: 0.5rem;
-    }
-
-    /* Narrow-viewport fix: Streamlit's column layout doesn't wrap on its own,
-       which causes a horizontal-scroll disaster on phone-width screens. */
-    @media (max-width: 680px) {
-        div[data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap !important;
-        }
-        div[data-testid="stHorizontalBlock"] > div {
-            min-width: 100% !important;
-        }
-        .hero-title-animated { font-size: 2.6rem !important; }
-    }
-"""
-
-CUSTOM_CSS_DARK = f"""
-<style>
-    .stApp {{
-        background: linear-gradient(180deg, #05070d 0%, #0a0e17 100%);
-        color: #e0f7fa;
-    }}
-    section[data-testid="stSidebar"] {{
-        background: #0d1220;
-        border-right: 1px solid #1c2942;
-    }}
-    h1, h2, h3 {{
-        color: #00e5ff !important;
-        text-shadow: 0 0 12px rgba(0, 229, 255, 0.25);
-    }}
-    .stTabs [data-baseweb="tab-list"] {{
-        gap: 4px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        background: #111827;
-        color: #9fb3c8;
-        padding: 8px 18px;
-    }}
-    .stTabs [aria-selected="true"] {{
-        background: #14243a;
-        color: #00e5ff !important;
-        border-bottom: 2px solid #00e5ff;
-        box-shadow: 0 0 16px rgba(0, 229, 255, 0.35);
-    }}
-    div[data-testid="stMetric"] {{
-        background: rgba(17, 24, 39, 0.55);
-        border: 1px solid rgba(0, 229, 255, 0.15);
-        border-radius: var(--prism-radius-lg);
-        padding: 12px 16px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    div[data-testid="stMetric"]:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 8px 28px rgba(0, 229, 255, 0.18);
-    }}
-    div[data-testid="stMetricValue"] {{
-        color: #00e5ff;
-    }}
-    .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
-        background: linear-gradient(90deg, #00b8d4, #00e5ff);
-        color: #05070d;
-        border: none;
-        font-weight: 600;
-    }}
-    .stButton > button:hover, .stDownloadButton > button:hover {{
-        box-shadow: 0 8px 24px rgba(0, 229, 255, 0.45);
-    }}
-    code {{
-        color: #7ef9ff;
-    }}
-    .insight-card {{
-        background: rgba(17, 24, 39, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-left: 3px solid #00e5ff;
-        border-radius: var(--prism-radius-lg);
-        padding: 14px 18px;
-        margin-bottom: 10px;
-        backdrop-filter: blur(12px) saturate(160%);
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    .insight-card:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 10px 30px rgba(0, 229, 255, 0.2);
-    }}
-    .insight-card .insight-number {{
-        color: #00e5ff;
-        font-weight: 700;
-        font-size: 0.8rem;
-        letter-spacing: 0.05em;
-        margin-bottom: 4px;
-    }}
-    .insight-card .insight-text {{
-        color: #e0f7fa;
-        font-size: 0.95rem;
-        line-height: 1.5;
-    }}
-    .glass-card {{
-        background: rgba(17, 24, 39, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-    }}
-    .glass-card.hoverable:hover {{
-        box-shadow: 0 12px 32px rgba(0, 229, 255, 0.22);
-    }}
-    .prism-sticky-header {{
-        background: rgba(13, 18, 32, 0.75);
-        border: 1px solid rgba(0, 229, 255, 0.15);
-        color: #e0f7fa;
-        backdrop-filter: blur(14px);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }}
-    .prism-sticky-header .chip {{
-        background: rgba(0, 229, 255, 0.1);
-        color: #00e5ff;
-        border: 1px solid rgba(0, 229, 255, 0.25);
-    }}
-    .prism-empty-state {{
-        background: rgba(17, 24, 39, 0.4);
-        border: 1px dashed rgba(0, 229, 255, 0.25);
-        color: #9fb3c8;
-    }}
-    .prism-empty-state .title {{ color: #00e5ff; }}
-    .prism-palette-hit {{
-        background: rgba(0, 229, 255, 0.08);
-        border: 1px solid rgba(0, 229, 255, 0.3);
-        color: #e0f7fa;
-    }}
-    {_SHARED_CSS}
-</style>
-"""
-
-CUSTOM_CSS_LIGHT = f"""
-<style>
-    .stApp {{
-        background: linear-gradient(180deg, #ffffff 0%, #eef2f7 100%);
-        color: #0a0e17;
-    }}
-    section[data-testid="stSidebar"] {{
-        background: #f4f6f9;
-        border-right: 1px solid #d6dee8;
-    }}
-    h1, h2, h3 {{
-        color: #007b94 !important;
-        text-shadow: none;
-    }}
-    .stTabs [data-baseweb="tab-list"] {{
-        gap: 4px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
-        background: #e6ecf3;
-        color: #45566e;
-        padding: 8px 18px;
-    }}
-    .stTabs [aria-selected="true"] {{
-        background: #ffffff;
-        color: #007b94 !important;
-        border-bottom: 2px solid #007b94;
-        box-shadow: 0 0 14px rgba(0, 123, 148, 0.25);
-    }}
-    div[data-testid="stMetric"] {{
-        background: rgba(255, 255, 255, 0.6);
-        border: 1px solid rgba(0, 123, 148, 0.18);
-        border-radius: var(--prism-radius-lg);
-        padding: 12px 16px;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    div[data-testid="stMetric"]:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 8px 22px rgba(0, 123, 148, 0.18);
-    }}
-    div[data-testid="stMetricValue"] {{
-        color: #007b94;
-    }}
-    .stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {{
-        background: linear-gradient(90deg, #007b94, #00a8c6);
-        color: #ffffff;
-        border: none;
-        font-weight: 600;
-    }}
-    .stButton > button:hover, .stDownloadButton > button:hover {{
-        box-shadow: 0 8px 20px rgba(0, 123, 148, 0.35);
-    }}
-    code {{
-        color: #007b94;
-    }}
-    .insight-card {{
-        background: rgba(255, 255, 255, 0.6);
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        border-left: 3px solid #007b94;
-        border-radius: var(--prism-radius-lg);
-        padding: 14px 18px;
-        margin-bottom: 10px;
-        backdrop-filter: blur(12px) saturate(160%);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }}
-    .insight-card:hover {{
-        transform: translateY(-3px);
-        box-shadow: 0 10px 26px rgba(0, 123, 148, 0.18);
-    }}
-    .insight-card .insight-number {{
-        color: #007b94;
-        font-weight: 700;
-        font-size: 0.8rem;
-        letter-spacing: 0.05em;
-        margin-bottom: 4px;
-    }}
-    .insight-card .insight-text {{
-        color: #0a0e17;
-        font-size: 0.95rem;
-        line-height: 1.5;
-    }}
-    .glass-card {{
-        background: rgba(255, 255, 255, 0.6);
-        border: 1px solid rgba(0, 0, 0, 0.06);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
-    }}
-    .glass-card.hoverable:hover {{
-        box-shadow: 0 12px 28px rgba(0, 123, 148, 0.18);
-    }}
-    .prism-sticky-header {{
-        background: rgba(255, 255, 255, 0.8);
-        border: 1px solid rgba(0, 123, 148, 0.18);
-        color: #0a0e17;
-        backdrop-filter: blur(14px);
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    }}
-    .prism-sticky-header .chip {{
-        background: rgba(0, 123, 148, 0.1);
-        color: #007b94;
-        border: 1px solid rgba(0, 123, 148, 0.25);
-    }}
-    .prism-empty-state {{
-        background: rgba(255, 255, 255, 0.5);
-        border: 1px dashed rgba(0, 123, 148, 0.3);
-        color: #45566e;
-    }}
-    .prism-empty-state .title {{ color: #007b94; }}
-    .prism-palette-hit {{
-        background: rgba(0, 123, 148, 0.08);
-        border: 1px solid rgba(0, 123, 148, 0.3);
-        color: #0a0e17;
-    }}
-    {_SHARED_CSS}
-</style>
-"""
+DEFAULT_THEME = "graphite"
 
 
-def apply_custom_theme(mode: str = "dark") -> None:
-    """Inject the CSS for the given mode ("dark" | "light"). Call once per
-    rerun, right after set_page_config, before any other UI is rendered.
+def theme_options() -> dict[str, str]:
+    """key -> display label, for the sidebar selectbox."""
+    return {key: t["label"] for key, t in THEMES.items()}
+
+
+def _tokens(theme_key: str) -> dict:
+    return THEMES.get(theme_key, THEMES[DEFAULT_THEME])
+
+
+# One template for every theme — dark and light are just different token
+# values flowing through the same rules, so they can never drift apart.
+_CSS_TEMPLATE = Template(
     """
-    st.markdown(CUSTOM_CSS_LIGHT if mode == "light" else CUSTOM_CSS_DARK, unsafe_allow_html=True)
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --prism-bg: $bg;
+    --prism-surface: $surface;
+    --prism-surface-hover: $surface_hover;
+    --prism-border: $border;
+    --prism-text: $text;
+    --prism-text-muted: $text_muted;
+    --prism-accent: $accent;
+    --prism-accent-rgb: $accent_rgb;
+    --prism-accent2: $accent2;
+    --prism-accent2-rgb: $accent2_rgb;
+    --prism-success: $success;
+    --prism-warning: $warning;
+    --prism-danger: $danger;
+    --prism-on-accent: $on_accent;
+    --prism-radius: 14px;
+    --prism-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes prismFadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes prismShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+@keyframes prismPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; }
+
+.stApp {
+    background: linear-gradient(180deg, $bg 0%, $bg_end 100%);
+    color: $text;
+}
+
+::selection { background: $accent; color: $on_accent; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba($accent_rgb, 0.35); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba($accent_rgb, 0.55); }
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+section[data-testid="stSidebar"] {
+    background: $surface;
+    border-right: 1px solid $border;
+}
+section[data-testid="stSidebar"] hr { border-color: $border; }
+
+/* ── Native Streamlit chrome ─────────────────────────────────────────
+   Streamlit's own widgets (header bar, captions, labels, file uploader)
+   read from its built-in dark theme regardless of our injected CSS
+   unless explicitly overridden here — otherwise a light theme like
+   Arctic inherits near-invisible light-on-light text and a stray dark
+   top bar. */
+header[data-testid="stHeader"] { background: $bg !important; }
+div[data-testid="stCaptionContainer"], .stCaption, small {
+    color: $text_muted !important;
+}
+label[data-testid="stWidgetLabel"] p { color: $text !important; }
+section[data-testid="stFileUploaderDropzone"] {
+    background: $surface !important;
+    border: 1px dashed $border !important;
+    border-radius: 10px !important;
+}
+section[data-testid="stFileUploaderDropzone"] span,
+section[data-testid="stFileUploaderDropzone"] small,
+section[data-testid="stFileUploaderDropzone"] div {
+    color: $text_muted !important;
+}
+section[data-testid="stFileUploaderDropzone"] button {
+    background: $surface_hover !important;
+    color: $text !important;
+    border: 1px solid $border !important;
+}
+
+/* ── Headings ────────────────────────────────────────────────────── */
+h1, h2, h3 { color: $text !important; font-weight: 700 !important; letter-spacing: -0.01em; }
+h4, h5, h6 { color: $text !important; font-weight: 600 !important; }
+
+/* ── Tabs ────────────────────────────────────────────────────────── */
+.stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid $border; }
+.stTabs [data-baseweb="tab"] {
+    background: transparent;
+    border-radius: 8px 8px 0 0;
+    color: $text_muted;
+    padding: 10px 20px;
+    font-weight: 500;
+    transition: color 0.2s $ease, background 0.2s $ease;
+}
+.stTabs [data-baseweb="tab"]:hover { color: $text; background: $surface_hover; }
+.stTabs [aria-selected="true"] {
+    background: $surface;
+    color: $accent !important;
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 $accent;
+}
+
+/* ── Metrics ─────────────────────────────────────────────────────── */
+div[data-testid="stMetric"] {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: var(--prism-radius);
+    padding: 14px 18px;
+    transition: transform 0.2s $ease, border-color 0.2s $ease, box-shadow 0.2s $ease;
+    animation: prismFadeInUp 0.4s $ease both;
+}
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    border-color: rgba($accent_rgb, 0.5);
+    box-shadow: 0 10px 28px -14px rgba($accent_rgb, 0.35);
+}
+div[data-testid="stMetricValue"] { color: $accent; font-weight: 700; }
+div[data-testid="stMetricLabel"] { color: $text_muted; }
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+    background: linear-gradient(90deg, $accent, $accent2);
+    color: $on_accent;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: transform 0.15s $ease, box-shadow 0.15s $ease, filter 0.15s $ease;
+}
+.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px -8px rgba($accent_rgb, 0.55);
+    filter: brightness(1.05);
+}
+.stButton > button:active, .stDownloadButton > button:active { transform: translateY(0) scale(0.98); }
+
+/* Secondary / non-primary buttons keep a quieter outline treatment */
+button[kind="secondary"] {
+    background: $surface !important;
+    color: $text !important;
+    border: 1px solid $border !important;
+}
+button[kind="secondary"]:hover { border-color: $accent !important; color: $accent !important; }
+
+/* ── Inputs, selects, textareas ─────────────────────────────────── */
+.stTextInput input, .stNumberInput input, .stTextArea textarea,
+.stSelectbox [data-baseweb="select"] > div, .stMultiSelect [data-baseweb="select"] > div {
+    background: $surface !important;
+    border: 1px solid $border !important;
+    border-radius: 8px !important;
+    color: $text !important;
+    transition: border-color 0.15s $ease, box-shadow 0.15s $ease;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color: $accent !important;
+    box-shadow: 0 0 0 3px rgba($accent_rgb, 0.18) !important;
+}
+textarea {
+    font-family: 'JetBrains Mono', 'Consolas', monospace !important;
+    font-size: 0.9rem !important;
+}
+/* Multiselect tag chips — BaseWeb otherwise pulls the config.toml primaryColor,
+   which doesn't track the active theme. */
+span[data-baseweb="tag"] { background: $accent !important; color: $on_accent !important; }
+
+/* ── Expanders ───────────────────────────────────────────────────── */
+.streamlit-expanderHeader, div[data-testid="stExpander"] summary {
+    background: $surface !important;
+    border: 1px solid $border !important;
+    border-radius: 10px !important;
+    color: $text !important;
+    font-weight: 500;
+    transition: border-color 0.2s $ease;
+}
+div[data-testid="stExpander"] summary:hover { border-color: rgba($accent_rgb, 0.5) !important; }
+
+/* ── Dataframes / tables ─────────────────────────────────────────── */
+div[data-testid="stDataFrame"], div[data-testid="stTable"] {
+    border: 1px solid $border;
+    border-radius: var(--prism-radius);
+    overflow: hidden;
+}
+
+/* ── Alerts ──────────────────────────────────────────────────────── */
+.stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
+
+code { color: $accent; }
+
+/* ── Prism component classes (used from ui.py's injected HTML) ─────── */
+.prism-card {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: var(--prism-radius);
+    padding: 1.25rem 1.25rem;
+    height: 100%;
+    transition: transform 0.2s $ease, border-color 0.2s $ease, box-shadow 0.2s $ease;
+    animation: prismFadeInUp 0.45s $ease both;
+}
+.prism-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba($accent_rgb, 0.55);
+    box-shadow: 0 16px 36px -16px rgba($accent_rgb, 0.35);
+}
+.prism-card-icon {
+    width: 22px; height: 22px;
+    color: $accent;
+    margin-bottom: 0.65rem;
+}
+.prism-card-title { color: $text; font-weight: 700; font-size: 1.02rem; margin-bottom: 0.4rem; }
+.prism-card-desc { color: $text_muted; font-size: 0.86rem; line-height: 1.5; }
+
+.prism-badge {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 0.28rem 0.65rem; border-radius: 999px;
+    background: rgba($accent_rgb, 0.12); color: $accent;
+}
+.prism-badge.ai { background: rgba($accent2_rgb, 0.14); color: $accent2; }
+
+.prism-hero-title {
+    font-weight: 800; font-size: 3.6rem; letter-spacing: -0.02em; line-height: 1;
+    background: linear-gradient(90deg, $accent, $accent2, $accent);
+    background-size: 200% auto;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    animation: prismShimmer 7s linear infinite;
+}
+
+.prism-live-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: $success; box-shadow: 0 0 8px $success;
+    animation: prismPulse 2.2s ease-in-out infinite;
+}
+
+.insight-card {
+    background: $surface;
+    border: 1px solid $border;
+    border-left: 3px solid $accent2;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    transition: border-color 0.2s $ease, transform 0.2s $ease;
+    animation: prismFadeInUp 0.35s $ease both;
+}
+.insight-card:hover { transform: translateX(2px); border-left-color: $accent; }
+.insight-card .insight-number {
+    color: $accent2; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.05em; margin-bottom: 4px;
+}
+.insight-card .insight-text { color: $text; font-size: 0.95rem; line-height: 1.55; }
+
+.prism-footer {
+    text-align: center; padding: 2rem 0 1rem 0; margin-top: 2rem;
+    border-top: 1px solid $border; color: $text_muted; font-size: 0.85rem;
+}
+.prism-footer a { color: $accent; text-decoration: none; }
+.prism-footer a:hover { text-decoration: underline; }
+
+/* Ported from the pre-Atlas v2/v3 UI overhaul: classes app.py and
+   modules/ui.py still reference (hero title shimmer, empty states, sticky
+   header, command palette, glass cards) that this token-driven redesign
+   doesn't define on its own. This system has no spacing/radius scale, so
+   those values are hardcoded rather than tokenized. */
+.hero-title-animated {
+    background: linear-gradient(90deg, var(--prism-accent2), var(--prism-accent), var(--prism-accent2));
+    background-size: 300% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: prism-hero-shift 7s ease infinite;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+@keyframes prism-hero-shift { to { background-position: 300% center; } }
+h1, h2, h3, h4, .prism-heading {
+    font-family: 'Space Grotesk', 'Segoe UI', Arial, sans-serif !important;
+    letter-spacing: 0.01em;
+}
+.glass-card {
+    border-radius: 20px;
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.glass-card.hoverable:hover { transform: translateY(-4px); }
+.prism-empty-state {
+    text-align: center;
+    border-radius: 20px;
+    padding: 1.5rem 1rem;
+    margin: 0.5rem 0;
+    background: var(--prism-surface);
+    border: 1px solid var(--prism-border);
+}
+.prism-empty-state .icon { font-size: 2.2rem; margin-bottom: 0.4rem; }
+.prism-empty-state .title { font-weight: 700; font-size: 1.05rem; margin-bottom: 0.25rem; color: var(--prism-text); }
+.prism-empty-state .message { font-size: 0.9rem; opacity: 0.85; color: var(--prism-text-muted); }
+.prism-sticky-header {
+    position: sticky; top: 0; z-index: 999;
+    border-radius: 16px;
+    padding: 0.6rem 1.1rem;
+    margin-bottom: 0.5rem;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    background: var(--prism-surface);
+    border: 1px solid var(--prism-border);
+}
+.prism-sticky-header .chip {
+    font-size: 0.82rem; font-weight: 600;
+    padding: 0.15rem 0.6rem; border-radius: 999px;
+    background: var(--prism-surface-hover); color: var(--prism-text-muted);
+}
+.prism-palette-hit {
+    border-radius: 16px;
+    padding: 0.75rem 1rem;
+    margin-top: 0.5rem;
+    background: var(--prism-surface-hover);
+    border: 1px solid var(--prism-border);
+}
+.prism-shimmer {
+    border-radius: 16px;
+    background-image: linear-gradient(90deg, rgba(255,255,255,0.04) 0px,
+        rgba(255,255,255,0.12) 40px, rgba(255,255,255,0.04) 80px);
+    background-size: 400px 100%;
+    animation: prism-shimmer-sweep 1.4s ease-in-out infinite;
+}
+@keyframes prism-shimmer-sweep { to { background-position: -400px 0; } }
+</style>
+"""
+)
 
 
-def _build_template(paper_bg, plot_bg, font_color, title_color, grid_color, zero_color, line_color,
-                     tick_color, legend_font, hover_bg, hover_font, colorway) -> go.layout.Template:
-    axis_style = dict(gridcolor=grid_color, zerolinecolor=zero_color, linecolor=line_color,
-                       tickfont=dict(color=tick_color))
+def apply_custom_theme(theme_key: str = DEFAULT_THEME) -> None:
+    """Inject the CSS for the given theme key. Call once per rerun, right
+    after set_page_config, before any other UI is rendered.
+    """
+    st.markdown(_CSS_TEMPLATE.substitute(_tokens(theme_key), ease="var(--prism-ease)"), unsafe_allow_html=True)
+
+
+def _build_template(tokens: dict) -> go.layout.Template:
+    is_light = tokens["mode"] == "light"
+    grid = tokens["border"]
+    axis_style = dict(
+        gridcolor=grid,
+        zerolinecolor=tokens["border"],
+        linecolor=tokens["border"],
+        tickfont=dict(color=tokens["text_muted"]),
+    )
     return go.layout.Template(
         layout=go.Layout(
-            paper_bgcolor=paper_bg,
-            plot_bgcolor=plot_bg,
-            font=dict(color=font_color, family="Inter, Segoe UI, Arial, sans-serif", size=13),
-            title=dict(font=dict(color=title_color, size=19, family="Space Grotesk, Segoe UI, Arial, sans-serif")),
-            colorway=colorway,
+            paper_bgcolor=tokens["surface"] if is_light else tokens["bg"],
+            plot_bgcolor=tokens["surface"] if is_light else tokens["surface"],
+            font=dict(color=tokens["text"], family="Inter, Segoe UI, Arial, sans-serif", size=13),
+            title=dict(font=dict(color=tokens["text"], size=18)),
+            colorway=tokens["chart_colorway"],
             xaxis=axis_style,
             yaxis=axis_style,
-            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=legend_font)),
-            hoverlabel=dict(bgcolor=hover_bg, font=dict(color=hover_font)),
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=tokens["text"])),
+            hoverlabel=dict(bgcolor=tokens["surface_hover"], font=dict(color=tokens["text"])),
         )
     )
 
 
-# Cyan / magenta / amber palette (plus supporting hues) — transparent
-# backgrounds so every chart sits directly on Prism's glass/gradient
-# surfaces instead of a boxed-in plot area.
-_CHART_COLORWAY = ["#00e5ff", "#ff36ab", "#ffab40", "#7c4dff", "#69f0ae", "#40c4ff", "#f06292", "#b388ff"]
-
-
-def apply_plotly_theme(mode: str = "dark") -> None:
-    """Register the dark and light Plotly templates (once) and activate the
-    requested one as the process-wide default.
+def apply_plotly_theme(theme_key: str = DEFAULT_THEME) -> None:
+    """Register this theme's Plotly template (once, cached by key) and
+    activate it as the process-wide default.
 
     Every chart built with plotly.express — whether from visualization.py, the
     HTML report, or code the AI Analyst generates — picks this up automatically
     without each call site repeating the same layout overrides.
     """
-    if DARK_TEMPLATE_NAME not in pio.templates:
-        pio.templates[DARK_TEMPLATE_NAME] = _build_template(
-            paper_bg="rgba(0,0,0,0)", plot_bg="rgba(0,0,0,0)", font_color="#e0f7fa", title_color="#00e5ff",
-            grid_color="rgba(159,179,200,0.15)", zero_color="rgba(159,179,200,0.25)",
-            line_color="rgba(159,179,200,0.25)", tick_color="#9fb3c8",
-            legend_font="#e0f7fa", hover_bg="#111827", hover_font="#e0f7fa",
-            colorway=_CHART_COLORWAY,
-        )
-    if LIGHT_TEMPLATE_NAME not in pio.templates:
-        pio.templates[LIGHT_TEMPLATE_NAME] = _build_template(
-            paper_bg="rgba(0,0,0,0)", plot_bg="rgba(0,0,0,0)", font_color="#0a0e17", title_color="#007b94",
-            grid_color="rgba(69,86,110,0.15)", zero_color="rgba(69,86,110,0.25)",
-            line_color="rgba(69,86,110,0.25)", tick_color="#45566e",
-            legend_font="#0a0e17", hover_bg="#ffffff", hover_font="#0a0e17",
-            colorway=["#007b94", "#d81b60", "#f57c00", "#7c4dff", "#00897b", "#3949ab", "#c2185b", "#5e35b1"],
-        )
-    pio.templates.default = LIGHT_TEMPLATE_NAME if mode == "light" else DARK_TEMPLATE_NAME
+    name = f"prism_{theme_key}"
+    if name not in pio.templates:
+        pio.templates[name] = _build_template(_tokens(theme_key))
+    pio.templates.default = name

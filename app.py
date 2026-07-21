@@ -12,6 +12,8 @@ Run with:  streamlit run app.py
 Developed by Prathmesh Katkade.
 """
 
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -19,6 +21,7 @@ import streamlit as st
 from modules import (
     ai_analyst,
     anomaly,
+    atlas,
     auto_analyst,
     cleaning,
     clustering,
@@ -80,7 +83,7 @@ _DEFAULTS = {
     "combine_stats": None,  # stats dict for the last previewed join
     "last_voice_text": None,  # dedupes repeated speech_to_text() return values across reruns
     "pending_voice_question": None,  # a transcribed question waiting to be fed into the chat pipeline
-    "theme_mode": "dark",  # "dark" | "light" — sidebar toggle, default dark cyan
+    "theme_mode": theme.DEFAULT_THEME,  # one of theme.THEMES — sidebar selector
     "onboarding_dismissed": False,  # first-visit step-by-step intro, dismissible once per session
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
@@ -101,14 +104,22 @@ _DEFAULTS = {
     "recipe_apply_log": [],  # last "Apply Recipe" per-step applied/skipped log
     "pii_findings": {},  # PII Detector's scan of the active dataset — {"email"/"phone"/"name": [...]}
     "jump_to_tab": None,  # tab label to auto-select via JS once, right after tabs render
-    "story_mode_active": False,  # whether the Auto Analyst tab is showing the Story Mode stepper
-    "story_steps": [],  # last-built Story Mode steps (headline/narrative/chart)
-    "story_step_index": 0,  # current position in story_steps
     "hellmode_date_result": None,  # last "Standardize Dates" preview {"column","parsed","failed","day_first"}
     "hellmode_impute_recs": {},  # last "AI Recommend" imputation strategy suggestions
     "hellmode_impute_recs_error": None,  # error from the last AI-recommend-imputation attempt, if any
     "mllab_result": None,  # last "Run Baseline Models" result dict
     "mllab_error": None,  # error from the last baseline model run, if any
+    "active_section": "Overview",  # which nav pill is selected — replaces st.tabs() so
+                                    # Atlas's "navigate" voice command can actually switch it
+    "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
+    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
+    "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
+    "atlas_greeted": False,  # plays the on-load greeting exactly once per session
+    "story_mode_active": False,  # True while the Story Mode overlay is showing (Atlas-narrated)
+    "story_slide_index": 0,
+    "story_paused": False,
+    "demo_mode_running": False,  # True while hands-free Demo Mode is executing
+    "demo_done": False,  # True once the scripted Demo Mode walkthrough has finished narrating
 }
 for key, default_value in _DEFAULTS.items():
     if key not in st.session_state:
@@ -210,13 +221,218 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
 
 
 # --------------------------------------------------------------------------
+# Atlas command registry — the concrete Prism actions the intent router can
+# execute. Registered once (idempotently, on every rerun) so atlas.dispatch()
+# can look them up by action name after classify_intent() routes an
+# utterance here. Every function takes a single `target` argument (may be
+# None) and returns nothing — side effects land in st.session_state, same
+# as every other mutation in this file.
+# --------------------------------------------------------------------------
+_NAV_ALIASES = {t.lower(): t for t in atlas.TAB_NAMES}
+_SAMPLE_ALIASES = {name.lower(): name for name in ui.SAMPLE_DATASETS}
+
+
+def _cmd_load_sample(target) -> None:
+    if st.session_state.working_df is not None:
+        atlas.say_only("You've already got a dataset loaded — say \"reset\" in the sidebar first if you want to swap it.")
+        return
+    label = _SAMPLE_ALIASES.get(str(target).strip().lower()) if target else None
+    label = label or "Sales"
+    sample_df = ui.load_sample_dataframe(label)
+    set_active_dataset(sample_df, sample_df.copy(), f"sample:{label.lower()}.csv")
+    announce_ambient_insights(
+        sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+    )
+
+
+def _cmd_navigate(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    if not target:
+        atlas.say_only("Which section — Overview, Clean, Combine, Visualize, SQL Lab, or AI Analyst?")
+        return
+    section = _NAV_ALIASES.get(str(target).strip().lower())
+    if not section:
+        atlas.say_only(f"I don't have a '{target}' section.")
+        return
+    st.session_state.active_section = section
+    st.session_state.story_mode_active = False
+
+
+def _cmd_clean_nulls(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    if not atlas.guarded("clean_nulls", target, "This fills or drops missing values across the whole dataset."):
+        return
+    working = st.session_state.working_df
+    null_cols = [c for c in working.columns if working[c].isna().sum() > 0]
+    if not null_cols:
+        atlas.say_only("No missing values to clean — the dataset's already complete.")
+        return
+    push_undo_snapshot()
+    new_df = working
+    for col in null_cols:
+        strategy = "fill_median" if st.session_state.column_types.get(col) == "numeric" else "fill_mode"
+        new_df = cleaning.handle_nulls(new_df, col, strategy)
+        log_step(f"Atlas: applied '{strategy}' to column '{col}'", cleaning.nulls_code(col, strategy))
+    st.session_state.working_df = new_df
+    st.session_state.column_types = data_engine.detect_column_types(new_df)
+    atlas.say_only(f"Done — cleaned {len(null_cols)} column(s) with missing values.")
+
+
+def _cmd_run_auto_analysis(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    model = ai_analyst.get_model()
+    if model is None:
+        atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+        return
+    df_, column_types_ = st.session_state.working_df, st.session_state.column_types
+    quality = data_engine.get_data_quality_report(df_, column_types_)
+    _, top_corr = visualization.plot_correlation_heatmap(df_)
+    insights, err = ai_analyst.generate_key_insights(model, df_, quality, column_types_, top_corr)
+    st.session_state.key_insights = insights
+    st.session_state.key_insights_error = err
+    st.session_state.active_section = "AI Analyst"
+    if err:
+        atlas.say_only(f"Analysis hit a snag: {err}")
+    else:
+        atlas.say_only(f"Done — {len(insights)} key findings are up in the AI Analyst tab.")
+
+
+def _cmd_generate_report(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    st.session_state.active_section = "Visualize"
+    atlas.say_only("Your report's ready to download from the Visualize tab's Export Report section.")
+
+
+def _cmd_build_dashboard(target) -> None:
+    _cmd_navigate("Visualize")
+    if st.session_state.working_df is not None:
+        atlas.say_only("Here's your auto-generated dashboard.")
+
+
+def _cmd_run_recipe(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    recipe = (target or "standard cleanup").strip().lower()
+    if recipe not in ("standard cleanup", "standard", "cleanup", "hell mode", "hell mode cleaning"):
+        atlas.say_only("I only know the 'standard cleanup' recipe so far.")
+        return
+    if not atlas.guarded(
+        "run_recipe", target,
+        "This runs the standard cleanup recipe: fill missing values, drop duplicate rows, and drop empty columns.",
+    ):
+        return
+    push_undo_snapshot()
+    df_ = st.session_state.working_df
+    null_cols = [c for c in df_.columns if df_[c].isna().sum() > 0]
+    for col in null_cols:
+        strategy = "fill_median" if st.session_state.column_types.get(col) == "numeric" else "fill_mode"
+        df_ = cleaning.handle_nulls(df_, col, strategy)
+    df_, removed = cleaning.remove_duplicates(df_)
+    all_null_cols = [c for c, t in data_engine.detect_column_types(df_).items() if t == "all_null"]
+    if all_null_cols:
+        df_ = cleaning.drop_columns(df_, all_null_cols)
+    st.session_state.working_df = df_
+    st.session_state.column_types = data_engine.detect_column_types(df_)
+    log_step("Atlas: ran the 'standard cleanup' recipe", "# standard cleanup recipe")
+    atlas.say_only(f"Recipe complete — {len(null_cols)} column(s) cleaned, {removed} duplicate row(s) removed.")
+
+
+def _cmd_start_story_mode(target) -> None:
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    st.session_state.story_mode_active = True
+    st.session_state.story_slide_index = 0
+
+
+def _cmd_demo_mode(target) -> None:
+    st.session_state.demo_mode_running = True
+    st.session_state.demo_done = False
+    st.session_state.story_mode_active = False
+
+
+def _cmd_next(target) -> None:
+    if st.session_state.story_mode_active:
+        story_mode.advance_slide(1)
+    else:
+        atlas.say_only("There's no story in progress.")
+
+
+def _cmd_previous(target) -> None:
+    if st.session_state.story_mode_active:
+        story_mode.advance_slide(-1)
+    else:
+        atlas.say_only("There's no story in progress.")
+
+
+def announce_ambient_insights(df, quality: dict) -> None:
+    """Item 5 (ambient insights) — after ANY fresh dataset load, Atlas
+    proactively summarizes row/column count, the two most important quality
+    findings, and one suggested next action, ending with a question. A
+    "yes"/"do it" reply then routes through the normal intent router as a
+    'confirm' for whichever guarded command that question implies.
+    """
+    findings = []
+    if quality["total_missing_pct"] > 0:
+        findings.append(f"{quality['total_missing_pct']}% of cells missing")
+    if quality["duplicate_rows"] > 0:
+        findings.append(f"{quality['duplicate_rows']} duplicate row(s)")
+    if quality["all_null_columns"]:
+        findings.append(f"{len(quality['all_null_columns'])} fully empty column(s)")
+
+    if findings:
+        summary = (
+            f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns. "
+            f"I'm seeing {' and '.join(findings[:2])}. Shall I clean these?"
+        )
+    else:
+        summary = (
+            f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns — "
+            "looking clean already. Want me to run auto-analysis?"
+        )
+    atlas.say_only(summary)
+
+
+for _action, _fn in {
+    "navigate": _cmd_navigate,
+    "load_sample": _cmd_load_sample,
+    "clean_nulls": _cmd_clean_nulls,
+    "run_auto_analysis": _cmd_run_auto_analysis,
+    "generate_report": _cmd_generate_report,
+    "build_dashboard": _cmd_build_dashboard,
+    "run_recipe": _cmd_run_recipe,
+    "start_story_mode": _cmd_start_story_mode,
+    "demo_mode": _cmd_demo_mode,
+    "next": _cmd_next,
+    "previous": _cmd_previous,
+}.items():
+    atlas.register_command(_action, _fn)
+
+
+# --------------------------------------------------------------------------
 # Sidebar — upload, theme toggle, cleaning controls + history, per the
 # spec's UI layout. Rendered on every page, including the landing screen.
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown('<span class="hero-title-animated" style="font-size:1.8rem;">PRISM</span>', unsafe_allow_html=True)
     st.caption("Auto-EDA · AI Analyst")
-    st.radio("🎨 Theme", ["dark", "light"], key="theme_mode", format_func=str.capitalize, horizontal=True)
+    theme_keys = list(theme.THEMES.keys())
+    st.selectbox(
+        "Theme",
+        theme_keys,
+        key="theme_mode",
+        format_func=lambda k: theme.THEMES[k]["label"],
+    )
+    st.toggle("Atlas voice", key="atlas_voice_enabled", help="Mute/unmute all spoken replies.")
 
     st.markdown("### 📁 Upload")
     uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
@@ -234,6 +450,9 @@ with st.sidebar:
                 for w in load_warnings:
                     st.warning(w)
                 st.success(f"Loaded {new_df.shape[0]:,} rows x {new_df.shape[1]} columns")
+                announce_ambient_insights(
+                    new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
+                )
 
     working_df = st.session_state.working_df
 
@@ -470,6 +689,100 @@ with st.sidebar:
 
 
 # --------------------------------------------------------------------------
+# Atlas — persistent voice/typed command bar + orb, present on every screen
+# (landing included, so "load sample data" works before any dataset exists).
+# Every utterance (voice or typed) goes through the same
+# atlas.handle_utterance() -> classify_intent() router; APP_COMMAND and
+# CHITCHAT are fully handled inside atlas.py via the command registry above,
+# DATA_QUESTION is handed back here so it can run through the existing,
+# already-tested ai_analyst.ask_and_execute() pipeline — the same one typed
+# questions used before Atlas existed, now shared by both input paths so
+# follow-ups ("now by month") work identically regardless of how the
+# previous turn arrived.
+#
+# Processing is deliberately NOT done here, immediately after capture — see
+# _process_atlas_utterance() below and its two call sites. Streamlit drops a
+# keyed widget's persisted session_state value if that widget isn't
+# instantiated during a script run; calling st.rerun() here, before
+# st.segmented_control("Navigate", ..., key="active_section") ever runs on
+# the tabbed page, would skip that widget for this pass and silently reset
+# the active section back to "Overview" on the next one. Confirmed by
+# isolated repro before landing on this structure — not a hypothetical.
+# --------------------------------------------------------------------------
+atlas.render_pending_confirmation_ui()
+atlas.render_orb()
+
+if not st.session_state.atlas_greeted and st.session_state.working_df is None:
+    st.session_state.atlas_greeted = True
+    atlas.say_only('Systems online. Upload a dataset or say "load sample data" to begin.')
+
+_atlas_utterance = None
+with st.container(key="atlas_command_bar"):
+    mic_col, hint_col = st.columns([1, 4])
+    with mic_col:
+        if voice_input.is_available():
+            voice_text = voice_input.record_question(key="atlas_global_mic")
+            if voice_text and voice_text != st.session_state.last_voice_text:
+                st.session_state.last_voice_text = voice_text
+                atlas.set_state("listening")
+                _atlas_utterance = voice_text
+        else:
+            st.caption("Voice input unavailable — mic permission denied or package missing. Type a command below.")
+    with hint_col:
+        if st.session_state.get("atlas_last_heard"):
+            st.caption(f'Atlas heard: "{st.session_state.atlas_last_heard}"')
+
+typed_command = st.chat_input('Ask Atlas anything, or type a command — e.g. "clean the nulls"')
+if typed_command:
+    _atlas_utterance = typed_command
+
+
+def _process_atlas_utterance(utterance: Optional[str]) -> None:
+    """Route `utterance` through the intent router and always end in
+    st.rerun(). Call this only from a point where every keyed widget for
+    this page has already been instantiated this run — see the module-level
+    comment above for why.
+    """
+    if not utterance:
+        return
+    st.session_state.atlas_last_heard = utterance
+    intent = atlas.handle_utterance(utterance)
+
+    if intent["type"] == "DATA_QUESTION":
+        if st.session_state.working_df is None:
+            atlas.say_only("Upload data first and I'll get to work.")
+        else:
+            data_model = ai_analyst.get_model()
+            if data_model is None:
+                atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+            else:
+                question = intent.get("question") or utterance
+                with st.spinner("Thinking..."):
+                    outcome = ai_analyst.ask_and_execute(
+                        data_model, st.session_state.working_df, st.session_state.column_types,
+                        question, st.session_state.chat_history[:-1],
+                    )
+                chart_fig = None
+                if not outcome["ask_error"] and not outcome["error"] and ai_analyst.question_implies_chart(question):
+                    chart_fig = ai_analyst.build_chart_from_result(outcome["result"], question)
+                st.session_state.chat_history.append(
+                    {
+                        "role": "assistant", "question": question, "code": outcome["code"],
+                        "result": outcome["result"], "error": outcome["error"], "ask_error": outcome["ask_error"],
+                        "retried": outcome.get("retried", False), "original_error": outcome.get("original_error"),
+                        "chart_fig": chart_fig,
+                    }
+                )
+                atlas.set_state("speaking")
+                if outcome.get("ask_error") or outcome.get("error"):
+                    atlas.speak(outcome.get("ask_error") or outcome.get("error"))
+                else:
+                    atlas.speak("Here's what I found — check the AI Analyst tab.")
+        st.session_state.active_section = "AI Analyst"
+    st.rerun()
+
+
+# --------------------------------------------------------------------------
 # Main area
 # --------------------------------------------------------------------------
 st.title("Prism")
@@ -493,6 +806,9 @@ if st.session_state.working_df is None:
         if palette_matched_tab:
             st.session_state.jump_to_tab = palette_matched_tab
         st.toast(f"Loaded the {chosen_sample} sample dataset. 🎉")
+        announce_ambient_insights(
+            sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+        )
         st.rerun()
 
     st.divider()
@@ -510,6 +826,10 @@ if st.session_state.working_df is None:
             st.rerun()
 
     ui.render_footer()
+    # Safe to process here: the landing page has no keyed nav widget for an
+    # early st.rerun() to skip (see the long comment above the Atlas command
+    # bar). Once a dataset loads, this branch is never reached again.
+    _process_atlas_utterance(_atlas_utterance)
     st.stop()
 
 # ---------------------------------------------------------------------------
@@ -520,6 +840,31 @@ ui.render_onboarding()
 df = st.session_state.working_df
 column_types = st.session_state.column_types
 
+_TAB_ICONS = {
+    "Overview": "📊", "Clean": "🧹", "Hell Mode": "🔥", "Combine": "🔗", "Visualize": "📈", "SQL Lab": "🗄️",
+    "AI Analyst": "💬", "Auto Analyst": "🤖", "Stats Lab": "🧪", "Forecasting": "🔮", "Clustering": "🧩",
+    "Domain Lens": "🔬", "ML Lab": "🧬",
+}
+
+has_datetime_col = "datetime" in column_types.values()
+
+_nav_options = [
+    "Overview", "Clean", "Hell Mode", "Combine", "Visualize", "SQL Lab", "AI Analyst", "Auto Analyst", "Stats Lab",
+]
+if has_datetime_col:
+    _nav_options.append("Forecasting")
+_nav_options.append("Clustering")
+_nav_options.append("Domain Lens")
+_nav_options.append("ML Lab")
+
+if st.session_state.active_section not in _nav_options:
+    st.session_state.active_section = "Overview"
+
+if st.session_state.jump_to_tab:
+    if st.session_state.jump_to_tab in _nav_options:
+        st.session_state.active_section = st.session_state.jump_to_tab
+    st.session_state.jump_to_tab = None
+
 quality_for_header = data_engine.get_data_quality_report(df, column_types)
 ui.render_sticky_header(
     st.session_state.last_file_name or "Untitled dataset",
@@ -528,47 +873,37 @@ ui.render_sticky_header(
     data_engine.get_health_score(quality_for_header),
 )
 
-has_datetime_col = "datetime" in column_types.values()
+if st.session_state.demo_mode_running:
+    story_mode.render_demo_mode(set_active_dataset)
+elif st.session_state.story_mode_active:
+    story_mode.render_story_mode()
+else:
+    # A controllable nav — not st.tabs(), which has no API to switch the
+    # active tab from Python. Bound to session_state so Atlas's "navigate"
+    # command (_cmd_navigate, above) can actually change it: set
+    # st.session_state.active_section then st.rerun(), and this widget
+    # picks the new value up on the next render. Using elif below (instead
+    # of tabs' render-everything-then-hide-with-CSS model) also means only
+    # the active section's code runs each rerun, not all thirteen. Also
+    # replaces the old ui.render_tab_jump_script() JS hack — this widget is
+    # a real Python-side control, so "jump to this tab" is just an
+    # assignment to st.session_state.active_section, above.
+    st.segmented_control(
+        "Navigate", _nav_options, key="active_section",
+        format_func=lambda name: f"{_TAB_ICONS.get(name, '')} {name}".strip(),
+    )
 
-_tab_names = [
-    "Overview", "Clean", "Hell Mode", "Combine", "Visualize", "SQL Lab", "AI Analyst", "Auto Analyst", "Stats Lab",
-]
-if has_datetime_col:
-    _tab_names.append("Forecasting")
-_tab_names.append("Clustering")
-_tab_names.append("Domain Lens")
-_tab_names.append("ML Lab")
-
-_TAB_ICONS = {
-    "Overview": "📊", "Clean": "🧹", "Hell Mode": "🔥", "Combine": "🔗", "Visualize": "📈", "SQL Lab": "🗄️",
-    "AI Analyst": "💬", "Auto Analyst": "🤖", "Stats Lab": "🧪", "Forecasting": "🔮", "Clustering": "🧩",
-    "Domain Lens": "🔬", "ML Lab": "🧬",
-}
-_tab_display_labels = [f"{_TAB_ICONS.get(name, '')} {name}".strip() for name in _tab_names]
-
-_tabs = dict(zip(_tab_names, st.tabs(_tab_display_labels)))
-
-if st.session_state.jump_to_tab:
-    ui.render_tab_jump_script(st.session_state.jump_to_tab)
-    st.session_state.jump_to_tab = None
-tab_overview = _tabs["Overview"]
-tab_clean = _tabs["Clean"]
-tab_hellmode = _tabs["Hell Mode"]
-tab_combine = _tabs["Combine"]
-tab_visualize = _tabs["Visualize"]
-tab_sql = _tabs["SQL Lab"]
-tab_ai = _tabs["AI Analyst"]
-tab_auto = _tabs["Auto Analyst"]
-tab_stats = _tabs["Stats Lab"]
-tab_forecast = _tabs.get("Forecasting")  # None when the dataset has no datetime column
-tab_cluster = _tabs["Clustering"]
-tab_domain = _tabs["Domain Lens"]
-tab_mllab = _tabs["ML Lab"]
+# Every keyed widget for whichever branch above just ran (segmented_control,
+# or Story/Demo Mode's own internal buttons) has now been instantiated this
+# pass, so it's finally safe to let an utterance's handling call st.rerun().
+_process_atlas_utterance(_atlas_utterance)
 
 # --------------------------------------------------------------------------
 # Overview tab — data quality report, column health, drill-down, anomalies
 # --------------------------------------------------------------------------
-with tab_overview:
+if st.session_state.demo_mode_running or st.session_state.story_mode_active:
+    pass
+elif st.session_state.active_section == "Overview":
     ui.render_help_expander(
         "A full data-quality audit: missing values, outliers, column types, and summary "
         "stats — plus per-column health, a drill-down, and anomaly detection below."
@@ -733,7 +1068,7 @@ with tab_overview:
 # Clean tab — before/after comparison + cleaned dataset download
 # (the actual cleaning controls live in the sidebar, per the spec's layout)
 # --------------------------------------------------------------------------
-with tab_clean:
+elif st.session_state.active_section == "Clean":
     ui.render_help_expander(
         "Review exactly what changed since upload. Cleaning actions themselves live in the "
         "sidebar's Cleaning Controls, Datetime Features, and Type Coercion tools."
@@ -787,7 +1122,7 @@ with tab_clean:
 # synonyms, Indian-formatted numbers, mixed date formats, fuzzy category
 # cleanup, mixed measurement units, and richer imputation strategies.
 # --------------------------------------------------------------------------
-with tab_hellmode:
+elif st.session_state.active_section == "Hell Mode":
     ui.render_help_expander(
         "A deeper cleaning engine for real-world-messy data: disguised nulls, Indian-formatted "
         "numbers (₹/lakh/crore), mixed date formats, fuzzy-duplicate categories, mixed units, and "
@@ -1069,7 +1404,7 @@ with tab_hellmode:
 # AI Analyst) to operate on the joined data, since they all just read
 # st.session_state.working_df.
 # --------------------------------------------------------------------------
-with tab_combine:
+elif st.session_state.active_section == "Combine":
     ui.render_help_expander(
         "Upload a second file and join it onto your active dataset by a detected or "
         "manually chosen key."
@@ -1258,7 +1593,7 @@ with tab_combine:
 # --------------------------------------------------------------------------
 # Visualize tab — smart auto-charts, correlation heatmap, HTML export
 # --------------------------------------------------------------------------
-with tab_visualize:
+elif st.session_state.active_section == "Visualize":
     ui.render_help_expander(
         "Auto-picked charts per column type, a correlation heatmap, and a manual chart "
         "builder for full control."
@@ -1445,7 +1780,7 @@ with tab_visualize:
 # as table "data"), with clickable example queries and an optional
 # AI-generated plain-English explanation of whatever query is in the editor.
 # --------------------------------------------------------------------------
-with tab_sql:
+elif st.session_state.active_section == "SQL Lab":
     ui.render_help_expander(
         "Run raw SQL against your active dataset via DuckDB — registered as a table named `data`."
     )
@@ -1523,7 +1858,7 @@ with tab_sql:
 # Backed by Google Gemini (gemini-2.5-flash). Key comes from a .env file
 # (GEMINI_API_KEY) via python-dotenv — see README for setup.
 # --------------------------------------------------------------------------
-with tab_ai:
+elif st.session_state.active_section == "AI Analyst":
     ui.render_help_expander(
         "Ask questions about your data in plain English — by typing or by voice — and get "
         "pandas-powered answers."
@@ -1559,70 +1894,27 @@ with tab_ai:
         st.divider()
         st.markdown("**Ask a question about your data**")
         st.caption(
-            "Every question sends Gemini the column schema, a 5-row sample, and summary "
-            "statistics — never the full dataset."
+            "Ask Atlas anything from the command bar at the top — by voice or by typing — and it "
+            "lands here. Every question sends Gemini the column schema, a 5-row sample, and "
+            "summary statistics; never the full dataset."
         )
-
-        voice_col, _ = st.columns([1, 3])
-        with voice_col:
-            if voice_input.is_available():
-                voice_text = voice_input.record_question()
-                if voice_text and voice_text != st.session_state.last_voice_text:
-                    st.session_state.last_voice_text = voice_text
-                    st.session_state.pending_voice_question = voice_text
-            else:
-                st.caption(
-                    "Voice input unavailable — install `streamlit-mic-recorder` to enable it, "
-                    "or type your question below."
-                )
-
-        typed_question = st.chat_input("e.g. What's the average value of column X by category Y?")
-
-        final_question = None
-        if st.session_state.pending_voice_question:
-            final_question = st.session_state.pending_voice_question
-            st.session_state.pending_voice_question = None
-        if typed_question:
-            final_question = typed_question
-
-        if final_question:
-            st.session_state.chat_history.append({"role": "user", "content": final_question})
-            with st.spinner(ui.get_loading_message()):
-                outcome = ai_analyst.ask_and_execute(
-                    gemini_model, df, column_types, final_question, st.session_state.chat_history[:-1]
-                )
-                chart_fig = None
-                if (
-                    not outcome["ask_error"]
-                    and not outcome["error"]
-                    and ai_analyst.question_implies_chart(final_question)
-                ):
-                    chart_fig = ai_analyst.build_chart_from_result(outcome["result"], final_question)
-                st.session_state.chat_history.append(
-                    {
-                        "role": "assistant",
-                        "question": final_question,
-                        "code": outcome["code"],
-                        "result": outcome["result"],
-                        "error": outcome["error"],
-                        "ask_error": outcome["ask_error"],
-                        "retried": outcome.get("retried", False),
-                        "original_error": outcome.get("original_error"),
-                        "chart_fig": chart_fig,
-                    }
-                )
 
         if not st.session_state.chat_history:
             ui.render_empty_state(
-                "💬", "No questions asked yet", "Type a question above (or use voice) to start chatting with your data."
+                "💬", "No questions asked yet",
+                'Ask Atlas from the command bar at the top — by voice or by typing — to start chatting with your data.',
             )
 
         for msg_idx, msg in enumerate(st.session_state.chat_history):
             if msg["role"] == "user":
                 with st.chat_message("user"):
-                    st.write(msg["content"])
+                    st.write(msg.get("content", ""))
             else:
                 with st.chat_message("assistant"):
+                    if msg.get("atlas_note"):
+                        st.write(msg["atlas_note"])
+                        continue
+
                     if msg.get("ask_error"):
                         st.error(msg["ask_error"])
                         continue
@@ -1662,7 +1954,7 @@ with tab_ai:
 # plan, each step runs through the same safe-execution sandbox as the AI
 # Analyst chat, then Gemini synthesizes the results into 5 headline findings.
 # --------------------------------------------------------------------------
-with tab_auto:
+elif st.session_state.active_section == "Auto Analyst":
     ui.render_help_expander(
         "One click: Gemini plans an exploratory analysis (quality check, distributions, "
         "segments, correlations, time trends if applicable, conclusions), runs each step "
@@ -1671,146 +1963,102 @@ with tab_auto:
 
     st.subheader("Auto Analyst")
 
-    if st.session_state.story_mode_active:
-        # ------------------------------------------------------------------
-        # Story Mode — full-screen-feeling stepper through the last run's
-        # findings, one per step, each paired with a chart and a narrative.
-        # ------------------------------------------------------------------
-        story_steps = st.session_state.story_steps
-        step_idx = st.session_state.story_step_index
-        current_step = story_steps[step_idx]
+    auto_model = ai_analyst.get_model()
 
-        st.caption(f"Story Mode — step {step_idx + 1} of {len(story_steps)}")
-        st.markdown(
-            f'<div class="prism-heading" style="font-size:2.2rem; font-weight:700; margin:1rem 0;">'
-            f'{current_step["headline"]}</div>',
-            unsafe_allow_html=True,
-        )
-        if current_step["chart"] is not None:
-            st.plotly_chart(current_step["chart"], use_container_width=True, key=f"story_chart_{step_idx}")
-        st.markdown(
-            f'<div style="font-size:1.15rem; line-height:1.6;">{current_step["narrative"]}</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.divider()
-        nav_prev, nav_exit, nav_next = st.columns(3)
-        with nav_prev:
-            if st.button("⬅ Previous", disabled=step_idx == 0, use_container_width=True):
-                st.session_state.story_step_index -= 1
-                st.rerun()
-        with nav_exit:
-            if st.button("Exit Story Mode", use_container_width=True):
-                st.session_state.story_mode_active = False
-                st.rerun()
-        with nav_next:
-            if st.button("Next ➡", disabled=step_idx == len(story_steps) - 1, use_container_width=True):
-                st.session_state.story_step_index += 1
-                st.rerun()
+    if auto_model is None:
+        st.warning(ai_analyst.GEMINI_SETUP_HELP)
     else:
-        auto_model = ai_analyst.get_model()
+        if st.button("Run Full Analysis", type="primary", use_container_width=True):
+            plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
+            step_outcomes = []
+            step_history: list[dict] = []
 
-        if auto_model is None:
-            st.warning(ai_analyst.GEMINI_SETUP_HELP)
-        else:
-            if st.button("Run Full Analysis", type="primary", use_container_width=True):
-                plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
-                step_outcomes = []
-                step_history: list[dict] = []
-
-                with st.status("Running full analysis...", expanded=True) as run_status:
-                    for i, step in enumerate(plan, 1):
-                        run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
-                        outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
-                        step_outcomes.append(outcome)
-                        step_history.append({"role": "user", "content": step["question"]})
-                        step_history.append(
-                            {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
-                        )
-                        if outcome.get("ask_error") or outcome.get("error"):
-                            run_status.write(
-                                f"Step {i}/{len(plan)} — {step['title']}: failed "
-                                f"({outcome.get('ask_error') or outcome.get('error')})"
-                            )
-                        else:
-                            run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
-                    run_status.update(label="Analysis complete", state="complete", expanded=False)
-
-                with st.spinner(ui.get_loading_message()):
-                    findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
-
-                st.session_state.auto_analyst_plan = plan
-                st.session_state.auto_analyst_step_outcomes = step_outcomes
-                st.session_state.auto_analyst_findings = findings
-                st.session_state.auto_analyst_findings_error = findings_error
-                st.balloons()
-
-            if not st.session_state.auto_analyst_step_outcomes:
-                ui.render_empty_state(
-                    "🤖", "No analysis yet",
-                    'Click "Run Full Analysis" above and Gemini will plan and run a full exploratory pass.',
-                )
-            else:
-                st.divider()
-                st.markdown("### Analysis Complete")
-
-                if st.session_state.auto_analyst_findings_error:
-                    st.error(st.session_state.auto_analyst_findings_error)
-                elif st.session_state.auto_analyst_findings:
-                    cards_html = "".join(
-                        f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
-                        f'<div class="insight-text">{finding}</div></div>'
-                        for i, finding in enumerate(st.session_state.auto_analyst_findings)
+            with st.status("Running full analysis...", expanded=True) as run_status:
+                for i, step in enumerate(plan, 1):
+                    run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
+                    outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
+                    step_outcomes.append(outcome)
+                    step_history.append({"role": "user", "content": step["question"]})
+                    step_history.append(
+                        {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
                     )
-                    st.markdown(cards_html, unsafe_allow_html=True)
-
-                    if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
-                        id_like_cols_for_story = profiling.get_id_like_columns(df)
-                        story_chart_col_types = {
-                            c: t for c, t in column_types.items() if c not in id_like_cols_for_story
-                        }
-                        story_charts, _ = visualization.auto_generate_charts(df, story_chart_col_types)
-                        st.session_state.story_steps = story_mode.build_story_steps(
-                            st.session_state.last_file_name or "your dataset",
-                            df.shape[0],
-                            df.shape[1],
-                            st.session_state.auto_analyst_findings,
-                            story_charts,
+                    if outcome.get("ask_error") or outcome.get("error"):
+                        run_status.write(
+                            f"Step {i}/{len(plan)} — {step['title']}: failed "
+                            f"({outcome.get('ask_error') or outcome.get('error')})"
                         )
-                        st.session_state.story_step_index = 0
-                        st.session_state.story_mode_active = True
-                        st.rerun()
+                    else:
+                        run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
+                run_status.update(label="Analysis complete", state="complete", expanded=False)
 
-                st.divider()
-                st.markdown("**Step-by-step results**")
-                for i, outcome in enumerate(st.session_state.auto_analyst_step_outcomes, 1):
-                    with st.expander(f"Step {i}: {outcome['title']}", expanded=False):
-                        st.caption(outcome["question"])
+            with st.spinner(ui.get_loading_message()):
+                findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
 
-                        if outcome.get("ask_error"):
-                            st.error(outcome["ask_error"])
-                            continue
+            st.session_state.auto_analyst_plan = plan
+            st.session_state.auto_analyst_step_outcomes = step_outcomes
+            st.session_state.auto_analyst_findings = findings
+            st.session_state.auto_analyst_findings_error = findings_error
+            st.balloons()
 
-                        if outcome.get("retried"):
-                            st.caption(
-                                f"First attempt failed ({outcome.get('original_error')}) — "
-                                "Gemini corrected it automatically."
-                            )
+        if not st.session_state.auto_analyst_step_outcomes:
+            ui.render_empty_state(
+                "🤖", "No analysis yet",
+                'Click "Run Full Analysis" above and Gemini will plan and run a full exploratory pass.',
+            )
+        else:
+            st.divider()
+            st.markdown("### Analysis Complete")
 
-                        if outcome.get("code"):
-                            st.code(outcome["code"], language="python")
+            if st.session_state.auto_analyst_findings_error:
+                st.error(st.session_state.auto_analyst_findings_error)
+            elif st.session_state.auto_analyst_findings:
+                cards_html = "".join(
+                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                    f'<div class="insight-text">{finding}</div></div>'
+                    for i, finding in enumerate(st.session_state.auto_analyst_findings)
+                )
+                st.markdown(cards_html, unsafe_allow_html=True)
 
-                        if outcome.get("error"):
-                            st.error(outcome["error"])
-                            continue
+                if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
+                    # Story Mode (modules/story_mode.py) narrates
+                    # st.session_state.key_insights — hand it this run's Auto
+                    # Analyst findings so Atlas narrates what was just found here.
+                    st.session_state.key_insights = st.session_state.auto_analyst_findings
+                    st.session_state.key_insights_error = None
+                    st.session_state.story_slide_index = 0
+                    st.session_state.story_mode_active = True
+                    st.rerun()
 
-                        result = outcome.get("result")
-                        if isinstance(result, pd.DataFrame):
-                            st.dataframe(result, use_container_width=True)
-                        elif isinstance(result, pd.Series):
-                            st.dataframe(result.to_frame(name="value"), use_container_width=True)
-                        elif result is not None:
-                            st.write(result)
+            st.divider()
+            st.markdown("**Step-by-step results**")
+            for i, outcome in enumerate(st.session_state.auto_analyst_step_outcomes, 1):
+                with st.expander(f"Step {i}: {outcome['title']}", expanded=False):
+                    st.caption(outcome["question"])
+
+                    if outcome.get("ask_error"):
+                        st.error(outcome["ask_error"])
+                        continue
+
+                    if outcome.get("retried"):
+                        st.caption(
+                            f"First attempt failed ({outcome.get('original_error')}) — "
+                            "Gemini corrected it automatically."
+                        )
+
+                    if outcome.get("code"):
+                        st.code(outcome["code"], language="python")
+
+                    if outcome.get("error"):
+                        st.error(outcome["error"])
+                        continue
+
+                    result = outcome.get("result")
+                    if isinstance(result, pd.DataFrame):
+                        st.dataframe(result, use_container_width=True)
+                    elif isinstance(result, pd.Series):
+                        st.dataframe(result.to_frame(name="value"), use_container_width=True)
+                    elif result is not None:
+                        st.write(result)
 
 # --------------------------------------------------------------------------
 # Stats Lab tab — guided statistical testing. Pick two columns, get a
@@ -1818,7 +2066,7 @@ with tab_auto:
 # one-line reason, run it via scipy.stats, and see a plain-English verdict
 # plus normality/assumption-check warnings.
 # --------------------------------------------------------------------------
-with tab_stats:
+elif st.session_state.active_section == "Stats Lab":
     ui.render_help_expander(
         "Pick two columns and Stats Lab suggests the right statistical test, runs it via "
         "scipy.stats, and explains the result in plain English — with assumption-check warnings."
@@ -1890,84 +2138,83 @@ with tab_stats:
 # Smoothing, falling back to SARIMAX) with a confidence band, a horizon
 # slider, a downloadable CSV, and a plain-English reliability caveat.
 # --------------------------------------------------------------------------
-if tab_forecast is not None:
-    with tab_forecast:
-        ui.render_help_expander(
-            "Pick a datetime + numeric column to project a forecast with a confidence band, "
-            "using statsmodels (Exponential Smoothing, falling back to SARIMAX)."
+elif st.session_state.active_section == "Forecasting":
+    ui.render_help_expander(
+        "Pick a datetime + numeric column to project a forecast with a confidence band, "
+        "using statsmodels (Exponential Smoothing, falling back to SARIMAX)."
+    )
+
+    st.subheader("Forecasting")
+
+    numeric_cols_for_forecast = [c for c, t in column_types.items() if t == "numeric"]
+    if not numeric_cols_for_forecast:
+        ui.render_empty_state(
+            "🔮", "No numeric column to forecast",
+            "Forecasting needs at least one numeric column to project into the future.",
         )
+    else:
+        datetime_cols_for_forecast = [c for c, t in column_types.items() if t == "datetime"]
 
-        st.subheader("Forecasting")
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            forecast_dt_col = st.selectbox("Datetime column", datetime_cols_for_forecast, key="forecast_dt_col")
+        with fc2:
+            forecast_num_col = st.selectbox("Numeric column", numeric_cols_for_forecast, key="forecast_num_col")
+        with fc3:
+            forecast_horizon = st.slider("Horizon (periods)", min_value=7, max_value=90, value=30, key="forecast_horizon")
 
-        numeric_cols_for_forecast = [c for c, t in column_types.items() if t == "numeric"]
-        if not numeric_cols_for_forecast:
+        if st.button("Generate Forecast", type="primary", use_container_width=True):
+            series, freq, prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if prep_error:
+                st.session_state.forecast_result = None
+                st.session_state.forecast_error = prep_error
+            else:
+                with st.spinner(ui.get_loading_message()):
+                    forecast_outcome = forecasting.run_forecast(series, forecast_horizon, freq)
+                if forecast_outcome.get("error"):
+                    st.session_state.forecast_result = None
+                    st.session_state.forecast_error = forecast_outcome["error"]
+                else:
+                    st.session_state.forecast_result = forecast_outcome
+                    st.session_state.forecast_error = None
+
+        if st.session_state.forecast_error:
+            st.error(st.session_state.forecast_error)
+        elif st.session_state.forecast_result is None:
             ui.render_empty_state(
-                "🔮", "No numeric column to forecast",
-                "Forecasting needs at least one numeric column to project into the future.",
+                "🔮", "No forecast yet", 'Pick your columns and horizon, then click "Generate Forecast".'
             )
         else:
-            datetime_cols_for_forecast = [c for c, t in column_types.items() if t == "datetime"]
+            forecast_outcome = st.session_state.forecast_result
+            if forecast_outcome.get("warning"):
+                st.caption(forecast_outcome["warning"])
+            st.caption(f"Model used: {forecast_outcome['model_used']}")
 
-            fc1, fc2, fc3 = st.columns(3)
-            with fc1:
-                forecast_dt_col = st.selectbox("Datetime column", datetime_cols_for_forecast, key="forecast_dt_col")
-            with fc2:
-                forecast_num_col = st.selectbox("Numeric column", numeric_cols_for_forecast, key="forecast_num_col")
-            with fc3:
-                forecast_horizon = st.slider("Horizon (periods)", min_value=7, max_value=90, value=30, key="forecast_horizon")
+            forecast_fig = forecasting.build_forecast_chart(
+                forecast_outcome["history"], forecast_outcome["forecast"], f"{forecast_num_col} forecast"
+            )
+            st.plotly_chart(forecast_fig, use_container_width=True)
 
-            if st.button("Generate Forecast", type="primary", use_container_width=True):
-                series, freq, prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
-                if prep_error:
-                    st.session_state.forecast_result = None
-                    st.session_state.forecast_error = prep_error
-                else:
-                    with st.spinner(ui.get_loading_message()):
-                        forecast_outcome = forecasting.run_forecast(series, forecast_horizon, freq)
-                    if forecast_outcome.get("error"):
-                        st.session_state.forecast_result = None
-                        st.session_state.forecast_error = forecast_outcome["error"]
-                    else:
-                        st.session_state.forecast_result = forecast_outcome
-                        st.session_state.forecast_error = None
-
-            if st.session_state.forecast_error:
-                st.error(st.session_state.forecast_error)
-            elif st.session_state.forecast_result is None:
-                ui.render_empty_state(
-                    "🔮", "No forecast yet", 'Pick your columns and horizon, then click "Generate Forecast".'
+            st.info(
+                forecasting.forecast_caveat(
+                    len(forecast_outcome["history"]), len(forecast_outcome["forecast"]), forecast_outcome["model_used"]
                 )
-            else:
-                forecast_outcome = st.session_state.forecast_result
-                if forecast_outcome.get("warning"):
-                    st.caption(forecast_outcome["warning"])
-                st.caption(f"Model used: {forecast_outcome['model_used']}")
+            )
 
-                forecast_fig = forecasting.build_forecast_chart(
-                    forecast_outcome["history"], forecast_outcome["forecast"], f"{forecast_num_col} forecast"
-                )
-                st.plotly_chart(forecast_fig, use_container_width=True)
-
-                st.info(
-                    forecasting.forecast_caveat(
-                        len(forecast_outcome["history"]), len(forecast_outcome["forecast"]), forecast_outcome["model_used"]
-                    )
-                )
-
-                st.download_button(
-                    "Download Forecast CSV",
-                    data=forecast_outcome["forecast"].reset_index().to_csv(index=False).encode("utf-8"),
-                    file_name="prism_forecast.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
+            st.download_button(
+                "Download Forecast CSV",
+                data=forecast_outcome["forecast"].reset_index().to_csv(index=False).encode("utf-8"),
+                file_name="prism_forecast.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
 # --------------------------------------------------------------------------
 # Clustering tab — KMeans on standardized numeric columns with an
 # elbow-method K suggestion, a 2D PCA scatter colored by cluster, and an
 # optional Gemini pass to name/describe each segment in one line.
 # --------------------------------------------------------------------------
-with tab_cluster:
+elif st.session_state.active_section == "Clustering":
     ui.render_help_expander(
         "Pick numeric columns to segment your data with KMeans — an elbow-method suggestion "
         "picks K for you, and a 2D PCA scatter shows the resulting clusters."
@@ -2064,7 +2311,7 @@ with tab_cluster:
 # ready-made analytics: Product (retention, DAU/MAU, funnels, churn) or
 # Banking (RFM, anomalies, NPA, credit utilization).
 # --------------------------------------------------------------------------
-with tab_domain:
+elif st.session_state.active_section == "Domain Lens":
     ui.render_help_expander(
         "Map your columns to a domain's expected roles and get ready-made analytics: Product "
         "(retention, DAU/MAU, funnels, churn) or Banking (RFM, anomalies, NPA, credit utilization)."
@@ -2244,7 +2491,7 @@ with tab_domain:
 # and a class-imbalance detector with optional SMOTE. Baseline exploration
 # only — never a deployed model.
 # --------------------------------------------------------------------------
-with tab_mllab:
+elif st.session_state.active_section == "ML Lab":
     ui.render_help_expander(
         "Pick a target column for feature-engineering suggestions, then run baseline "
         "Logistic/Linear Regression vs. Random Forest models — exploration only, not a deployed model."
