@@ -111,6 +111,12 @@ _DEFAULTS = {
     "mllab_error": None,  # error from the last baseline model run, if any
     "active_section": "Overview",  # which nav pill is selected — replaces st.tabs() so
                                     # Atlas's "navigate" voice command can actually switch it
+    "pending_active_section": None,  # Atlas commands write here, not directly to
+                                      # active_section — Streamlit forbids setting a
+                                      # widget's key after that widget has already
+                                      # rendered this run; applied before segmented_control
+                                      # renders on the NEXT run instead. See its
+                                      # apply-and-clear site just above segmented_control.
     "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
     "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
@@ -256,7 +262,7 @@ def _cmd_navigate(target) -> None:
     if not section:
         atlas.say_only(f"I don't have a '{target}' section.")
         return
-    st.session_state.active_section = section
+    st.session_state.pending_active_section = section
     st.session_state.story_mode_active = False
 
 
@@ -296,7 +302,7 @@ def _cmd_run_auto_analysis(target) -> None:
     insights, err = ai_analyst.generate_key_insights(model, df_, quality, column_types_, top_corr)
     st.session_state.key_insights = insights
     st.session_state.key_insights_error = err
-    st.session_state.active_section = "AI Analyst"
+    st.session_state.pending_active_section = "AI Analyst"
     if err:
         atlas.say_only(f"Analysis hit a snag: {err}")
     else:
@@ -307,7 +313,7 @@ def _cmd_generate_report(target) -> None:
     if st.session_state.working_df is None:
         atlas.say_only("Upload data first and I'll get to work.")
         return
-    st.session_state.active_section = "Visualize"
+    st.session_state.pending_active_section = "Visualize"
     atlas.say_only("Your report's ready to download from the Visualize tab's Export Report section.")
 
 
@@ -778,7 +784,7 @@ def _process_atlas_utterance(utterance: Optional[str]) -> None:
                     atlas.speak(outcome.get("ask_error") or outcome.get("error"))
                 else:
                     atlas.speak("Here's what I found — check the AI Analyst tab.")
-        st.session_state.active_section = "AI Analyst"
+        st.session_state.pending_active_section = "AI Analyst"
     st.rerun()
 
 
@@ -865,6 +871,11 @@ if st.session_state.jump_to_tab:
         st.session_state.active_section = st.session_state.jump_to_tab
     st.session_state.jump_to_tab = None
 
+if st.session_state.pending_active_section:
+    if st.session_state.pending_active_section in _nav_options:
+        st.session_state.active_section = st.session_state.pending_active_section
+    st.session_state.pending_active_section = None
+
 quality_for_header = data_engine.get_data_quality_report(df, column_types)
 ui.render_sticky_header(
     st.session_state.last_file_name or "Untitled dataset",
@@ -894,9 +905,75 @@ else:
         format_func=lambda name: f"{_TAB_ICONS.get(name, '')} {name}".strip(),
     )
 
+# --------------------------------------------------------------------------
+# Atlas side panel — a persistent, always-visible copilot column (Sprint 2
+# of the HUD redesign) fixed to the right edge via CSS on the container's
+# .st-key-atlas_side_panel class (modules/theme.py) — same technique
+# atlas.py already uses for its confirm box, so no custom component is
+# needed for a "real" side-by-side column. Skipped during Story/Demo Mode,
+# which already take over the full screen. Rendered here (after
+# segmented_control, before _process_atlas_utterance below) so any new
+# utterance this panel captures is still safe to act on this run — see the
+# long ordering comment above the original command bar.
+# --------------------------------------------------------------------------
+if not st.session_state.demo_mode_running and not st.session_state.story_mode_active:
+    with st.container(key="atlas_side_panel"):
+        st.markdown(
+            f'<div class="atlas-panel-hd">'
+            f'<div class="atlas-orb-sm atlas-orb {st.session_state.get("atlas_orb_state", "idle")}"></div>'
+            f'<div><div class="t hud">Atlas</div>'
+            f'<div class="s mono">ONLINE &middot; gemini-2.5-flash</div></div></div>',
+            unsafe_allow_html=True,
+        )
+        for msg in st.session_state.chat_history[-10:]:
+            if msg["role"] == "user":
+                st.markdown(
+                    f'<div class="atlas-msg u"><div class="who">You</div>{msg.get("content", "")}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                if msg.get("atlas_note"):
+                    text = msg["atlas_note"]
+                elif msg.get("ask_error") or msg.get("error"):
+                    text = msg.get("ask_error") or msg.get("error")
+                else:
+                    text = f'Answered &mdash; see {msg.get("question", "the result")} in AI Analyst.'
+                st.markdown(f'<div class="atlas-msg a"><div class="who">Atlas</div>{text}</div>', unsafe_allow_html=True)
+        if not st.session_state.chat_history:
+            st.caption("Ask a question or try a quick action below.")
+
+        chip_row = st.columns(2)
+        chip_labels = ["Summarize dataset", "Find anomalies", "Suggest cleaning", "Explain this chart"]
+        for i, label in enumerate(chip_labels):
+            if chip_row[i % 2].button(label, key=f"atlas_chip_{i}", use_container_width=True):
+                _atlas_utterance = label
+
+        if voice_input.is_available():
+            voice_text = voice_input.record_question(key="atlas_panel_mic")
+            if voice_text and voice_text != st.session_state.last_voice_text:
+                st.session_state.last_voice_text = voice_text
+                atlas.set_state("listening")
+                _atlas_utterance = voice_text
+        else:
+            st.caption("Voice unavailable — type below instead.")
+
+        with st.form(key="atlas_panel_form", clear_on_submit=True, border=False):
+            panel_text = st.text_input(
+                "Message Atlas", placeholder="Ask Atlas about your data…", label_visibility="collapsed",
+                key="atlas_panel_text",
+            )
+            sent = st.form_submit_button("Send", use_container_width=True)
+        if sent and panel_text:
+            _atlas_utterance = panel_text
+
+    st.markdown(
+        '<style>.block-container{padding-right:352px !important;}</style>', unsafe_allow_html=True
+    )
+
 # Every keyed widget for whichever branch above just ran (segmented_control,
-# or Story/Demo Mode's own internal buttons) has now been instantiated this
-# pass, so it's finally safe to let an utterance's handling call st.rerun().
+# the Atlas side panel, or Story/Demo Mode's own internal buttons) has now
+# been instantiated this pass, so it's finally safe to let an utterance's
+# handling call st.rerun().
 _process_atlas_utterance(_atlas_utterance)
 
 # --------------------------------------------------------------------------

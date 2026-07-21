@@ -563,6 +563,28 @@ h1, h2, h3, h4, .prism-heading {
 }
 .prism-sec::after { content: ""; flex: 1; height: 1px; background: var(--prism-border); }
 
+/* --- Atlas side panel (Sprint 2): a persistent right-hand copilot column,
+   fixed via the .st-key-<container key> trick Streamlit assigns to any
+   st.container(key=...) — same technique atlas.py already uses for the
+   confirm box, so no custom component is needed for a "real" column. */
+.st-key-atlas_side_panel {
+    position: fixed; top: 56px; right: 0; bottom: 0; width: 328px; z-index: 998;
+    background: var(--prism-surface); border-left: 1px solid var(--prism-border);
+    backdrop-filter: blur(10px); overflow-y: auto; padding: 14px 16px 8px;
+}
+.atlas-panel-hd { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--prism-border); margin-bottom: 10px; }
+.atlas-orb-sm.atlas-orb { width: 26px; height: 26px; animation-duration: 2.2s; flex-shrink: 0; }
+.atlas-panel-hd .t { font-family: var(--prism-hud-font); font-weight: 700; font-size: 15px; letter-spacing: .28em; color: var(--prism-text); }
+.atlas-panel-hd .s { font-size: 10px; font-family: var(--prism-mono-font); color: var(--prism-success); margin-top: 1px; }
+.atlas-panel-hd .s::before { content: "\25CF "; font-size: 7px; }
+.atlas-msg { max-width: 96%; padding: 9px 11px; border-radius: 11px; font-size: 12.5px; margin-bottom: 8px; line-height: 1.45; }
+.atlas-msg.a { background: rgba(var(--prism-accent-rgb),.08); border: 1px solid rgba(var(--prism-accent-rgb),.24); border-top-left-radius: 3px; }
+.atlas-msg.u { background: rgba(var(--prism-accent2-rgb),.12); border: 1px solid rgba(var(--prism-accent2-rgb),.32); border-top-right-radius: 3px; margin-left: auto; }
+.atlas-msg .who { font-size: 9px; color: var(--prism-text-muted); font-family: var(--prism-hud-font); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
+.st-key-atlas_side_panel .stButton button {
+    font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
+}
+
 /* Pipeline navigation — restyles st.segmented_control (app.py's step
    router) to read as HUD nav pills instead of generic Streamlit chips.
    The selected pill gets the beam as its underline, matching the sidebar
