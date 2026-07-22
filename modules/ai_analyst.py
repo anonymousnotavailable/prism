@@ -420,14 +420,56 @@ _INSIGHTS_PROMPT_TEMPLATE = (
 )
 
 _BULLET_RE = re.compile(r"^\s*\d+[.)]\s*(.+)$")
+_CODE_FENCE_RE = re.compile(r"```(?:python)?\s*(.*?)```", re.DOTALL)
+_QUOTED_STRING_RE = re.compile(r'''["']([^"'\\]*(?:\\.[^"'\\]*)*)["']''')
+_LIST_SYNTAX_LINE_RE = re.compile(r"^\s*(\w+\s*=\s*)?[\[\]]\s*,?\s*$")
+
+
+def _clean_bullet_text(text: str) -> str:
+    """Strip a leading numbered prefix and stray quoting a single bullet may
+    carry — used after quoted-string extraction, where the quote content
+    itself is still e.g. '1. The dataset contains...' rather than clean text.
+    """
+    text = text.strip().rstrip(",").strip()
+    # Strip any run of stray quote characters, not just one matched pair —
+    # a model occasionally leaves an extra "" or a triple-quote """ dangling
+    # (e.g. wavering between a plain string and a Python docstring) rather
+    # than exactly one open/close quote each side.
+    text = text.strip("\"'").strip()
+    m = _BULLET_RE.match(text)
+    return m.group(1).strip() if m else text
 
 
 def parse_numbered_bullets(text: str) -> list[str]:
+    """Extract up to 5 plain-text bullets from a "respond in N numbered
+    lines" prompt's response.
+
+    The model's system instruction (CODE_SYSTEM_PROMPT — see get_model())
+    biases it toward code, so a plain-text request sometimes still comes
+    back as a ```python fenced Python list literal (`findings = ["1. ...",
+    ...]`) instead of bare numbered lines. Handled in three passes, each
+    only tried if the previous one found nothing: numbered lines directly;
+    a code-fenced Python list's quoted string literals; then any non-empty,
+    non-list-syntax line as a last resort.
+    """
+    fence_match = _CODE_FENCE_RE.search(text)
+    if fence_match:
+        text = fence_match.group(1)
+
     bullets = [m.group(1).strip() for line in text.splitlines() if (m := _BULLET_RE.match(line))]
-    if not bullets:
-        # Gemini didn't follow the numbering format — fall back to non-empty lines.
-        bullets = [line.strip("-*\t ") for line in text.splitlines() if line.strip()]
-    return bullets[:5]
+    if bullets:
+        return [_clean_bullet_text(b) for b in bullets][:5]
+
+    quoted = [q.strip() for q in _QUOTED_STRING_RE.findall(text) if len(q.strip()) > 3]
+    if quoted:
+        return [_clean_bullet_text(q) for q in quoted][:5]
+
+    # Last resort: any non-empty line that isn't Python list/assignment syntax.
+    bullets = [
+        line.strip("-*\t ") for line in text.splitlines()
+        if line.strip() and not _LIST_SYNTAX_LINE_RE.match(line)
+    ]
+    return [_clean_bullet_text(b) for b in bullets][:5]
 
 
 def generate_key_insights(

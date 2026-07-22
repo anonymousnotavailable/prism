@@ -274,7 +274,7 @@ def generate_pdf_report(report_content: dict, dataset_name: str) -> bytes:
     pdf.ln(4)
 
     _add_section_title(pdf, "Executive Summary")
-    pdf.multi_cell(0, 6, _sanitize_for_pdf(report_content["executive_summary"]))
+    pdf.multi_cell(0, 6, _sanitize_for_pdf(report_content["executive_summary"]), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     _add_section_title(pdf, "Data Quality")
@@ -292,9 +292,12 @@ def generate_pdf_report(report_content: dict, dataset_name: str) -> bytes:
     _add_section_title(pdf, "Key Findings")
     if report_content["findings"]:
         for i, finding in enumerate(report_content["findings"], 1):
-            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {finding}"))
+            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {finding}"), new_x="LMARGIN", new_y="NEXT")
     else:
-        pdf.multi_cell(0, 6, _sanitize_for_pdf(report_content.get("findings_error") or "No findings generated."))
+        pdf.multi_cell(
+            0, 6, _sanitize_for_pdf(report_content.get("findings_error") or "No findings generated."),
+            new_x="LMARGIN", new_y="NEXT",
+        )
     pdf.ln(2)
 
     for title, fig in report_content["chart_items"]:
@@ -311,7 +314,7 @@ def generate_pdf_report(report_content: dict, dataset_name: str) -> bytes:
 
     _add_section_title(pdf, "Recommendations")
     for i, rec in enumerate(report_content["recommendations"], 1):
-        pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {rec}"))
+        pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {rec}"), new_x="LMARGIN", new_y="NEXT")
 
     return bytes(pdf.output())
 
@@ -380,9 +383,11 @@ def generate_cleaning_certificate(
     _add_section_title(pdf, f"Actions Taken ({len(cleaning_log)})")
     if cleaning_log:
         for i, step in enumerate(cleaning_log, 1):
-            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {step['description']}"))
+            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{i}. {step['description']}"), new_x="LMARGIN", new_y="NEXT")
     else:
-        pdf.multi_cell(0, 6, "No cleaning actions were applied to this dataset.")
+        pdf.multi_cell(
+            0, 6, "No cleaning actions were applied to this dataset.", new_x="LMARGIN", new_y="NEXT",
+        )
     pdf.ln(6)
 
     pdf.set_font("Helvetica", "I", 9)
@@ -394,6 +399,7 @@ def generate_cleaning_certificate(
             "data cleaning operations applied to the dataset above, in the order they were run. "
             f"Prepared by {developer_name} using Prism v5."
         ),
+        new_x="LMARGIN", new_y="NEXT",
     )
 
     return bytes(pdf.output())
