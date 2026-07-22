@@ -201,8 +201,15 @@ def call_gemini(model, contents) -> tuple[str, Optional[str]]:
             "Daily free-tier quota exceeded for the Gemini API. Try again later, "
             "or check your usage at https://aistudio.google.com/."
         )
-    except google_exceptions.PermissionDenied:
-        return "", "Gemini rejected the request — check that GEMINI_API_KEY in your .env file is valid."
+    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument):
+        return "", (
+            "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
+            "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
+            "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
+            "at https://aistudio.google.com/apikey and update it wherever this app reads it "
+            "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
+            "your host's environment variables."
+        )
     except Exception as e:
         return "", f"Gemini request failed: {e}"
     return response.text, None
