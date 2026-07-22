@@ -12,6 +12,7 @@ Run with:  streamlit run app.py
 Developed by Prathmesh Katkade.
 """
 
+import html
 from typing import Optional
 
 import numpy as np
@@ -310,7 +311,62 @@ def _cmd_clean_nulls(target) -> None:
     atlas.say_only(f"Done — cleaned {len(null_cols)} column(s) with missing values.")
 
 
-def _cmd_run_auto_analysis(target) -> None:
+def _render_result_safely(result) -> None:
+    """st.write(result) on a dict/other-container result can crash outright
+    — e.g. pandas' internal DataFrame() conversion raises TypeError trying
+    to sort a dict's keys when they're a mix of types (a NaN float key
+    alongside string category names, which happens for real with something
+    as ordinary as a Gemini-generated .value_counts()-style dict on a
+    column that has missing values). Sandboxed code producing a result
+    shape Streamlit can't render cleanly is exactly the kind of thing this
+    boundary needs to survive rather than crash the whole app on.
+    """
+    try:
+        st.write(result)
+    except Exception:
+        st.code(repr(result))
+
+
+def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tuple[list[dict], list[str], Optional[str]]:
+    """Shared step-runner for both the Auto Analyst tab's "Run Full
+    Analysis" button and Atlas's "execute_plan" command: run every step in
+    `plan` through the safe-execution sandbox (same one AI Analyst chat
+    uses), narrating progress via st.status() as it goes, then synthesize
+    the results into headline findings.
+    """
+    step_outcomes: list[dict] = []
+    step_history: list[dict] = []
+
+    with st.status(f"Running {len(plan)}-step analysis...", expanded=True) as run_status:
+        for i, step in enumerate(plan, 1):
+            run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
+            outcome = auto_analyst.run_plan_step(model, df_, column_types_, step, step_history)
+            step_outcomes.append(outcome)
+            step_history.append({"role": "user", "content": step["question"]})
+            step_history.append(
+                {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
+            )
+            if outcome.get("ask_error") or outcome.get("error"):
+                run_status.write(
+                    f"Step {i}/{len(plan)} — {step['title']}: failed "
+                    f"({outcome.get('ask_error') or outcome.get('error')})"
+                )
+            else:
+                run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
+        run_status.update(label="Analysis complete", state="complete", expanded=False)
+
+    with st.spinner(ui.get_loading_message()):
+        findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
+
+    return step_outcomes, findings, findings_error
+
+
+def _cmd_propose_plan(target) -> None:
+    """Atlas drafts a multi-step exploration plan for the loaded dataset
+    and shows it in the chat panel, then waits for the user to say "go"
+    (routed to _cmd_execute_plan) — Gemini calls and sandboxed code
+    execution only happen once the plan has actually been approved.
+    """
     if st.session_state.working_df is None:
         atlas.say_only("Upload data first and I'll get to work.")
         return
@@ -318,17 +374,63 @@ def _cmd_run_auto_analysis(target) -> None:
     if model is None:
         atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
         return
+
     df_, column_types_ = st.session_state.working_df, st.session_state.column_types
-    quality = data_engine.get_data_quality_report(df_, column_types_)
-    _, top_corr = visualization.plot_correlation_heatmap(df_)
-    insights, err = ai_analyst.generate_key_insights(model, df_, quality, column_types_, top_corr)
-    st.session_state.key_insights = insights
-    st.session_state.key_insights_error = err
-    st.session_state.pending_active_section = "AI Analyst"
-    if err:
-        atlas.say_only(f"Analysis hit a snag: {err}")
-    else:
-        atlas.say_only(f"Done — {len(insights)} key findings are up in the AI Analyst tab.")
+    with st.spinner(ui.get_loading_message()):
+        plan = auto_analyst.generate_analysis_plan(model, df_, column_types_)
+    st.session_state.auto_analyst_plan = plan
+
+    steps_html = "<br>".join(
+        f"{i}. <b>{html.escape(step['title'])}</b> &mdash; {html.escape(step['question'])}"
+        for i, step in enumerate(plan, 1)
+    )
+    atlas.say(
+        f"Here's my {len(plan)}-step plan for this dataset — say go and I'll run it.",
+        chat_html=(
+            f"Here's my plan:<br>{steps_html}<br><br>"
+            "Say <b>go</b> and I'll run all of it, or tell me what to change first."
+        ),
+    )
+
+
+def _cmd_execute_plan(target) -> None:
+    """Runs the plan Atlas just proposed — or, if none is queued yet,
+    plans and runs in one go — and reports synthesized findings back in
+    the chat panel. Shares _run_full_auto_analysis() with the Auto Analyst
+    tab's button so voice/typed and click-driven runs behave identically.
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    model = ai_analyst.get_model()
+    if model is None:
+        atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+        return
+
+    df_, column_types_ = st.session_state.working_df, st.session_state.column_types
+    plan = st.session_state.get("auto_analyst_plan")
+    if not plan:
+        with st.spinner(ui.get_loading_message()):
+            plan = auto_analyst.generate_analysis_plan(model, df_, column_types_)
+        st.session_state.auto_analyst_plan = plan
+
+    step_outcomes, findings, findings_error = _run_full_auto_analysis(model, df_, column_types_, plan)
+    st.session_state.auto_analyst_step_outcomes = step_outcomes
+    st.session_state.auto_analyst_findings = findings
+    st.session_state.auto_analyst_findings_error = findings_error
+    st.session_state.pending_active_section = "Auto Analyst"
+
+    if not findings:
+        atlas.say_only(
+            f"Ran the analysis but couldn't pull out clean findings: {findings_error or 'no findings returned'}."
+        )
+        return
+
+    findings_html = "<br>".join(f"{i}. {html.escape(f)}" for i, f in enumerate(findings, 1))
+    atlas.say(
+        f"Done — found {len(findings)} key thing(s) worth knowing.",
+        chat_html=f"Done — here's what I found:<br>{findings_html}<br><br>Full detail is in the Auto Analyst tab.",
+    )
 
 
 def _cmd_generate_report(target) -> None:
@@ -420,12 +522,14 @@ def announce_ambient_insights(df, quality: dict) -> None:
     if findings:
         summary = (
             f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns. "
-            f"I'm seeing {' and '.join(findings[:2])}. Shall I clean these?"
+            f"I'm seeing {' and '.join(findings[:2])}. Shall I clean these — or say "
+            '"plan this" and I\'ll figure out the right steps first.'
         )
     else:
         summary = (
             f"Loaded {quality['n_rows']:,} rows across {quality['n_cols']} columns — "
-            "looking clean already. Want me to run auto-analysis?"
+            'looking clean already. Say "plan this" and I\'ll work out an analysis plan, '
+            "or just tell me what you want to know."
         )
     atlas.say_only(summary)
 
@@ -506,7 +610,8 @@ for _action, _fn in {
     "navigate": _cmd_navigate,
     "load_sample": _cmd_load_sample,
     "clean_nulls": _cmd_clean_nulls,
-    "run_auto_analysis": _cmd_run_auto_analysis,
+    "propose_plan": _cmd_propose_plan,
+    "execute_plan": _cmd_execute_plan,
     "generate_report": _cmd_generate_report,
     "build_dashboard": _cmd_build_dashboard,
     "run_recipe": _cmd_run_recipe,
@@ -1128,8 +1233,14 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
         if not st.session_state.chat_history:
             st.caption("Ask a question or try a quick action below.")
 
+        if st.session_state.auto_analyst_plan and not st.session_state.auto_analyst_step_outcomes:
+            if st.button("▶ Run this plan", key="atlas_run_plan_btn", type="primary", use_container_width=True):
+                st.session_state.chat_history.append({"role": "user", "content": "Run this plan"})
+                _cmd_execute_plan(None)
+                st.rerun()
+
         chip_row = st.columns(2)
-        chip_labels = ["Summarize dataset", "Find anomalies", "Suggest cleaning", "Explain this chart"]
+        chip_labels = ["Plan this dataset", "Summarize dataset", "Find anomalies", "Suggest cleaning", "Explain this chart"]
         for i, label in enumerate(chip_labels):
             if chip_row[i % 2].button(label, key=f"atlas_chip_{i}", use_container_width=True):
                 _atlas_utterance = label
@@ -2361,7 +2472,7 @@ elif st.session_state.active_section == "AI Analyst":
                         value = round(float(result), 4) if isinstance(result, (float, np.floating)) else result
                         st.metric(label=msg.get("question", "Result"), value=value)
                     elif result is not None:
-                        st.write(result)
+                        _render_result_safely(result)
 
                     if msg.get("chart_fig") is not None:
                         st.plotly_chart(msg["chart_fig"], use_container_width=True, key=f"chat_chart_{msg_idx}")
@@ -2387,29 +2498,7 @@ elif st.session_state.active_section == "Auto Analyst":
     else:
         if st.button("Run Full Analysis", type="primary", use_container_width=True):
             plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
-            step_outcomes = []
-            step_history: list[dict] = []
-
-            with st.status("Running full analysis...", expanded=True) as run_status:
-                for i, step in enumerate(plan, 1):
-                    run_status.write(f"**Step {i}/{len(plan)} — {step['title']}**: running...")
-                    outcome = auto_analyst.run_plan_step(auto_model, df, column_types, step, step_history)
-                    step_outcomes.append(outcome)
-                    step_history.append({"role": "user", "content": step["question"]})
-                    step_history.append(
-                        {"role": "assistant", "code": outcome.get("code"), "ask_error": outcome.get("ask_error")}
-                    )
-                    if outcome.get("ask_error") or outcome.get("error"):
-                        run_status.write(
-                            f"Step {i}/{len(plan)} — {step['title']}: failed "
-                            f"({outcome.get('ask_error') or outcome.get('error')})"
-                        )
-                    else:
-                        run_status.write(f"Step {i}/{len(plan)} — {step['title']}: done")
-                run_status.update(label="Analysis complete", state="complete", expanded=False)
-
-            with st.spinner(ui.get_loading_message()):
-                findings, findings_error = auto_analyst.synthesize_findings(auto_model, step_outcomes)
+            step_outcomes, findings, findings_error = _run_full_auto_analysis(auto_model, df, column_types, plan)
 
             st.session_state.auto_analyst_plan = plan
             st.session_state.auto_analyst_step_outcomes = step_outcomes
@@ -2475,7 +2564,7 @@ elif st.session_state.active_section == "Auto Analyst":
                     elif isinstance(result, pd.Series):
                         st.dataframe(result.to_frame(name="value"), use_container_width=True)
                     elif result is not None:
-                        st.write(result)
+                        _render_result_safely(result)
 
 # --------------------------------------------------------------------------
 # Stats Lab tab — guided statistical testing. Pick two columns, get a

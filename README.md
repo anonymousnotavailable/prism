@@ -485,6 +485,29 @@ questions always used — so voice and typed questions share one
 `chat_history`, and a follow-up like "now by month" works identically
 regardless of which path the previous turn came in on.
 
+### Atlas plans before it acts
+
+Say "plan this dataset" and Atlas drafts a multi-step exploration plan
+(`auto_analyst.generate_analysis_plan()`) and shows it in the chat panel —
+numbered, with a one-line reason per step — instead of just diving in.
+Nothing runs yet: Gemini calls and sandboxed code execution only start once
+you say "go" (or click the "▶ Run this plan" button that appears), at which
+point the same step-runner the Auto Analyst tab's "Run Full Analysis"
+button uses (`_run_full_auto_analysis()` in `app.py`, shared to avoid two
+copies of the loop) executes every step and synthesizes the findings —
+narrated live via `st.status()`, then posted back into the chat panel
+*and* the Auto Analyst tab from the same session-state keys, so either
+surface shows identical results regardless of which one you used. Ask for
+a full analysis outright ("just run the full analysis now") and Atlas
+skips straight to execution, drafting a plan on the fly rather than
+insisting on the two-step dance.
+
+The router disambiguates a bare "go" by reading Atlas's own last message
+(`_recent_context()` now includes it, HTML-stripped) — the same word means
+"run the plan I proposed" right after a plan, or "confirm the destructive
+action I flagged" right after a `guarded()` prompt, and the context is what
+tells the two apart.
+
 ### Destructive actions are two-phase, always
 
 Nothing that mutates data executes from a single utterance. Any destructive

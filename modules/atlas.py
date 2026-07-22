@@ -80,7 +80,7 @@ markdown code fences, just the JSON object — matching exactly this shape:
 
 {{"type": "APP_COMMAND" | "DATA_QUESTION" | "CHITCHAT",
   "action": "navigate" | "load_sample" | "clean_nulls" | "auto_clean" | "generate_dictionary" |
-             "run_auto_analysis" | "generate_report" | "build_dashboard" | "run_recipe" |
+             "propose_plan" | "execute_plan" | "generate_report" | "build_dashboard" | "run_recipe" |
              "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" | "none",
   "target": "<tab name, column name, or null>",
   "question": "<the data question if type is DATA_QUESTION, else null>",
@@ -88,15 +88,26 @@ markdown code fences, just the JSON object — matching exactly this shape:
 
 Rules:
 - APP_COMMAND: the user wants Prism to DO something — navigate a tab, clean nulls,
-  run auto-analysis, generate a report, build a dashboard, run a saved recipe, start
-  story mode, start demo mode, or confirm/cancel a pending action. Set "action" (and
-  "target" if relevant); leave "question" null.
+  plan or run an analysis, generate a report, build a dashboard, run a saved recipe,
+  start story mode, start demo mode, or confirm/cancel a pending action. Set "action"
+  (and "target" if relevant); leave "question" null.
 - "auto_clean": the user wants the full Auto Cleaner pipeline run ("auto clean this",
   "clean my messy data", "fix this dataset") — broader than "clean_nulls" (which only
   fills/drops missing values). Prefer "auto_clean" whenever the request is general
   ("clean this up") rather than specifically about missing values.
 - "generate_dictionary": the user wants every column documented ("document this dataset",
   "generate a data dictionary", "explain what each column means").
+- "propose_plan": the user wants Atlas to figure out an exploration plan for the loaded
+  dataset before running anything ("plan this", "what should we do with this data",
+  "make a plan", "analyze this dataset", "figure out what to do", "what's the game plan").
+  Atlas responds with a numbered plan and waits for the user to say "go" before running it.
+- "execute_plan": the user wants Atlas to actually RUN the analysis now — either continuing
+  a plan it just proposed ("go", "do it", "run it", "start") or skipping straight to a full
+  analysis ("just analyze everything", "run the full analysis now", "do a complete
+  analysis"). Only read a bare "go" / "do it" / "start" as execute_plan when the recent
+  conversation shows Atlas was proposing or discussing an analysis plan — if Atlas's last
+  message was instead asking to confirm a destructive cleaning action, those same words
+  mean "confirm" (see the next rule), not "execute_plan".
 - DATA_QUESTION: the user is asking something about THEIR loaded data ("what's the
   average revenue by region", "show me nulls in the age column", "now by month" as a
   follow-up to a prior question). Set "question" to the verbatim question; action is
@@ -270,6 +281,9 @@ register_command("cancel", _cmd_cancel)
 # UTTERANCE HANDLING — the single entry point app.py calls for every
 # voice or typed message.
 # ═══════════════════════════════════════════════════════════════════════
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
 def _recent_context(limit: int = 4) -> str:
     history = st.session_state.get("chat_history", [])
     lines = []
@@ -278,6 +292,14 @@ def _recent_context(limit: int = 4) -> str:
             lines.append(f"User: {msg['content']}")
         elif msg.get("question"):
             lines.append(f"Atlas: (answered '{msg['question']}')")
+        elif msg.get("atlas_note"):
+            # Strip any HTML formatting (e.g. a numbered plan's <br>/<b> tags)
+            # down to plain text — the router needs to read what Atlas just
+            # said, not parse markup, and this is what lets it tell "go"
+            # meaning "run the plan I just proposed" apart from "go" meaning
+            # "confirm the destructive action I just asked about".
+            note = _HTML_TAG_RE.sub(" ", msg["atlas_note"])
+            lines.append(f"Atlas: {' '.join(note.split())}")
     return "\n".join(lines)
 
 
@@ -285,7 +307,18 @@ def say_only(spoken_reply: str) -> None:
     """Append a CHITCHAT-style spoken-only reply to the shared chat history
     (so it shows up in the AI Analyst transcript too) and speak it.
     """
-    st.session_state.chat_history.append({"role": "assistant", "atlas_note": spoken_reply})
+    say(spoken_reply)
+
+
+def say(spoken_reply: str, chat_html: Optional[str] = None) -> None:
+    """Speak `spoken_reply` (short, plain — this is read aloud verbatim, so
+    it must never contain HTML) while writing `chat_html` (or, if omitted,
+    `spoken_reply` itself) into the chat panel. Use this over say_only
+    whenever the on-screen version needs richer formatting than the spoken
+    line — e.g. a numbered plan — since the two audiences want different
+    amounts of detail: a sentence for the ear, a list for the eye.
+    """
+    st.session_state.chat_history.append({"role": "assistant", "atlas_note": chat_html or spoken_reply})
     set_state("speaking")
     speak(spoken_reply)
 
