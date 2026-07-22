@@ -37,9 +37,13 @@ except ImportError:  # the app should still load even if the package isn't insta
 # Safe to call even when no .env is present — it's then a no-op.
 load_dotenv()
 
-# Google's alias for the current-gen free-tier flash model — avoids re-breaking every time a
-# pinned generation (e.g. the old "gemini-2.5-flash") gets deprecated for new API keys.
-MODEL_NAME = "gemini-flash-latest"
+# Google's alias for the current-gen free-tier Flash-Lite model. Auto-tracks whatever
+# generation Google currently recommends (avoids re-breaking every time a pinned generation,
+# e.g. the old "gemini-2.5-flash", gets deprecated for new API keys). Flash-Lite over plain
+# Flash deliberately: it has a meaningfully higher free-tier daily request quota, and every
+# Gemini call Prism makes — schema-to-pandas-code generation, JSON intent classification,
+# short narration — is a bounded, structured task well within a lite-tier model's depth.
+MODEL_NAME = "gemini-flash-lite-latest"
 
 GEMINI_SETUP_HELP = (
     "**Add your free Gemini API key to unlock AI features.**\n\n"
