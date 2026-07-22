@@ -41,6 +41,33 @@ def get_excel_sheet_names(uploaded_file) -> Optional[list[str]]:
 # still truncate outright.
 HARD_ROW_CEILING = 500_000
 
+# Tried in order. utf-8-sig first (handles a BOM without leaving a stray
+# character on the first header), then the two encodings that account for
+# almost every "non-UTF-8" CSV in the wild — Windows exports (cp1252) and
+# scraped/international datasets (latin-1, which never raises on any byte
+# sequence, so it's the deliberate last resort rather than the first guess).
+_ENCODING_FALLBACKS = ["utf-8-sig", "cp1252", "latin-1"]
+
+
+def _read_csv_with_encoding_fallback(uploaded_file) -> tuple[pd.DataFrame, str]:
+    """Read a CSV, retrying with common non-UTF-8 encodings on decode failure.
+
+    Real Kaggle-style datasets (e.g. YouTube Trending's international video
+    titles/tags) are routinely saved in cp1252/latin-1, not UTF-8 — a plain
+    `pd.read_csv` throws UnicodeDecodeError on the first byte outside ASCII.
+    Returns (dataframe, encoding_used) so the caller can surface a warning
+    when a fallback was needed.
+    """
+    last_error: Optional[Exception] = None
+    for encoding in _ENCODING_FALLBACKS:
+        uploaded_file.seek(0)
+        try:
+            return pd.read_csv(uploaded_file, encoding=encoding), encoding
+        except UnicodeDecodeError as e:
+            last_error = e
+            continue
+    raise last_error
+
 
 def load_data(
     uploaded_file, sheet_name: Union[str, int] = 0, max_rows: Optional[int] = MAX_ROWS
@@ -68,7 +95,13 @@ def load_data(
 
     try:
         if filename.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
+            df, encoding_used = _read_csv_with_encoding_fallback(uploaded_file)
+            if encoding_used != "utf-8":
+                warnings.append(
+                    f"This file wasn't valid UTF-8 (common for datasets scraped or exported outside "
+                    f"the US/UK — e.g. non-English titles or tags). Read successfully using "
+                    f"{encoding_used} instead."
+                )
         elif filename.endswith((".xlsx", ".xls")):
             uploaded_file.seek(0)
             df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
@@ -79,7 +112,7 @@ def load_data(
     except pd.errors.ParserError as e:
         return None, f"Could not parse the file — it may be malformed. Details: {e}", warnings
     except UnicodeDecodeError:
-        return None, "Could not decode the file. Try re-saving it as UTF-8 CSV.", warnings
+        return None, "Could not decode the file in UTF-8, CP1252, or Latin-1. Try re-saving it as UTF-8 CSV.", warnings
     except ValueError as e:
         return None, f"Could not read the file. Details: {e}", warnings
     except Exception as e:  # last-resort catch so a bad upload never hard-crashes the app

@@ -483,6 +483,168 @@ def unit_normalize_code(column: str, family: str, target_unit: str) -> str:
 
 
 # ==========================================================================
+# 5b. Sentinel-zero detector — 0 used as a disguised null
+# ==========================================================================
+#
+# The Pima Diabetes dataset's Glucose/BloodPressure/BMI columns are the
+# canonical example: 0 is biologically impossible for a living patient, but
+# reads as a perfectly normal float, so it passes every disguised-null and
+# outlier check Prism already has. The same pattern shows up as budget=0 /
+# revenue=0 in movie datasets and visibility=0 in retail data. This is
+# inherently a domain-knowledge call (0 IS legitimate for "number of prior
+# purchases" or "discount amount"), so detection deliberately requires BOTH
+# a name that suggests a physically-positive-only quantity AND a zero
+# share too small to be the column's normal shape — and it only ever
+# surfaces as a REVIEW suggestion, never an auto-applied SAFE fix.
+
+ZERO_SENTINEL_NAME_HINTS = (
+    "glucose", "bmi", "blood_pressure", "bloodpressure", "heart_rate", "heartrate",
+    "temperature", "weight", "height", "budget", "revenue", "price", "salary", "income",
+)
+
+
+def detect_zero_sentinel_candidates(df: pd.DataFrame, column_types: dict[str, str]) -> list[dict]:
+    """Numeric columns where 0 looks like a disguised null: a name that
+    implies a physically-positive-only measurement, a minority-but-nonzero
+    share of exact zeros, and no negative values (ruling out a column
+    where zero is just an ordinary midpoint).
+
+    Returns [{"column", "zero_pct", "zero_count"}, ...].
+    """
+    findings = []
+    for col, ctype in column_types.items():
+        if ctype != "numeric":
+            continue
+        if not any(hint in col.lower() for hint in ZERO_SENTINEL_NAME_HINTS):
+            continue
+        series = df[col].dropna()
+        if series.empty or (series < 0).any():
+            continue
+        zero_count = int((series == 0).sum())
+        zero_pct = 100 * zero_count / len(series)
+        if 1.0 <= zero_pct <= 70.0:
+            findings.append({"column": col, "zero_pct": round(zero_pct, 1), "zero_count": zero_count})
+    return findings
+
+
+def convert_zero_sentinel_to_null(df: pd.DataFrame, column: str) -> pd.DataFrame:
+    new_df = df.copy()
+    new_df[column] = new_df[column].replace(0, np.nan)
+    return new_df
+
+
+def zero_sentinel_code(column: str) -> str:
+    return f"df[{column!r}] = df[{column!r}].replace(0, np.nan)"
+
+
+# ==========================================================================
+# 5c. Multi-value delimited-cell detector
+# ==========================================================================
+#
+# Netflix's cast/listed_in, Amazon's pipe-delimited category taxonomy,
+# YouTube's pipe-delimited tags: a single cell packing several values
+# behind a delimiter. Treating the whole string as one categorical value
+# silently destroys the real cardinality — every combination becomes its
+# own "category" instead of the shared underlying tags. This only reports
+# the finding and adds two helper columns (how many values, and the first/
+# primary one) rather than a full one-hot explosion — explosion can blow
+# up column count unpredictably depending on how many distinct tokens
+# exist, which isn't something Auto Cleaner should decide unsupervised.
+
+_MULTI_VALUE_DELIMITERS = [",", "|", ";"]
+MULTI_VALUE_MATCH_THRESHOLD_PCT = 50.0
+
+
+def detect_multi_value_columns(df: pd.DataFrame, column_types: dict[str, str]) -> list[dict]:
+    """Text/categorical columns where most non-null values contain a
+    consistent delimiter with 2+ tokens — a strong sign the cell packs a
+    list, not a single categorical value.
+
+    Returns [{"column", "delimiter", "match_pct", "avg_values"}, ...].
+    """
+    findings = []
+    for col, ctype in column_types.items():
+        if ctype not in ("text", "categorical"):
+            continue
+        non_null = df[col].dropna().astype(str)
+        if non_null.empty:
+            continue
+        best = None
+        for delim in _MULTI_VALUE_DELIMITERS:
+            counts = non_null.str.count(re.escape(delim))
+            match_pct = 100 * (counts >= 1).mean()
+            avg_values = (counts + 1).mean()
+            if match_pct >= MULTI_VALUE_MATCH_THRESHOLD_PCT and avg_values >= 1.5:
+                if best is None or match_pct > best["match_pct"]:
+                    best = {
+                        "column": col, "delimiter": delim,
+                        "match_pct": round(match_pct, 1), "avg_values": round(avg_values, 1),
+                    }
+        if best:
+            findings.append(best)
+    return findings
+
+
+def split_multi_value_column(df: pd.DataFrame, column: str, delimiter: str) -> pd.DataFrame:
+    """Adds `<column>_count` and `<column>_primary` (first value) alongside
+    the original column — the original is left untouched since a full
+    one-hot explosion is a judgment call for the user, not Auto Cleaner.
+    """
+    new_df = df.copy()
+    split_series = new_df[column].apply(
+        lambda v: [p.strip() for p in str(v).split(delimiter) if p.strip()] if pd.notna(v) else []
+    )
+    new_df[f"{column}_count"] = split_series.apply(len)
+    new_df[f"{column}_primary"] = split_series.apply(lambda parts: parts[0] if parts else np.nan)
+    return new_df
+
+
+def multi_value_split_code(column: str, delimiter: str) -> str:
+    return (
+        f"_split = df[{column!r}].apply(lambda v: [p.strip() for p in str(v).split({delimiter!r}) if p.strip()] "
+        f"if pd.notna(v) else [])\n"
+        f"df[{column!r} + '_count'] = _split.apply(len)\n"
+        f"df[{column!r} + '_primary'] = _split.apply(lambda parts: parts[0] if parts else None)"
+    )
+
+
+# ==========================================================================
+# 6b. Meaningful-NA detector — missingness that isn't really missing
+# ==========================================================================
+#
+# The single most common gotcha across real-world Kaggle datasets (House
+# Prices' PoolQC/Fence/Alley being the canonical example, but also Telco
+# Churn's "No internet service", BigMart's blank Outlet_Size, Pokemon's
+# empty Type 2): a categorical column with a LOT of missing values is more
+# often "this attribute doesn't apply to most rows" than "data collection
+# failed at random." Mode-imputing PoolQC (99.5% missing because 99.5% of
+# houses have no pool) with whatever pool quality IS most common among the
+# 0.5% that have one manufactures a fake signal and destroys the real one —
+# "no pool" is information, not a gap. This can't be known for certain from
+# the data alone, so it's a statistical heuristic (concentrated high
+# missingness in one optional-looking column, not spread from a systemic
+# row problem) that changes Auto Cleaner's *suggested* strategy, not an
+# auto-applied fix — the REVIEW tier still lets the user override it.
+
+HIGH_MISSINGNESS_THRESHOLD_PCT = 40.0
+MEANINGFUL_NA_PLACEHOLDER = "Not Applicable"
+
+
+def detect_meaningful_na_candidates(
+    column_types: dict[str, str], missing_by_column: dict[str, float]
+) -> list[str]:
+    """Categorical/text columns whose missing % is high enough that the gap
+    more likely means "doesn't apply" than "unknown" — candidates for
+    filling with an explicit category instead of the column's mode.
+    """
+    return [
+        col
+        for col, pct in missing_by_column.items()
+        if pct >= HIGH_MISSINGNESS_THRESHOLD_PCT and column_types.get(col) in ("categorical", "text")
+    ]
+
+
+# ==========================================================================
 # 6. Imputation intelligence
 # ==========================================================================
 

@@ -113,7 +113,11 @@ def get_model(api_key: Optional[str] = None):
 
 
 def build_data_context(
-    df: pd.DataFrame, column_types: dict[str, str], pii_findings: Optional[dict] = None, strict_mode: bool = False
+    df: pd.DataFrame,
+    column_types: dict[str, str],
+    pii_findings: Optional[dict] = None,
+    strict_mode: bool = False,
+    dataset_fingerprint: Optional[dict] = None,
 ) -> str:
     """Summarize the dataframe's schema, a 5-row sample, and summary stats.
 
@@ -121,6 +125,12 @@ def build_data_context(
     When strict_mode is True and pii_findings flags any columns (Indian PII
     Vault), the sample rows are redacted for those columns first — the
     model still sees the column exists in the schema, never its values.
+
+    dataset_fingerprint, if the uploaded data matched a known public
+    dataset's column signature (modules.dataset_knowledge), folds its
+    curated known-issue tips into the prompt — so a question like "what
+    should I watch out for" gets the actual documented quirks of e.g. the
+    Kaggle Titanic dataset, not a generic guess from the sample rows alone.
     """
     schema_lines = [f"- {col}: {dtype} ({column_types.get(col, 'unknown')})" for col, dtype in df.dtypes.items()]
     if strict_mode and pii_findings:
@@ -133,8 +143,16 @@ def build_data_context(
     except Exception:
         stats = "(summary statistics unavailable)"
 
+    fingerprint_block = ""
+    if dataset_fingerprint:
+        tips = "\n".join(f"- {t}" for t in dataset_fingerprint["tips"])
+        fingerprint_block = (
+            f"\nThis data appears to be the {dataset_fingerprint['name']} — known quirks to keep in mind:\n{tips}\n"
+        )
+
     return (
-        f"DataFrame shape: {df.shape[0]} rows x {df.shape[1]} columns\n\n"
+        f"DataFrame shape: {df.shape[0]} rows x {df.shape[1]} columns\n"
+        f"{fingerprint_block}\n"
         "Columns and dtypes:\n" + "\n".join(schema_lines) + "\n\n"
         f"Sample rows (first 5):\n{sample}\n\n"
         f"Summary statistics:\n{stats}"
@@ -214,14 +232,15 @@ def ask_question(
     chat_history: list[dict],
     pii_findings: Optional[dict] = None,
     strict_mode: bool = False,
+    dataset_fingerprint: Optional[dict] = None,
 ) -> tuple[str, Optional[str]]:
     """Ask Gemini to translate a plain-English question into pandas code.
 
     Returns (code, error). On an API error, code is "" and error explains why.
     strict_mode (Indian PII Vault) redacts flagged columns' sample values —
-    see build_data_context.
+    see build_data_context. dataset_fingerprint — see build_data_context.
     """
-    context = build_data_context(df, column_types, pii_findings, strict_mode)
+    context = build_data_context(df, column_types, pii_findings, strict_mode, dataset_fingerprint)
     user_turn = {"role": "user", "parts": [f"Data context:\n{context}\n\nQuestion: {question}"]}
     contents = history_to_contents(chat_history) + [user_turn]
 
@@ -274,6 +293,7 @@ def ask_and_execute(
     chat_history: list[dict],
     pii_findings: Optional[dict] = None,
     strict_mode: bool = False,
+    dataset_fingerprint: Optional[dict] = None,
 ) -> dict:
     """Full round trip: ask Gemini for code, run it, and self-heal once on failure.
 
@@ -287,8 +307,11 @@ def ask_and_execute(
 
     strict_mode (Indian PII Vault) keeps flagged columns' sample values out
     of every prompt in this round trip, including the self-healing retry.
+    dataset_fingerprint — see build_data_context.
     """
-    code, ask_error = ask_question(model, df, column_types, question, chat_history, pii_findings, strict_mode)
+    code, ask_error = ask_question(
+        model, df, column_types, question, chat_history, pii_findings, strict_mode, dataset_fingerprint
+    )
     if ask_error:
         return {"code": None, "result": None, "error": None, "ask_error": ask_error, "retried": False}
 

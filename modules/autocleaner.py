@@ -36,7 +36,7 @@ SAFE_ACTIONS = {
 }
 REVIEW_ACTIONS = {
     "resolve_ambiguous_dates", "impute_missing", "fuzzy_merge_category", "remove_outliers",
-    "normalize_units",
+    "normalize_units", "convert_zero_sentinel", "split_multi_value",
 }
 
 ACTION_LABELS = {
@@ -50,6 +50,8 @@ ACTION_LABELS = {
     "fuzzy_merge_category": "Merge near-duplicate categories",
     "remove_outliers": "Remove statistical outliers",
     "normalize_units": "Normalize mixed units",
+    "convert_zero_sentinel": "Convert placeholder zeros to missing",
+    "split_multi_value": "Surface multi-value cells (count + primary)",
 }
 
 
@@ -98,6 +100,8 @@ def scan(df: pd.DataFrame, column_types: dict[str, str], quality_report: dict) -
         "ambiguous_dates": ambiguous_dates,
         "fuzzy_groups": fuzzy_groups,
         "mixed_units": hellmode.detect_mixed_units(df, column_types),
+        "zero_sentinels": hellmode.detect_zero_sentinel_candidates(df, column_types),
+        "multi_value_columns": hellmode.detect_multi_value_columns(df, column_types),
         "exact_duplicates": int(df.duplicated().sum()),
         "whitespace_cols": whitespace_cols,
         "missing_by_column": quality_report["missing_by_column"],
@@ -188,7 +192,59 @@ def build_plan(df: pd.DataFrame, column_types: dict[str, str], scan_results: dic
             "params": {"family": family, "target_unit": target_unit},
         })
 
+    for finding in scan_results["zero_sentinels"]:
+        col = finding["column"]
+        plan.append({
+            "action": "convert_zero_sentinel", "column": col,
+            "detail": f"{finding['zero_count']} zero(s) ({finding['zero_pct']}%) look like disguised nulls",
+            "risk": "REVIEW",
+            "reason": (
+                f"'{col}' has {finding['zero_pct']}% exact-zero values but its name and range suggest "
+                f"zero isn't physically possible here — likely a placeholder for 'not recorded' "
+                f"(the well-known Glucose/BMI=0 pattern), not a real reading."
+            ),
+            "params": {},
+        })
+
+    for finding in scan_results["multi_value_columns"]:
+        col, delim = finding["column"], finding["delimiter"]
+        delim_label = {",": "comma", "|": "pipe", ";": "semicolon"}.get(delim, delim)
+        plan.append({
+            "action": "split_multi_value", "column": col,
+            "detail": f"~{finding['avg_values']} {delim_label}-separated value(s) per cell", "risk": "REVIEW",
+            "reason": (
+                f"'{col}' looks like it packs multiple values per cell ({finding['match_pct']}% contain a "
+                f"{delim_label}, averaging {finding['avg_values']} values) — treating each combination as one "
+                f"category hides the real tags. Adding a count + primary-value column surfaces the structure "
+                f"without guessing how you want it fully split."
+            ),
+            "params": {"delimiter": delim},
+        })
+
+    # A column that's 90%+ missing has so few non-null values that
+    # detect_column_types's cardinality heuristic can misclassify it as
+    # "text" rather than "categorical" (n_unique/len(non_null) skews high
+    # when len(non_null) is tiny) — exactly the columns meaningful-NA is
+    # meant to catch. So this check runs independent of the numeric/
+    # categorical gate below, rather than being folded into that loop.
+    meaningful_na_cols = set(hellmode.detect_meaningful_na_candidates(column_types, scan_results["missing_by_column"]))
+    for col in meaningful_na_cols:
+        pct = scan_results["missing_by_column"][col]
+        plan.append({
+            "action": "impute_missing", "column": col,
+            "detail": f"{pct}% missing — likely means 'not applicable', not unknown", "risk": "REVIEW",
+            "reason": (
+                f"'{col}' is {pct}% missing — that's concentrated enough that it more likely means "
+                f"the attribute doesn't apply to most rows (e.g. a 'no pool'-style gap) than random "
+                f"data loss. Filling with the column's mode would manufacture a fake majority value; "
+                f"marking it as its own '{hellmode.MEANINGFUL_NA_PLACEHOLDER}' category preserves that signal."
+            ),
+            "params": {"strategy": "constant", "custom_value": hellmode.MEANINGFUL_NA_PLACEHOLDER},
+        })
+
     for col, pct in scan_results["missing_by_column"].items():
+        if col in meaningful_na_cols:
+            continue
         if pct > 0 and column_types.get(col) in ("numeric", "categorical"):
             strategy = "median" if column_types.get(col) == "numeric" else "mode"
             plan.append({
@@ -308,10 +364,13 @@ def _exec_fuzzy_merge_category(df, column_types, action):
 
 def _exec_impute_missing(df, column_types, action):
     col, strategy = action["column"], action["params"].get("strategy", "median")
-    new_df, error = hellmode.impute_column(df, col, strategy)
+    custom_value = action["params"].get("custom_value")
+    new_df, error = hellmode.impute_column(df, col, strategy, custom_value=custom_value)
     if error:
         return df, column_types, f"Auto Clean: could not impute '{col}' ({error})", f"# {error}"
-    return new_df, column_types, f"Auto Clean: filled missing values in '{col}' ({strategy})", hellmode.impute_code(col, strategy)
+    label = f"marked as {custom_value!r}" if strategy == "constant" else strategy
+    code = hellmode.impute_code(col, strategy, custom_value=custom_value)
+    return new_df, column_types, f"Auto Clean: filled missing values in '{col}' ({label})", code
 
 
 def _exec_remove_outliers(df, column_types, action):
@@ -343,6 +402,25 @@ def _exec_normalize_units(df, column_types, action):
     return new_df, new_types, f"Auto Clean: normalized '{col}' to {target_unit} ({description})", code
 
 
+def _exec_convert_zero_sentinel(df, column_types, action):
+    col = action["column"]
+    before = int((df[col] == 0).sum())
+    new_df = hellmode.convert_zero_sentinel_to_null(df, col)
+    code = hellmode.zero_sentinel_code(col)
+    return new_df, column_types, f"Auto Clean: converted {before} placeholder zero(s) to missing in '{col}'", code
+
+
+def _exec_split_multi_value(df, column_types, action):
+    col, delimiter = action["column"], action["params"]["delimiter"]
+    new_df = hellmode.split_multi_value_column(df, col, delimiter)
+    code = hellmode.multi_value_split_code(col, delimiter)
+    new_types = dict(column_types)
+    new_types[f"{col}_count"] = "numeric"
+    new_types[f"{col}_primary"] = "categorical"
+    desc = f"Auto Clean: added '{col}_count' and '{col}_primary' from multi-value column '{col}'"
+    return new_df, new_types, desc, code
+
+
 _EXECUTORS = {
     "trim_whitespace": _exec_trim_whitespace,
     "convert_disguised_nulls": _exec_convert_disguised_nulls,
@@ -354,6 +432,8 @@ _EXECUTORS = {
     "impute_missing": _exec_impute_missing,
     "remove_outliers": _exec_remove_outliers,
     "normalize_units": _exec_normalize_units,
+    "convert_zero_sentinel": _exec_convert_zero_sentinel,
+    "split_multi_value": _exec_split_multi_value,
 }
 
 

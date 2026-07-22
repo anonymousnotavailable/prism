@@ -29,6 +29,7 @@ from modules import (
     dashboard_builder,
     data_dictionary,
     data_engine,
+    dataset_knowledge,
     datetime_intel,
     domains,
     drift,
@@ -68,6 +69,7 @@ _DEFAULTS = {
     "raw_df": None,  # the dataset exactly as first loaded (for before/after + reset)
     "working_df": None,  # the dataset after any cleaning steps applied so far
     "column_types": {},  # column -> 'numeric' | 'categorical' | 'datetime' | 'text' | 'all_null'
+    "dataset_fingerprint": None,  # {"name", "tips", "match_score"} if the active dataset matches a known-dataset signature
     "cleaning_log": [],  # list of {"description": str, "code": str} — one per applied step
     "chat_history": [],  # AI Analyst chat transcript
     "key_insights": [],  # last "Generate Key Insights" output — list of up to 5 bullet strings
@@ -198,6 +200,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.working_df = working_df
     st.session_state.column_types = data_engine.detect_column_types(working_df)
     st.session_state.pii_findings = pii_detector.scan_dataframe(working_df, st.session_state.column_types)
+    st.session_state.dataset_fingerprint = dataset_knowledge.identify_dataset(list(working_df.columns))
     st.session_state.cleaning_log = cleaning_log if cleaning_log is not None else []
     st.session_state.chat_history = chat_history if chat_history is not None else []
     st.session_state.key_insights = []
@@ -938,6 +941,7 @@ def _process_atlas_utterance(utterance: Optional[str]) -> None:
                         data_model, st.session_state.working_df, st.session_state.column_types,
                         question, st.session_state.chat_history[:-1],
                         st.session_state.pii_findings, st.session_state.pii_strict_mode,
+                        st.session_state.dataset_fingerprint,
                     )
                 chart_fig = None
                 if not outcome["ask_error"] and not outcome["error"] and ai_analyst.question_implies_chart(question):
@@ -1059,6 +1063,13 @@ ui.render_sticky_header(
 
 if st.session_state.sample_info:
     st.caption(f"🔬 {st.session_state.sample_info}")
+
+if st.session_state.dataset_fingerprint:
+    _fp = st.session_state.dataset_fingerprint
+    with st.expander(f"🔎 This looks like **{_fp['name']}** — known quirks worth knowing", expanded=False):
+        for _tip in _fp["tips"]:
+            st.markdown(f"- {_tip}")
+        st.caption("Ask Atlas about these too — it already knows.")
 
 if st.session_state.demo_mode_running:
     story_mode.render_demo_mode(set_active_dataset)

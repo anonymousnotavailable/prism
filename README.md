@@ -123,9 +123,10 @@ pattern-preserving masking, e.g. `XXXX-XXXX-1234` for Aadhaar) and unlocks
 
 ### Hell Mode
 A deeper cleaning engine for the kind of real-world-messy data that Smart
-Type Coercion doesn't cover — built and demoed against 3 bundled "hell"
+Type Coercion doesn't cover — built and demoed against 4 bundled "hell"
 datasets in `/samples/hell` (Indian startup funding, bank transactions,
-product events; see [Screenshots](#screenshots) below):
+product events, and the real Kaggle House Prices/Ames competition CSV; see
+[Screenshots](#screenshots) below):
 - **Null Synonym Detection** — scans text columns for disguised nulls
   ("NA", "-", "Nil", "N/A", whitespace-only, ...) pandas doesn't recognize
   as missing by default, reports per-column counts, and converts them all
@@ -154,6 +155,27 @@ product events; see [Screenshots](#screenshots) below):
   department); an "AI Recommend" button sends column stats and the
   missingness pattern to Gemini for a suggested strategy per column with a
   one-line reason, which you approve before anything is applied
+- **Meaningful-NA Detector** — a categorical column with concentrated high
+  missingness (≥40%) more often means "doesn't apply" than "unknown" (the
+  Kaggle House Prices `PoolQC`/`Fence`/`Alley` gotcha, where NA means "no
+  pool," not a data-collection failure) — Auto Cleaner suggests an explicit
+  "Not Applicable" category instead of silently mode-imputing away real signal
+- **Sentinel-Zero Detector** — flags numeric columns (glucose, BMI, budget,
+  revenue, ...) where 0 is physically implausible but shows up as a distinct,
+  minority cluster — a disguised null hiding in plain sight as a normal float
+- **Multi-Value Cell Detector** — comma/pipe/semicolon-packed cells (a
+  movie's genre list, a video's tags) get a `_count` + `_primary` column
+  pair surfaced instead of every combination silently becoming its own
+  fake category
+- **Known-Dataset Fingerprinting** — recognizes ~10 well-known public
+  datasets (Kaggle House Prices, Titanic, Telco Churn, Netflix, Pima
+  Diabetes, BigMart, NYC Airbnb, Online Retail, Amazon Sales, YouTube
+  Trending, IMDb, Pokemon) by column signature and surfaces their specific,
+  documented quirks in an Overview banner — the same tips get fed into
+  Atlas's own answers, not just displayed
+- **Encoding-Robust Loading** — a CSV that isn't valid UTF-8 (common for
+  scraped or non-English datasets) auto-retries CP1252 then Latin-1 instead
+  of failing outright, with a warning noting which encoding was used
 
 *(all of it fully logged to the same Cleaning History + Undo as every other
 cleaning action)*
@@ -356,10 +378,12 @@ prism/
 │   ├── india.py             # v5: India Mode — fiscal year, format_inr(), day-first dates, festival markers
 │   ├── geo.py                # v5: Geo Lens — state/UT fuzzy matching + choropleth
 │   ├── data_dictionary.py   # v5: Data Dictionary Generator — AI + templated column docs, markdown/xlsx export
+│   ├── dataset_knowledge.py # v6: known-public-dataset fingerprint library — recognizes e.g. Kaggle House Prices/Titanic/Telco Churn on upload, feeds tips to the UI + Atlas
 │   └── ui.py                # Landing screen, footer, help expanders, onboarding, column profiler, health ring
 ├── samples/                  # sales/hr/stock/indian_startup_funding_messy.csv for "Try a sample dataset"
-│   └── hell/                 # Deliberately messy datasets exercising every Hell Mode feature
+│   └── hell/                 # Deliberately messy datasets exercising every Hell Mode feature (incl. the real Kaggle House Prices/Ames CSV)
 ├── data/                     # festivals.csv (India Mode) + india_states.geojson (Geo Lens)
+├── docs/                     # kaggle_dataset_research.md — anomaly research behind the v6 detectors, screenshots/
 ├── eval/                     # Eval harnesses — questions.json, run_eval.py, autocleaner_eval.py, atlas_eval.py
 ├── .streamlit/config.toml   # Theme config
 ├── requirements.txt          # Pinned, tested-together versions
