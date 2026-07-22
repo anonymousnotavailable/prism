@@ -596,7 +596,7 @@ steps to put it on Streamlit Community Cloud for free.
 | Baseline ML    | scikit-learn (`LogisticRegression`, `LinearRegression`, `RandomForest*`, `ColumnTransformer`) |
 | PDF reports    | `fpdf2` (pure Python, no system dependencies) + `kaleido` (chart rasterization) |
 | Voice input    | streamlit-mic-recorder (browser speech-to-text) |
-| AI layer       | Google Gemini API (`gemini-2.5-flash`)  |
+| AI layer       | Google Gemini API (`gemini-flash-latest` — Google's alias for the current free-tier flash model) |
 | Secrets        | `st.secrets` (Cloud) → `.env` via python-dotenv (local) |
 | Session files  | JSON (not pickle — see architecture note above) |
 

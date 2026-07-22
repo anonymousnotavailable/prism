@@ -37,7 +37,9 @@ except ImportError:  # the app should still load even if the package isn't insta
 # Safe to call even when no .env is present — it's then a no-op.
 load_dotenv()
 
-MODEL_NAME = "gemini-2.5-flash"
+# Google's alias for the current-gen free-tier flash model — avoids re-breaking every time a
+# pinned generation (e.g. the old "gemini-2.5-flash") gets deprecated for new API keys.
+MODEL_NAME = "gemini-flash-latest"
 
 GEMINI_SETUP_HELP = (
     "**Add your free Gemini API key to unlock AI features.**\n\n"

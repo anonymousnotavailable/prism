@@ -1108,7 +1108,7 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
             f'<div class="atlas-panel-hd">'
             f'<div class="atlas-orb-sm atlas-orb {st.session_state.get("atlas_orb_state", "idle")}"></div>'
             f'<div><div class="t hud">Atlas</div>'
-            f'<div class="s mono">ONLINE &middot; gemini-2.5-flash</div></div></div>',
+            f'<div class="s mono">ONLINE &middot; {atlas.MODEL_NAME}</div></div></div>',
             unsafe_allow_html=True,
         )
         for msg in st.session_state.chat_history[-10:]:
@@ -2272,7 +2272,7 @@ elif st.session_state.active_section == "SQL Lab":
 
 # --------------------------------------------------------------------------
 # AI Analyst tab — key insights + natural-language chat over the dataframe
-# Backed by Google Gemini (gemini-2.5-flash). Key comes from a .env file
+# Backed by Google Gemini (see ai_analyst.MODEL_NAME). Key comes from a .env file
 # (GEMINI_API_KEY) via python-dotenv — see README for setup.
 # --------------------------------------------------------------------------
 elif st.session_state.active_section == "AI Analyst":

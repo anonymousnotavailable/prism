@@ -39,7 +39,7 @@ from typing import Callable, Optional
 
 import streamlit as st
 
-from modules.ai_analyst import get_api_key
+from modules.ai_analyst import MODEL_NAME, get_api_key
 
 try:
     import google.generativeai as genai
@@ -57,7 +57,6 @@ except ImportError:  # pragma: no cover
     gTTS = None
 
 
-MODEL_NAME = "gemini-2.5-flash"
 VOICE_NAME = "en-GB-RyanNeural"  # calm, precise — the closest free neural voice to the persona
 
 PERSONA = (
