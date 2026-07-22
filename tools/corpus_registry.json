@@ -1,0 +1,136 @@
+{
+  "_comment": "Real, publicly-licensed datasets only. URLs point to the source's own hosting — Prism never re-hosts or commits the downloaded bytes (see corpus_cache/, gitignored). Verified working as of the corpus build date; a source going stale over time is expected and handled gracefully by tools/corpus.py, not a Prism bug.",
+  "datasets": [
+    {
+      "name": "data.gov.in Crop Production (Karnataka)",
+      "url": "https://api.data.gov.in/resource/d6e5315d-d4a7-4f1f-ab23-c2adcac3e1e7?api-key=579b464db66ec23bdd000001cdc3b564546246a772a26393094f5645&format=csv&limit=2000",
+      "source": "data.gov.in",
+      "format": "csv",
+      "domain": "indian-gov",
+      "notes": "District-wise vegetable crop area/production/yield. Uses data.gov.in's own publicly-published anonymous trial API key (shown on every resource page, not a bypassed credential). Headers historically carry typos/trailing spaces."
+    },
+    {
+      "name": "data.gov.in Agri Market Prices",
+      "url": "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?api-key=579b464db66ec23bdd000001cdc3b564546246a772a26393094f5645&format=csv&limit=2000",
+      "source": "data.gov.in",
+      "format": "csv",
+      "domain": "indian-gov",
+      "notes": "Live daily mandi commodity prices. Headers carry raw x0020-encoded spaces."
+    },
+    {
+      "name": "data.gov.in Real-time Air Quality Index",
+      "url": "https://api.data.gov.in/resource/3b01bcb8-0b14-4abf-b6f2-c1bfd384ba69?api-key=579b464db66ec23bdd000001cdc3b564546246a772a26393094f5645&format=csv&limit=2000",
+      "source": "data.gov.in",
+      "format": "csv",
+      "domain": "indian-gov",
+      "notes": "Hourly station-level pollutant readings across states/cities."
+    },
+    {
+      "name": "data.gov.in Census Sex Ratio and Growth Rate",
+      "url": "https://api.data.gov.in/resource/2320f4d4-85b6-46bb-86b6-36824b87cd08?api-key=579b464db66ec23bdd000001cdc3b564546246a772a26393094f5645&format=csv&limit=2000",
+      "source": "data.gov.in",
+      "format": "csv",
+      "domain": "indian-gov",
+      "notes": "Census 2011 state/UT table — includes an 'India' aggregate row mixed in with individual states, a real wide-format/aggregate-row gotcha."
+    },
+    {
+      "name": "UCI Bank Marketing",
+      "url": "https://archive.ics.uci.edu/static/public/222/bank+marketing.zip",
+      "source": "uci",
+      "format": "csv",
+      "domain": "banking",
+      "zip_member": "bank.zip>bank-full.csv",
+      "notes": "Nested zip (zip-of-zips). Semicolon-delimited, quoted string fields, 'unknown' placeholder category — a real banking-domain delimiter-sniffing test, standing in for RBI's DBIE portal which has no scriptable direct-download endpoint (JS-rendered, anti-bot on static exports)."
+    },
+    {
+      "name": "Kaggle Indian Startup Funding",
+      "url": null,
+      "source": "kaggle",
+      "format": "kaggle",
+      "domain": "product",
+      "kaggle_slug": "sudalairajkumar/indian-startup-funding"
+    },
+    {
+      "name": "Kaggle Zomato Bangalore Restaurants",
+      "url": null,
+      "source": "kaggle",
+      "format": "kaggle",
+      "domain": "product",
+      "kaggle_slug": "himanshupoddar/zomato-bangalore-restaurants"
+    },
+    {
+      "name": "Kaggle India Census",
+      "url": null,
+      "source": "kaggle",
+      "format": "kaggle",
+      "domain": "indian-gov",
+      "kaggle_slug": "danofer/india-census"
+    },
+    {
+      "name": "Kaggle Credit Card Fraud",
+      "url": null,
+      "source": "kaggle",
+      "format": "kaggle",
+      "domain": "global",
+      "kaggle_slug": "mlg-ulb/creditcardfraud"
+    },
+    {
+      "name": "UCI Adult Income",
+      "url": "https://archive.ics.uci.edu/static/public/2/adult.zip",
+      "source": "uci",
+      "format": "csv",
+      "domain": "global",
+      "zip_member": "adult.data",
+      "notes": "Classic income-prediction dataset. adult.data ships with NO header row at all — a real 'missing header entirely' case distinct from multi-row/merged headers."
+    },
+    {
+      "name": "UCI Wine Quality (red)",
+      "url": "https://archive.ics.uci.edu/static/public/186/wine+quality.zip",
+      "source": "uci",
+      "format": "csv",
+      "domain": "global",
+      "zip_member": "winequality-red.csv",
+      "notes": "Semicolon-delimited, quoted headers — second independent delimiter-sniffing case from a different portal than Bank Marketing."
+    },
+    {
+      "name": "NYC 311 Service Requests (sample)",
+      "url": "https://data.cityofnewyork.us/resource/erm2-nwe9.csv?$limit=3000",
+      "source": "nyc-open-data",
+      "format": "csv",
+      "domain": "chaos",
+      "notes": "Socrata API, row-limited via $limit so the sample stays small. ~29 columns, many optional/sparse fields (agency-dependent schema)."
+    },
+    {
+      "name": "NYC Green Taxi Trips (sample)",
+      "url": "https://data.cityofnewyork.us/resource/gkne-dk5s.csv?$limit=2000",
+      "source": "nyc-open-data",
+      "format": "csv",
+      "domain": "global",
+      "notes": "2014 trip records, some null lat/lon — non-Indian format contrast."
+    },
+    {
+      "name": "France Elus Locaux (semicolon CSV)",
+      "url": "https://static.data.gouv.fr/resources/repertoire-national-des-elus-1/20260505-151717/elus-conseillers-arrondissements-ca.csv",
+      "source": "data.gouv.fr",
+      "format": "csv",
+      "domain": "chaos",
+      "notes": "French government open data — semicolon-delimited, quoted fields, accented French text (encoding stress alongside the delimiter)."
+    },
+    {
+      "name": "UCI Online Retail (latin-1 mojibake)",
+      "url": "https://archive.ics.uci.edu/static/public/352/online+retail.zip",
+      "source": "uci",
+      "format": "xlsx",
+      "domain": "chaos",
+      "zip_member": "Online Retail.xlsx",
+      "notes": "The canonical Windows-1252-encoded retail dataset — cancellation-prefixed invoice IDs, negative-quantity returns, non-product StockCodes (POST/D/M/BANK CHARGES)."
+    }
+  ],
+  "regression_lock": [
+    "UCI Bank Marketing",
+    "UCI Adult Income",
+    "UCI Wine Quality (red)",
+    "France Elus Locaux (semicolon CSV)",
+    "UCI Online Retail (latin-1 mojibake)"
+  ]
+}

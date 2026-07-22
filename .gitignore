@@ -10,6 +10,10 @@ venv/
 # Streamlit
 .streamlit/secrets.toml
 
+# Corpus benchmark — downloaded real-world data is never committed;
+# corpus_registry.json (URLs only) is the thing that's tracked.
+corpus_cache/
+
 # Editor / OS
 .vscode/
 .idea/

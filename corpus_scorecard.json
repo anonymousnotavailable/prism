@@ -1,0 +1,122 @@
+[
+  {
+    "name": "data.gov.in Crop Production (Karnataka)",
+    "n_rows": 30,
+    "n_cols": 6,
+    "health_before": 92,
+    "health_after": 92,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 13.14
+  },
+  {
+    "name": "data.gov.in Agri Market Prices",
+    "n_rows": 2000,
+    "n_cols": 10,
+    "health_before": 92,
+    "health_after": 92,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 13.8
+  },
+  {
+    "name": "data.gov.in Real-time Air Quality Index",
+    "n_rows": 2000,
+    "n_cols": 11,
+    "health_before": 95,
+    "health_after": 95,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 14.06
+  },
+  {
+    "name": "data.gov.in Census Sex Ratio and Growth Rate",
+    "n_rows": 36,
+    "n_cols": 6,
+    "health_before": 95,
+    "health_after": 95,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 13.79
+  },
+  {
+    "name": "UCI Bank Marketing",
+    "n_rows": 45211,
+    "n_cols": 17,
+    "health_before": 96,
+    "health_after": 96,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 18.1
+  },
+  {
+    "name": "UCI Adult Income",
+    "n_rows": 32561,
+    "n_cols": 15,
+    "health_before": 96,
+    "health_after": 96,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 17.22
+  },
+  {
+    "name": "UCI Wine Quality (red)",
+    "n_rows": 1599,
+    "n_cols": 12,
+    "health_before": 96,
+    "health_after": 98,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 13.8
+  },
+  {
+    "name": "NYC 311 Service Requests (sample)",
+    "n_rows": 3000,
+    "n_cols": 44,
+    "health_before": 80,
+    "health_after": 80,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 17.25
+  },
+  {
+    "name": "NYC Green Taxi Trips (sample)",
+    "n_rows": 2000,
+    "n_cols": 19,
+    "health_before": 92,
+    "health_after": 92,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 14.45
+  },
+  {
+    "name": "France Elus Locaux (semicolon CSV)",
+    "n_rows": 1027,
+    "n_cols": 14,
+    "health_before": 92,
+    "health_after": 92,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 14.22
+  },
+  {
+    "name": "UCI Online Retail (latin-1 mojibake)",
+    "n_rows": 500000,
+    "n_cols": 8,
+    "health_before": 91,
+    "health_after": 94,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 90.15
+  },
+  {
+    "name": "nightmare (house_prices_ames_messy)",
+    "n_rows": 1460,
+    "n_cols": 81,
+    "health_before": 96,
+    "health_after": 96,
+    "stages_passed": 8,
+    "stages_total": 8,
+    "runtime_seconds": 17.56
+  }
+]

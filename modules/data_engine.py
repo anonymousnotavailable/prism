@@ -48,25 +48,95 @@ HARD_ROW_CEILING = 500_000
 # sequence, so it's the deliberate last resort rather than the first guess).
 _ENCODING_FALLBACKS = ["utf-8-sig", "cp1252", "latin-1"]
 
+# Tried in order. Comma first since it's overwhelmingly the common case and
+# cheapest to confirm; semicolon covers most of continental Europe (whose
+# own decimal comma pushes CSV exports to semicolons), then tab/pipe for
+# database and log-style exports.
+_DELIMITER_CANDIDATES = [",", ";", "\t", "|"]
 
-def _read_csv_with_encoding_fallback(uploaded_file) -> tuple[pd.DataFrame, str]:
-    """Read a CSV, retrying with common non-UTF-8 encodings on decode failure.
+
+def _header_row_is_probably_data(df: pd.DataFrame) -> bool:
+    """pandas' default header=0 treats a headerless CSV's first data row as
+    column names — silently losing that row and mislabeling every column
+    (e.g. UCI's adult.data, whose "headers" become "39", " State-gov",
+    " 77516", ...). A dataset can easily be a realistic mix of numeric and
+    categorical columns (age, workclass, fnlwgt, education, ...), so
+    "how many header cells look numeric overall" is too weak a signal on
+    its own. The precise version: look only at the columns pandas already
+    inferred as numeric dtype from the body — a genuine header for a
+    numeric column is a name like "age" or "fnlwgt", essentially never a
+    number itself. If *every* numeric column's header also happens to look
+    numeric, and there's more than one such column (ruling out the rare
+    legitimate single numeric column name, e.g. a "2024" year column),
+    that's a reliable sign the "header" is actually the first data row.
+    """
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if len(numeric_cols) < 2:
+        return False
+
+    def _looks_numeric(value) -> bool:
+        try:
+            float(str(value).strip())
+            return True
+        except ValueError:
+            return False
+
+    return all(_looks_numeric(c) for c in numeric_cols)
+
+
+def _read_csv_with_encoding_fallback(uploaded_file) -> tuple[pd.DataFrame, str, str, bool]:
+    """Read a CSV, sniffing encoding, delimiter, and header presence.
 
     Real Kaggle-style datasets (e.g. YouTube Trending's international video
     titles/tags) are routinely saved in cp1252/latin-1, not UTF-8 — a plain
     `pd.read_csv` throws UnicodeDecodeError on the first byte outside ASCII.
-    Returns (dataframe, encoding_used) so the caller can surface a warning
-    when a fallback was needed.
+    Government open-data exports outside the US/UK (e.g. data.gouv.fr) are
+    routinely semicolon-delimited, not comma — a plain comma parse either
+    raises a ParserError partway through (once some row happens to contain
+    an embedded comma) or "succeeds" with everything crammed into one column.
+    Classic ML-repository datasets (e.g. UCI's adult.data) ship with no
+    header row at all.
+
+    Returns (dataframe, encoding_used, delimiter_used, header_recovered) so
+    the caller can surface a warning when any fallback was needed.
     """
     last_error: Optional[Exception] = None
-    for encoding in _ENCODING_FALLBACKS:
-        uploaded_file.seek(0)
-        try:
-            return pd.read_csv(uploaded_file, encoding=encoding), encoding
-        except UnicodeDecodeError as e:
-            last_error = e
-            continue
+    fallback: Optional[tuple[pd.DataFrame, str, str]] = None
+    for delimiter in _DELIMITER_CANDIDATES:
+        for encoding in _ENCODING_FALLBACKS:
+            uploaded_file.seek(0)
+            try:
+                df = pd.read_csv(uploaded_file, encoding=encoding, sep=delimiter)
+            except UnicodeDecodeError as e:
+                last_error = e
+                continue
+            except pd.errors.ParserError as e:
+                last_error = e
+                continue
+            if df.shape[1] > 1:
+                df, header_recovered = _recover_missing_header(df, uploaded_file, encoding, delimiter)
+                return df, encoding, delimiter, header_recovered
+            # Parsed cleanly but produced a single column — plausible if the
+            # delimiter is simply wrong, but also possible the file
+            # genuinely has one column. Keep it as a fallback and keep
+            # looking for a delimiter that splits further.
+            if fallback is None:
+                fallback = (df, encoding, delimiter)
+            break  # this delimiter's shape won't improve across encodings
+    if fallback is not None:
+        df, encoding, delimiter = fallback
+        df, header_recovered = _recover_missing_header(df, uploaded_file, encoding, delimiter)
+        return df, encoding, delimiter, header_recovered
     raise last_error
+
+
+def _recover_missing_header(df: pd.DataFrame, uploaded_file, encoding: str, delimiter: str) -> tuple[pd.DataFrame, bool]:
+    if not _header_row_is_probably_data(df):
+        return df, False
+    uploaded_file.seek(0)
+    df = pd.read_csv(uploaded_file, encoding=encoding, sep=delimiter, header=None)
+    df.columns = [f"Column_{i + 1}" for i in range(df.shape[1])]
+    return df, True
 
 
 def load_data(
@@ -94,19 +164,36 @@ def load_data(
     effective_cap = max_rows if max_rows is not None else HARD_ROW_CEILING
 
     try:
-        if filename.endswith(".csv"):
-            df, encoding_used = _read_csv_with_encoding_fallback(uploaded_file)
+        if filename.endswith((".xlsx", ".xls")):
+            uploaded_file.seek(0)
+            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+        else:
+            # Everything else — .csv, .txt, .dat, .data, or no extension at
+            # all — is treated as a delimited-text candidate rather than
+            # rejected by name. Real downloads routinely arrive without a
+            # clean .csv extension (government portals with extensionless
+            # API URLs, UCI's *.data files); the parser below still raises a
+            # clear, specific error if the content genuinely isn't
+            # delimited text, so nothing is silently accepted.
+            df, encoding_used, delimiter_used, header_recovered = _read_csv_with_encoding_fallback(uploaded_file)
             if encoding_used != "utf-8":
                 warnings.append(
                     f"This file wasn't valid UTF-8 (common for datasets scraped or exported outside "
                     f"the US/UK — e.g. non-English titles or tags). Read successfully using "
                     f"{encoding_used} instead."
                 )
-        elif filename.endswith((".xlsx", ".xls")):
-            uploaded_file.seek(0)
-            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
-        else:
-            return None, "Unsupported file type. Please upload a .csv, .xlsx, or .xls file.", warnings
+            if delimiter_used != ",":
+                shown = {"\t": "tab"}.get(delimiter_used, delimiter_used)
+                warnings.append(
+                    f"This file uses '{shown}' instead of a comma to separate columns (common outside "
+                    f"the US/UK, or in database/log exports) — detected automatically."
+                )
+            if header_recovered:
+                warnings.append(
+                    "This file doesn't appear to have a header row (the first row looked like data, "
+                    "not column names), so it would otherwise have been silently used as one — Prism "
+                    "generated generic column names (Column_1, Column_2, ...) and kept every row."
+                )
     except pd.errors.EmptyDataError:
         return None, "The uploaded file is empty.", warnings
     except pd.errors.ParserError as e:

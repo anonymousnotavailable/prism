@@ -16,3 +16,5 @@ rapidfuzz==3.13.0
 imbalanced-learn==0.12.4
 edge-tts==7.2.8
 gTTS==2.5.4
+requests==2.32.5
+charset-normalizer==3.4.9

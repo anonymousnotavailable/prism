@@ -649,11 +649,13 @@ resets. A question that can't be evaluated (quota-blocked) is reported as
 `NOT RUN`, never silently counted as a failure.
 
 A second, separate harness covers Auto Cleaner:
-[`eval/autocleaner_eval.py`](eval/autocleaner_eval.py) runs 5 test cases
+[`eval/autocleaner_eval.py`](eval/autocleaner_eval.py) runs 8 test cases
 directly against `modules.autocleaner`'s scan → plan → execute pipeline
 over the Hell Mode datasets (e.g. asserting `parse_indian_number` fires on
-a lakh/crore-formatted column and leaves it numeric, or that 40 exact
-duplicate rows drop to 0) and writes
+a lakh/crore-formatted column and leaves it numeric, that 40 exact
+duplicate rows drop to 0, or that a 96%-missing column with a literal
+"Not Applicable" placeholder gets flagged as a meaningful-NA candidate
+instead of a data-quality problem) and writes
 [`eval/autocleaner_eval_results.md`](eval/autocleaner_eval_results.md).
 Unlike the question eval above, **this one needs no Gemini API key** —
 Auto Cleaner's plan and execution are fully deterministic, so the harness
@@ -663,7 +665,63 @@ never touches the network:
 python eval/autocleaner_eval.py
 ```
 
-The most recent run passed **5/5 (100%)**.
+The most recent run passed **8/8 (100%)**.
+
+---
+
+## Battle-tested on real data
+
+Bundled sample datasets and hand-picked edge cases only prove Prism
+survives the messes its own developer thought to test for. To go further,
+Prism runs an 8-stage pipeline — load, scan, auto-clean, invariant checks,
+dashboard, PDF/HTML report, AI questions, export — against real files
+pulled live from government open-data portals, UCI's ML repository, and
+city open-data APIs, not synthetic or hand-crafted ones.
+
+```bash
+python tools/corpus.py              # download the registry's datasets into corpus_cache/ (gitignored)
+python tools/corpus_gauntlet.py     # run the full 8-stage pipeline against every cached dataset
+python tools/corpus_gauntlet.py --quick   # fast regression check: 5 locked datasets + nightmare.csv
+```
+
+[`tools/corpus_registry.json`](tools/corpus_registry.json) lists every
+dataset by name and source URL only — the actual downloaded bytes are
+never committed to the repo (`corpus_cache/` is gitignored), both for
+licensing hygiene and because a benchmark that re-hosts other people's
+data isn't one anyone should trust.
+
+<!-- CORPUS_BADGE_START -->
+**Benchmarked against 12 real-world datasets** — pulled live from government open-data portals, UCI's ML repository, and city open-data APIs, run through Prism's full 8-stage pipeline (load, scan, auto-clean, invariant checks, dashboard, PDF/HTML report, AI questions, export) by [`tools/corpus_gauntlet.py`](tools/corpus_gauntlet.py). See [HARDENING.md](HARDENING.md) for the full fix log — every row below reflects a dataset that actually broke Prism at least once during development, before the fix that made it pass.
+
+| Dataset | Source | Domain | Rows × Cols | Health (before → after) | Result |
+|---|---|---|---|---|---|
+| data.gov.in Crop Production (Karnataka) | data.gov.in | indian-gov | 30 × 6 | 92 → 92 | PASS 8/8 |
+| data.gov.in Agri Market Prices | data.gov.in | indian-gov | 2,000 × 10 | 92 → 92 | PASS 8/8 |
+| data.gov.in Real-time Air Quality Index | data.gov.in | indian-gov | 2,000 × 11 | 95 → 95 | PASS 8/8 |
+| data.gov.in Census Sex Ratio and Growth Rate | data.gov.in | indian-gov | 36 × 6 | 95 → 95 | PASS 8/8 |
+| UCI Bank Marketing | uci | banking | 45,211 × 17 | 96 → 96 | PASS 8/8 |
+| UCI Adult Income | uci | global | 32,561 × 15 | 96 → 96 | PASS 8/8 |
+| UCI Wine Quality (red) | uci | global | 1,599 × 12 | 96 → 98 (+2) | PASS 8/8 |
+| NYC 311 Service Requests (sample) | nyc-open-data | chaos | 3,000 × 44 | 80 → 80 | PASS 8/8 |
+| NYC Green Taxi Trips (sample) | nyc-open-data | global | 2,000 × 19 | 92 → 92 | PASS 8/8 |
+| France Elus Locaux (semicolon CSV) | data.gouv.fr | chaos | 1,027 × 14 | 92 → 92 | PASS 8/8 |
+| UCI Online Retail (latin-1 mojibake) | uci | chaos | 500,000 × 8 | 91 → 94 (+3) | PASS 8/8 |
+| nightmare (house_prices_ames_messy) | Kaggle (House Prices, Ames) | chaos | 1,460 × 81 | 96 → 96 | PASS 8/8 |
+<!-- CORPUS_BADGE_END -->
+
+Every fix this corpus run drove is logged with its root cause in
+[HARDENING.md](HARDENING.md) — delimiter sniffing for semicolon-delimited
+European CSVs, extension-agnostic loading for government APIs that don't
+set a file extension, and a header-detection heuristic that catches
+classic UCI-style files that have no header row at all (which pandas'
+default behavior otherwise turns into a silently-dropped row and a
+garbage column name). The five most instructive datasets from that list
+are locked into `--quick` as a permanent regression check, run alongside
+[`samples/hell/house_prices_ames_messy.csv`](samples/hell/house_prices_ames_messy.csv)
+— the flagship "nightmare" dataset from Prism's original Hell Mode work.
+
+Prism has been run against government exports, banking data, and the
+messiest public datasets on the internet — and survived.
 
 ---
 
