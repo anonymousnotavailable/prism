@@ -513,7 +513,7 @@ def render_shimmer(height: int = 90) -> None:
 
 ONBOARDING_STEPS = [
     ("1. Overview", "Check the data-quality report, column health, and drill into any column."),
-    ("2. Clean", "Use the sidebar's Cleaning Controls, Datetime Features, and Type Coercion tools."),
+    ("2. Clean", "Use the sidebar's Data Processing panel — cleaning, Datetime Features, and Type Coercion tools."),
     ("3. Combine", "Optionally join a second file onto your active dataset."),
     ("4. Visualize", "Browse auto-generated charts or build your own in Manual mode."),
     ("5. SQL Lab", "Run raw SQL against your data, with example queries to get started."),

@@ -626,111 +626,123 @@ for _action, _fn in {
 
 
 # --------------------------------------------------------------------------
-# Sidebar — upload, theme toggle, cleaning controls + history, per the
-# spec's UI layout. Rendered on every page, including the landing screen.
+# Sidebar — grouped into "⚙️ App Preferences" (theme, Atlas voice, India
+# Mode, Strict mode) and "📁 Data Sources" (file upload) expanders, then
+# "🧹 Data Processing" (cleaning tools) + history below once a dataset is
+# active. Sample datasets and session restore stay on the landing screen,
+# not in the sidebar — they're the primary first-run call to action before
+# any data is loaded, and burying them in a collapsed sidebar expander
+# would be a step backward for onboarding, not a cleanup. Rendered on
+# every page, including the landing screen.
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.markdown('<span class="hero-title-animated" style="font-size:1.8rem;">PRISM</span>', unsafe_allow_html=True)
     st.caption("Auto-EDA · AI Analyst")
-    theme_keys = list(theme.THEMES.keys())
-    st.selectbox(
-        "Theme",
-        theme_keys,
-        key="theme_mode",
-        format_func=lambda k: theme.THEMES[k]["label"],
-    )
-    st.toggle("Atlas voice", key="atlas_voice_enabled", help="Mute/unmute all spoken replies.")
-    st.toggle(
-        "🇮🇳 India Mode", key="india_mode",
-        help="Fiscal-year (Apr–Mar) labels, Indian number grouping (1,20,000 / ₹1.2L), "
-             "day-first date parsing, and festival markers on time-series charts.",
-    )
-    st.toggle(
-        "🔒 Strict mode", key="pii_strict_mode",
-        help="When on, columns flagged by the Indian PII Vault (Aadhaar, PAN, GSTIN, IFSC, "
-             "mobile numbers, emails, names) never have their actual values sent to Gemini — "
-             "the AI Analyst still sees the column exists (schema only), never a real value "
-             "from it. Off by default so the AI Analyst can reason over real examples; turn "
-             "this on for datasets you can't risk sending PII samples for, even briefly.",
-    )
 
-    st.markdown("### 📁 Upload")
-    uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
+    with st.expander("⚙️ App Preferences", expanded=False):
+        theme_keys = list(theme.THEMES.keys())
+        st.selectbox(
+            "Theme",
+            theme_keys,
+            key="theme_mode",
+            format_func=lambda k: theme.THEMES[k]["label"],
+        )
+        st.toggle("Atlas voice", key="atlas_voice_enabled", help="Mute/unmute all spoken replies.")
+        st.toggle(
+            "🇮🇳 India Mode", key="india_mode",
+            help="Fiscal-year (Apr–Mar) labels, Indian number grouping (1,20,000 / ₹1.2L), "
+                 "day-first date parsing, and festival markers on time-series charts.",
+        )
+        st.toggle(
+            "🔒 Strict mode", key="pii_strict_mode",
+            help="When on, columns flagged by the Indian PII Vault (Aadhaar, PAN, GSTIN, IFSC, "
+                 "mobile numbers, emails, names) never have their actual values sent to Gemini — "
+                 "the AI Analyst still sees the column exists (schema only), never a real value "
+                 "from it. Off by default so the AI Analyst can reason over real examples; turn "
+                 "this on for datasets you can't risk sending PII samples for, even briefly.",
+        )
 
-    if (
-        uploaded_file is not None
-        and uploaded_file.name != st.session_state.last_file_name
-        and st.session_state.pending_large_upload is None
-    ):
-        sheet_choice, sheet_ready = resolve_sheet_choice(uploaded_file, "primary")
-        if sheet_ready:
-            with st.spinner("Reading and analyzing your data..."):
-                # max_rows=None: read (near-)the full file rather than the usual
-                # first-MAX_ROWS truncation, so a large file can go through the
-                # Smart Sampling picker below instead of always losing "the tail".
-                new_df, load_error, load_warnings = data_engine.load_data(
-                    uploaded_file, sheet_name=sheet_choice, max_rows=None
+    with st.expander("📁 Data Sources", expanded=st.session_state.working_df is None):
+        st.caption("Sample datasets and restoring a saved session are on the landing page — shown "
+                    "before any dataset is active, so they stay the first thing a new user sees "
+                    "rather than a collapsed sidebar item.")
+        uploaded_file = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx", "xls"])
+
+        if (
+            uploaded_file is not None
+            and uploaded_file.name != st.session_state.last_file_name
+            and st.session_state.pending_large_upload is None
+        ):
+            sheet_choice, sheet_ready = resolve_sheet_choice(uploaded_file, "primary")
+            if sheet_ready:
+                with st.spinner("Reading and analyzing your data..."):
+                    # max_rows=None: read (near-)the full file rather than the usual
+                    # first-MAX_ROWS truncation, so a large file can go through the
+                    # Smart Sampling picker below instead of always losing "the tail".
+                    new_df, load_error, load_warnings = data_engine.load_data(
+                        uploaded_file, sheet_name=sheet_choice, max_rows=None
+                    )
+
+                if load_error:
+                    st.error(load_error)
+                elif new_df.shape[0] > data_engine.MAX_ROWS:
+                    st.session_state.pending_large_upload = {
+                        "df": new_df, "filename": uploaded_file.name, "warnings": load_warnings,
+                    }
+                else:
+                    set_active_dataset(new_df, new_df.copy(), uploaded_file.name)
+                    for w in load_warnings:
+                        st.warning(w)
+                    st.success(f"Loaded {new_df.shape[0]:,} rows x {new_df.shape[1]} columns")
+                    announce_ambient_insights(
+                        new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
+                    )
+
+        # --- Smart Sampling — shown once a large file has been read, until the
+        # user picks a sampling method. Kept out of the block above so opening
+        # this picker doesn't re-read the (possibly large) file on every rerun.
+        if st.session_state.pending_large_upload is not None:
+            pending = st.session_state.pending_large_upload
+            pending_df = pending["df"]
+            st.info(
+                f"This file has {pending_df.shape[0]:,} rows — pick how Prism should sample it "
+                f"down to {data_engine.MAX_ROWS:,} to stay responsive."
+            )
+            sample_method = st.radio(
+                "Sampling method", ["Random", "Stratified"], key="smart_sample_method", horizontal=True
+            )
+            strat_col = None
+            if sample_method == "Stratified":
+                cat_cols = [c for c in pending_df.columns if pending_df[c].nunique() <= 50]
+                if cat_cols:
+                    strat_col = st.selectbox(
+                        "Preserve proportions by", cat_cols, key="smart_sample_strat_col",
+                        help="Each category in this column keeps the same share of rows as in the full file.",
+                    )
+                else:
+                    st.caption("No column with 50 or fewer distinct values found — using random sampling instead.")
+                    sample_method = "Random"
+            if st.button("Use this sample", key="smart_sample_confirm", use_container_width=True):
+                sampled_df, explanation = data_engine.sample_dataframe(
+                    pending_df, sample_method.lower(), data_engine.MAX_ROWS, strat_col
                 )
-
-            if load_error:
-                st.error(load_error)
-            elif new_df.shape[0] > data_engine.MAX_ROWS:
-                st.session_state.pending_large_upload = {
-                    "df": new_df, "filename": uploaded_file.name, "warnings": load_warnings,
-                }
-            else:
-                set_active_dataset(new_df, new_df.copy(), uploaded_file.name)
-                for w in load_warnings:
+                set_active_dataset(sampled_df, sampled_df.copy(), pending["filename"])
+                for w in pending["warnings"]:
                     st.warning(w)
-                st.success(f"Loaded {new_df.shape[0]:,} rows x {new_df.shape[1]} columns")
+                st.session_state.sample_info = explanation
+                st.session_state.pending_large_upload = None
+                st.toast("Sample ready.")
                 announce_ambient_insights(
-                    new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
+                    sampled_df, data_engine.get_data_quality_report(sampled_df, st.session_state.column_types)
                 )
-
-    # --- Smart Sampling — shown once a large file has been read, until the
-    # user picks a sampling method. Kept out of the block above so opening
-    # this picker doesn't re-read the (possibly large) file on every rerun.
-    if st.session_state.pending_large_upload is not None:
-        pending = st.session_state.pending_large_upload
-        pending_df = pending["df"]
-        st.info(
-            f"This file has {pending_df.shape[0]:,} rows — pick how Prism should sample it "
-            f"down to {data_engine.MAX_ROWS:,} to stay responsive."
-        )
-        sample_method = st.radio(
-            "Sampling method", ["Random", "Stratified"], key="smart_sample_method", horizontal=True
-        )
-        strat_col = None
-        if sample_method == "Stratified":
-            cat_cols = [c for c in pending_df.columns if pending_df[c].nunique() <= 50]
-            if cat_cols:
-                strat_col = st.selectbox(
-                    "Preserve proportions by", cat_cols, key="smart_sample_strat_col",
-                    help="Each category in this column keeps the same share of rows as in the full file.",
-                )
-            else:
-                st.caption("No column with 50 or fewer distinct values found — using random sampling instead.")
-                sample_method = "Random"
-        if st.button("Use this sample", key="smart_sample_confirm", use_container_width=True):
-            sampled_df, explanation = data_engine.sample_dataframe(
-                pending_df, sample_method.lower(), data_engine.MAX_ROWS, strat_col
-            )
-            set_active_dataset(sampled_df, sampled_df.copy(), pending["filename"])
-            for w in pending["warnings"]:
-                st.warning(w)
-            st.session_state.sample_info = explanation
-            st.session_state.pending_large_upload = None
-            st.toast("Sample ready.")
-            announce_ambient_insights(
-                sampled_df, data_engine.get_data_quality_report(sampled_df, st.session_state.column_types)
-            )
-            st.rerun()
+                st.rerun()
 
     working_df = st.session_state.working_df
 
     if working_df is not None:
         st.divider()
-        st.markdown("### 🧹 Cleaning Controls")
+        st.markdown("### 🧹 Data Processing")
+        st.caption("Smart Type Coercion and Datetime Features live below, alongside the rest of the cleaning tools.")
 
         # --- Missing values -------------------------------------------------
         with st.expander("Handle Missing Values", expanded=False):
@@ -1389,7 +1401,7 @@ elif st.session_state.active_section == "Overview":
     if quality["all_null_columns"]:
         st.warning(
             f"Fully empty columns detected: {', '.join(quality['all_null_columns'])}. "
-            "Consider dropping them in the sidebar's Cleaning Controls."
+            "Consider dropping them in the sidebar's Data Processing panel."
         )
 
     if pii_detector.has_findings(st.session_state.pii_findings):
@@ -1571,7 +1583,7 @@ elif st.session_state.active_section == "Overview":
 elif st.session_state.active_section == "Clean":
     ui.render_help_expander(
         "Review exactly what changed since upload. Cleaning actions themselves live in the "
-        "sidebar's Cleaning Controls, Datetime Features, and Type Coercion tools."
+        "sidebar's Data Processing panel."
     )
 
     st.subheader("Before vs After")
@@ -1595,7 +1607,7 @@ elif st.session_state.active_section == "Clean":
     else:
         ui.render_empty_state(
             "🧹", "No cleaning steps yet",
-            "Use the sidebar's Cleaning Controls, Datetime Features, or Type Coercion tools to get started.",
+            "Use the sidebar's Data Processing panel to get started.",
         )
 
     st.divider()
@@ -2423,8 +2435,9 @@ elif st.session_state.active_section == "AI Analyst":
         st.markdown("**Ask a question about your data**")
         st.caption(
             "Ask Atlas anything from the command bar at the top — by voice or by typing — and it "
-            "lands here. Every question sends Gemini the column schema, a 5-row sample, and "
-            "summary statistics; never the full dataset."
+            "lands here. Every question sends Gemini a compact metadata summary (dtypes, missing "
+            "counts, numeric min/mean/max, categorical unique counts) plus a 3-row sample — never "
+            "the full dataset."
         )
 
         if not st.session_state.chat_history:

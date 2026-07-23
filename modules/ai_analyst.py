@@ -192,6 +192,55 @@ def get_model(api_key: Optional[str] = None):
     return genai.GenerativeModel(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT)
 
 
+def generate_df_metadata(df: pd.DataFrame, column_types: Optional[dict[str, str]] = None) -> str:
+    """Compact, structured description of a dataframe's shape and contents —
+    shape, per-column dtype, per-column missing count, min/mean/max for
+    numeric columns, and unique-value counts for categorical/text columns.
+
+    This exists specifically so no caller ever has a reason to hand Gemini
+    raw rows to "describe" the dataset: this function IS the description.
+    It's deliberately narrower than the old `df.describe(include="all")`
+    dump this replaced (no percentiles/std/mode) — those rarely change a
+    generated pandas answer but reliably bloat every single request's token
+    count, on every dataset, on every question.
+
+    column_types is optional (falls back to inferring numeric-vs-categorical
+    from pandas dtypes directly) so this is usable standalone, without first
+    calling data_engine.detect_column_types.
+    """
+    n_rows, n_cols = df.shape
+    dtypes = {col: str(dtype) for col, dtype in df.dtypes.items()}
+    missing_counts = df.isna().sum()
+
+    lines = [f"Shape: {n_rows} rows x {n_cols} columns", "", "Columns (dtype, missing count):"]
+    for col in df.columns:
+        lines.append(f"- {col}: {dtypes[col]}, missing={int(missing_counts[col])}")
+
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if numeric_cols:
+        lines.append("")
+        lines.append("Numeric columns (min / mean / max):")
+        for col in numeric_cols:
+            series = df[col].dropna()
+            if series.empty:
+                lines.append(f"- {col}: (no non-null values)")
+            else:
+                fmt = lambda v: f"{int(v):,}" if float(v).is_integer() else f"{v:,.2f}"  # ':.4g' flips to 5e+04-style scientific notation on ordinary round salary/revenue figures — this app's core data
+                lines.append(f"- {col}: {fmt(series.min())} / {fmt(series.mean())} / {fmt(series.max())}")
+
+    if column_types:
+        categorical_cols = [c for c in df.columns if column_types.get(c) in ("categorical", "text")]
+    else:
+        categorical_cols = [c for c in df.columns if c not in numeric_cols]
+    if categorical_cols:
+        lines.append("")
+        lines.append("Categorical/text columns (unique value count):")
+        for col in categorical_cols:
+            lines.append(f"- {col}: {df[col].nunique()} unique")
+
+    return "\n".join(lines)
+
+
 def build_data_context(
     df: pd.DataFrame,
     column_types: dict[str, str],
@@ -199,7 +248,8 @@ def build_data_context(
     strict_mode: bool = False,
     dataset_fingerprint: Optional[dict] = None,
 ) -> str:
-    """Summarize the dataframe's schema, a 5-row sample, and summary stats.
+    """Combine generate_df_metadata() with a strictly-limited 3-row markdown
+    sample into the sole description of the dataframe sent to Gemini.
 
     This — never the full dataset — is what goes to Gemini on every request.
     When strict_mode is True and pii_findings flags any columns (Indian PII
@@ -212,16 +262,16 @@ def build_data_context(
     should I watch out for" gets the actual documented quirks of e.g. the
     Kaggle Titanic dataset, not a generic guess from the sample rows alone.
     """
-    schema_lines = [f"- {col}: {dtype} ({column_types.get(col, 'unknown')})" for col, dtype in df.dtypes.items()]
+    metadata = generate_df_metadata(df, column_types)
     if strict_mode and pii_findings:
         from modules import pii_detector
-        sample = pii_detector.build_safe_sample(df, pii_findings, n=5).to_string()
+        sample_df = pii_detector.build_safe_sample(df, pii_findings, n=3)
     else:
-        sample = df.head(5).to_string()
+        sample_df = df.head(3)
     try:
-        stats = df.describe(include="all").transpose().to_string()
-    except Exception:
-        stats = "(summary statistics unavailable)"
+        sample = sample_df.to_markdown(index=False)
+    except ImportError:
+        sample = sample_df.to_string(index=False)  # tabulate not installed — fall back rather than fail the request
 
     fingerprint_block = ""
     if dataset_fingerprint:
@@ -230,13 +280,7 @@ def build_data_context(
             f"\nThis data appears to be the {dataset_fingerprint['name']} — known quirks to keep in mind:\n{tips}\n"
         )
 
-    return (
-        f"DataFrame shape: {df.shape[0]} rows x {df.shape[1]} columns\n"
-        f"{fingerprint_block}\n"
-        "Columns and dtypes:\n" + "\n".join(schema_lines) + "\n\n"
-        f"Sample rows (first 5):\n{sample}\n\n"
-        f"Summary statistics:\n{stats}"
-    )
+    return f"{metadata}\n{fingerprint_block}\nSample rows (first 3):\n{sample}"
 
 
 def history_to_contents(chat_history: list[dict]) -> list[dict]:
@@ -282,13 +326,27 @@ _RATE_LIMIT_WINDOW_SECONDS = 3600
 def _check_rate_limit() -> Optional[str]:
     """Returns an error message if this Streamlit session has hit its
     hourly Gemini call cap, else None. Silently a no-op outside a real
-    Streamlit session (eval harnesses, tools/corpus_gauntlet.py, plain
+    browser session (eval harnesses, tools/corpus_gauntlet.py, plain
     scripts) — there's no per-visitor session to bound there.
+
+    Checking get_script_run_ctx() (not just whether st.session_state
+    *works*) matters: Streamlit's "bare mode" session_state is a real,
+    functioning dict even with no browser attached — it just persists for
+    the whole process instead of per-visitor. A long-running script making
+    many sequential Gemini calls (tools/corpus_gauntlet.py processing 12
+    datasets in one run) would trip this limiter against itself, mistaken
+    for one browser session hammering the app. Caught by running the
+    corpus gauntlet after adding this limiter — it started failing at
+    exactly the questions past the cap.
     """
     try:
         import time as _time
 
         import streamlit as st
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        if get_script_run_ctx() is None:
+            return None
 
         now = _time.time()
         window_start = st.session_state.get("_gemini_window_start", now)

@@ -5,9 +5,9 @@
     "n_cols": 6,
     "health_before": 92,
     "health_after": 92,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 13.14
+    "runtime_seconds": 12.43
   },
   {
     "name": "data.gov.in Agri Market Prices",
@@ -15,9 +15,9 @@
     "n_cols": 10,
     "health_before": 92,
     "health_after": 92,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 13.8
+    "runtime_seconds": 10.48
   },
   {
     "name": "data.gov.in Real-time Air Quality Index",
@@ -25,9 +25,9 @@
     "n_cols": 11,
     "health_before": 95,
     "health_after": 95,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 14.06
+    "runtime_seconds": 10.07
   },
   {
     "name": "data.gov.in Census Sex Ratio and Growth Rate",
@@ -35,9 +35,9 @@
     "n_cols": 6,
     "health_before": 95,
     "health_after": 95,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 13.79
+    "runtime_seconds": 9.42
   },
   {
     "name": "UCI Bank Marketing",
@@ -45,9 +45,9 @@
     "n_cols": 17,
     "health_before": 96,
     "health_after": 96,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 18.1
+    "runtime_seconds": 15.81
   },
   {
     "name": "UCI Adult Income",
@@ -55,9 +55,9 @@
     "n_cols": 15,
     "health_before": 96,
     "health_after": 96,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 17.22
+    "runtime_seconds": 13.47
   },
   {
     "name": "UCI Wine Quality (red)",
@@ -65,9 +65,9 @@
     "n_cols": 12,
     "health_before": 96,
     "health_after": 98,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 13.8
+    "runtime_seconds": 9.93
   },
   {
     "name": "NYC 311 Service Requests (sample)",
@@ -75,9 +75,9 @@
     "n_cols": 44,
     "health_before": 80,
     "health_after": 80,
-    "stages_passed": 8,
+    "stages_passed": 7,
     "stages_total": 8,
-    "runtime_seconds": 17.25
+    "runtime_seconds": 12.46
   },
   {
     "name": "NYC Green Taxi Trips (sample)",
@@ -87,7 +87,7 @@
     "health_after": 92,
     "stages_passed": 8,
     "stages_total": 8,
-    "runtime_seconds": 14.45
+    "runtime_seconds": 13.86
   },
   {
     "name": "France Elus Locaux (semicolon CSV)",
@@ -97,7 +97,7 @@
     "health_after": 92,
     "stages_passed": 8,
     "stages_total": 8,
-    "runtime_seconds": 14.22
+    "runtime_seconds": 13.93
   },
   {
     "name": "UCI Online Retail (latin-1 mojibake)",
@@ -107,7 +107,7 @@
     "health_after": 94,
     "stages_passed": 8,
     "stages_total": 8,
-    "runtime_seconds": 90.15
+    "runtime_seconds": 102.25
   },
   {
     "name": "nightmare (house_prices_ames_messy)",
@@ -117,6 +117,6 @@
     "health_after": 96,
     "stages_passed": 8,
     "stages_total": 8,
-    "runtime_seconds": 17.56
+    "runtime_seconds": 16.73
   }
 ]

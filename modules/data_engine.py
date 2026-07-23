@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional, Union
 
 import pandas as pd
+import streamlit as st
 
 # Rows beyond this threshold are truncated on load so the app stays responsive
 # in the browser — Plotly and Streamlit both slow down heavily past ~50k rows.
@@ -282,6 +283,7 @@ def _looks_like_datetime(series: pd.Series) -> bool:
     return parsed.notna().mean() > 0.9
 
 
+@st.cache_data(show_spinner=False)
 def detect_column_types(df: pd.DataFrame) -> dict[str, str]:
     """Classify each column as one of: numeric, datetime, categorical, text, all_null.
 
@@ -289,6 +291,13 @@ def detect_column_types(df: pd.DataFrame) -> dict[str, str]:
       to parse object columns as dates.
     - Among remaining object columns, low-cardinality ones are 'categorical'
       (good for pie/bar charts) and high-cardinality free text is 'text'.
+
+    @st.cache_data: this is called 25+ times across app.py, and Streamlit
+    reruns the whole script on every widget interaction anywhere in the app
+    — without caching, a dataset's column types were being re-inferred from
+    scratch dozens of times per session even when nothing about the data had
+    changed. Pure function of `df`'s contents, so caching is exact, not an
+    approximation: a genuinely different `df` is a cache miss, not a stale hit.
     """
     column_types: dict[str, str] = {}
 
@@ -339,8 +348,15 @@ def detect_outliers_iqr(series: pd.Series) -> tuple[int, float]:
     return len(outliers), round(100 * len(outliers) / len(clean), 2)
 
 
+@st.cache_data(show_spinner=False)
 def get_data_quality_report(df: pd.DataFrame, column_types: dict[str, str]) -> dict:
-    """Build a single dict summarizing dataset health for the Overview tab and report export."""
+    """Build a single dict summarizing dataset health for the Overview tab and report export.
+
+    @st.cache_data: same rationale as detect_column_types above — this scans
+    every column for missing values and IQR outliers, and was being
+    recomputed from scratch on every rerun at 10+ call sites even when the
+    underlying data hadn't changed since the last run.
+    """
     n_rows, n_cols = df.shape
     missing_by_column = {col: round(100 * df[col].isna().sum() / n_rows, 2) for col in df.columns}
 
