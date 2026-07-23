@@ -1171,11 +1171,13 @@ if st.session_state.active_section not in _nav_options:
 if st.session_state.jump_to_tab:
     if st.session_state.jump_to_tab in _nav_options:
         st.session_state.active_section = st.session_state.jump_to_tab
+        st.session_state.pop("nav_primary_pills", None)  # force the pills to re-derive from `default` below
     st.session_state.jump_to_tab = None
 
 if st.session_state.pending_active_section:
     if st.session_state.pending_active_section in _nav_options:
         st.session_state.active_section = st.session_state.pending_active_section
+        st.session_state.pop("nav_primary_pills", None)
     st.session_state.pending_active_section = None
 
 quality_for_header = data_engine.get_data_quality_report(df, column_types)
@@ -1203,19 +1205,54 @@ elif st.session_state.story_mode_active:
     story_mode.render_story_mode()
 else:
     # A controllable nav — not st.tabs(), which has no API to switch the
-    # active tab from Python. Bound to session_state so Atlas's "navigate"
-    # command (_cmd_navigate, above) can actually change it: set
-    # st.session_state.active_section then st.rerun(), and this widget
-    # picks the new value up on the next render. Using elif below (instead
-    # of tabs' render-everything-then-hide-with-CSS model) also means only
-    # the active section's code runs each rerun, not all thirteen. Also
-    # replaces the old ui.render_tab_jump_script() JS hack — this widget is
-    # a real Python-side control, so "jump to this tab" is just an
-    # assignment to st.session_state.active_section, above.
-    st.segmented_control(
-        "Navigate", _nav_options, key="active_section",
-        format_func=lambda name: f"{_TAB_ICONS.get(name, '')} {name}".strip(),
-    )
+    # active tab from Python. Driven by st.session_state.active_section so
+    # Atlas's "navigate" command (_cmd_navigate, above) can actually change
+    # it: set st.session_state.active_section then st.rerun(), and this
+    # widget picks the new value up on the next render. Using elif below
+    # (instead of tabs' render-everything-then-hide-with-CSS model) also
+    # means only the active section's code runs each rerun, not all
+    # thirteen-plus. Also replaces the old ui.render_tab_jump_script() JS
+    # hack — this widget is a real Python-side control, so "jump to this
+    # tab" is just an assignment to st.session_state.active_section, above.
+    #
+    # Progressive disclosure: with 13-14 destinations, a single segmented_
+    # control wraps into a dense multi-row block on first paint — every
+    # destination competing for attention regardless of how often it's
+    # actually used. Split into a primary set (the four things almost every
+    # session touches) plus an "Advanced Tools" popover for the rest, which
+    # stay one click away rather than gone — Atlas voice navigation and
+    # jump_to_tab reach every tab in _nav_options either way, only the
+    # *default visible* set is curated.
+    _PRIMARY_NAV = ["Overview", "Clean", "Visualize", "AI Analyst"]
+    _ADVANCED_NAV = [t for t in _nav_options if t not in _PRIMARY_NAV]
+
+    nav_col, more_col = st.columns([5, 1.4])
+    with nav_col:
+        primary_pick = st.segmented_control(
+            "Navigate", _PRIMARY_NAV,
+            default=st.session_state.active_section if st.session_state.active_section in _PRIMARY_NAV else None,
+            key="nav_primary_pills",
+            format_func=lambda name: f"{_TAB_ICONS.get(name, '')} {name}".strip(),
+        )
+    with more_col:
+        advanced_active = st.session_state.active_section in _ADVANCED_NAV
+        with st.popover(
+            f"{'▸ ' if advanced_active else ''}⋯ Advanced Tools{' — ' + st.session_state.active_section if advanced_active else ''}",
+            use_container_width=True,
+        ):
+            st.caption("Combine, SQL Lab, and the analysis labs — one click away, not gone.")
+            for _tab in _ADVANCED_NAV:
+                if st.button(
+                    f"{_TAB_ICONS.get(_tab, '')}  {_tab}", key=f"nav_adv_{_tab}", use_container_width=True,
+                    type="primary" if _tab == st.session_state.active_section else "secondary",
+                ):
+                    st.session_state.active_section = _tab
+                    st.session_state.pop("nav_primary_pills", None)
+                    st.rerun()
+
+    if primary_pick is not None and primary_pick != st.session_state.active_section:
+        st.session_state.active_section = primary_pick
+        st.rerun()
 
 # --------------------------------------------------------------------------
 # Atlas side panel — a persistent, always-visible copilot column (Sprint 2
@@ -2466,12 +2503,19 @@ elif st.session_state.active_section == "AI Analyst":
         st.warning(ai_analyst.GEMINI_SETUP_HELP)
     else:
         if st.button("Generate Key Insights"):
-            with st.spinner(ui.get_loading_message()):
-                quality_for_ai = data_engine.get_data_quality_report(df, column_types)
-                _, top_corr_for_ai = visualization.plot_correlation_heatmap(df)
-                insights, insight_error = ai_analyst.generate_key_insights(
-                    gemini_model, df, quality_for_ai, column_types, top_corr_for_ai
-                )
+            skeleton = st.empty()
+            with skeleton.container():
+                # Shaped like the insight-card list about to replace it — a
+                # skeleton previews what's coming, not just "something is
+                # happening" (st.spinner's only real job).
+                for _ in range(5):
+                    ui.render_shimmer(height=52)
+            quality_for_ai = data_engine.get_data_quality_report(df, column_types)
+            _, top_corr_for_ai = visualization.plot_correlation_heatmap(df)
+            insights, insight_error = ai_analyst.generate_key_insights(
+                gemini_model, df, quality_for_ai, column_types, top_corr_for_ai
+            )
+            skeleton.empty()
             st.session_state.key_insights = insights
             st.session_state.key_insights_error = insight_error
 
@@ -3248,17 +3292,27 @@ elif st.session_state.active_section == "ML Lab":
         if not mllab_selected_features:
             st.info("Pick at least one feature column.")
         elif st.button("Run Baseline Models", type="primary", use_container_width=True):
-            with st.spinner(ui.get_loading_message()):
-                st.session_state.mllab_shap_values = None  # a new model run invalidates any prior SHAP explanation
-                st.session_state.mllab_shap_error = None
-                try:
-                    st.session_state.mllab_result = mllab.run_baseline_models(
-                        df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
-                    )
-                    st.session_state.mllab_error = None
-                except Exception as e:
-                    st.session_state.mllab_result = None
-                    st.session_state.mllab_error = str(e)
+            skeleton = st.empty()
+            with skeleton.container():
+                # Shaped like the two metric columns + charts about to
+                # replace it, not just a generic spinner.
+                shim1, shim2 = st.columns(2)
+                with shim1:
+                    ui.render_shimmer(height=80)
+                with shim2:
+                    ui.render_shimmer(height=80)
+                ui.render_shimmer(height=220)
+            st.session_state.mllab_shap_values = None  # a new model run invalidates any prior SHAP explanation
+            st.session_state.mllab_shap_error = None
+            try:
+                st.session_state.mllab_result = mllab.run_baseline_models(
+                    df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
+                )
+                st.session_state.mllab_error = None
+            except Exception as e:
+                st.session_state.mllab_result = None
+                st.session_state.mllab_error = str(e)
+            skeleton.empty()
 
         if st.session_state.mllab_error:
             st.error(st.session_state.mllab_error)

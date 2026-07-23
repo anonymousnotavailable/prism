@@ -128,7 +128,7 @@ def _tokens(theme_key: str) -> dict:
 _CSS_TEMPLATE = Template(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 :root {
     --prism-bg: $bg;
@@ -182,6 +182,20 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sa
     color: $text;
 }
 
+/* ── Z-axis elevation ────────────────────────────────────────────────
+   stMainBlockContainer is Streamlit's single top-level wrapper for the
+   active tab's whole content area (confirmed via live DOM inspection —
+   exactly one per page) — the right target for "the workspace floats
+   above the background." Deliberately NOT stVerticalBlock: that testid
+   appears 30+ times per page (every nested st.container/column), so a
+   glow there would stack into a fractal-shadow mess rather than a single
+   clean elevation cue. Individual cards/metrics already get their own
+   hover elevation (.prism-card, stMetric, below) — this is the one
+   ambient, static glow for the page itself. */
+div[data-testid="stMainBlockContainer"] {
+    box-shadow: 0 10px 30px -10px rgba($accent_rgb, 0.10);
+}
+
 ::selection { background: $accent; color: $on_accent; }
 
 /* ── Scrollbar ───────────────────────────────────────────────────── */
@@ -191,9 +205,17 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sa
 ::-webkit-scrollbar-thumb:hover { background: rgba($accent_rgb, 0.55); }
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
+/* Glassmorphism: the Prism HUD theme's own $surface token is already a
+   semi-transparent rgba (see THEMES["prism_hud"]) specifically so this
+   blur has something to show through — the other three themes use opaque
+   surface colors, where backdrop-filter is a harmless no-op rather than a
+   visible effect. Not making every theme's sidebar semi-transparent here,
+   since that's a separate design decision for those palettes, not asked. */
 section[data-testid="stSidebar"] {
     background: $surface;
     border-right: 1px solid $border;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 section[data-testid="stSidebar"] hr { border-color: $border; }
 
@@ -274,8 +296,8 @@ div[data-testid="stMetricLabel"] { color: $text_muted; }
     transition: transform 0.15s $ease, box-shadow 0.15s $ease, filter 0.15s $ease;
 }
 .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 22px -8px rgba($accent_rgb, 0.55);
+    transform: translateY(-1px) scale(1.03);
+    box-shadow: 0 8px 22px -8px rgba($accent_rgb, 0.55), 0 0 18px -4px rgba($accent_rgb, 0.4);
     filter: brightness(1.05);
 }
 .stButton > button:active, .stDownloadButton > button:active { transform: translateY(0) scale(0.98); }
@@ -330,6 +352,12 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"] {
 /* ── Alerts ──────────────────────────────────────────────────────── */
 .stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
 
+/* ── Chat messages (AI Analyst tab) ─────────────────────────────────
+   Atlas's answers glide in rather than snap into place — same
+   prismFadeInUp already used for insight cards and alerts, applied to
+   Streamlit's native chat message container. */
+div[data-testid="stChatMessage"] { animation: prismFadeInUp 0.4s $ease both; }
+
 code { color: $accent; }
 
 /* ── Prism component classes (used from ui.py's injected HTML) ─────── */
@@ -339,6 +367,8 @@ code { color: $accent; }
     border-radius: var(--prism-radius);
     padding: 1.25rem 1.25rem;
     height: 100%;
+    backdrop-filter: blur(10px) saturate(150%);
+    -webkit-backdrop-filter: blur(10px) saturate(150%);
     transition: transform 0.2s $ease, border-color 0.2s $ease, box-shadow 0.2s $ease;
     animation: prismFadeInUp 0.45s $ease both;
 }
@@ -489,6 +519,7 @@ h1, h2, h3, h4, .prism-heading {
 .prism-dataset-chip .dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--prism-success); box-shadow: 0 0 8px var(--prism-success);
+    animation: prismPulse 2.5s ease-in-out infinite;
 }
 .prism-dataset-chip .sep { color: var(--prism-text-muted); }
 
@@ -577,7 +608,10 @@ h1, h2, h3, h4, .prism-heading {
 .atlas-panel-hd .t { font-family: var(--prism-hud-font); font-weight: 700; font-size: 15px; letter-spacing: .28em; color: var(--prism-text); }
 .atlas-panel-hd .s { font-size: 10px; font-family: var(--prism-mono-font); color: var(--prism-success); margin-top: 1px; }
 .atlas-panel-hd .s::before { content: "\25CF "; font-size: 7px; }
-.atlas-msg { max-width: 96%; padding: 9px 11px; border-radius: 11px; font-size: 12.5px; margin-bottom: 8px; line-height: 1.45; }
+.atlas-msg {
+    max-width: 96%; padding: 9px 11px; border-radius: 11px; font-size: 12.5px; margin-bottom: 8px; line-height: 1.45;
+    animation: prismFadeInUp 0.35s $ease both;
+}
 .atlas-msg.a { background: rgba(var(--prism-accent-rgb),.08); border: 1px solid rgba(var(--prism-accent-rgb),.24); border-top-left-radius: 3px; }
 .atlas-msg.u { background: rgba(var(--prism-accent2-rgb),.12); border: 1px solid rgba(var(--prism-accent2-rgb),.32); border-top-right-radius: 3px; margin-left: auto; }
 .atlas-msg .who { font-size: 9px; color: var(--prism-text-muted); font-family: var(--prism-hud-font); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }

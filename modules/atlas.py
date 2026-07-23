@@ -443,6 +443,20 @@ _ORB_CSS = """
 .atlas-orb.listening { animation: atlasListen 1s ease-in-out infinite; }
 .atlas-orb.listening::after { border-color: var(--prism-danger, #F87171); animation: atlasRing 1.2s ease-out infinite; }
 .atlas-orb.speaking { animation: atlasSpeak 0.6s ease-in-out infinite; }
+/* Sonar/radar ping: two rings expanding outward, staggered by 0.6s so a
+   second wave is always mid-flight — reuses the same ::after ring already
+   built for .listening (just a different color/timing) plus a new
+   ::before for the second wave, rather than a new mechanism. */
+.atlas-orb.speaking::after {
+    border-color: var(--prism-accent, #22D3EE);
+    animation: atlasSonar 1.6s ease-out infinite;
+}
+.atlas-orb.speaking::before {
+    content: ""; position: absolute; inset: -8px; border-radius: 50%;
+    border: 2px solid rgba(var(--prism-accent2-rgb, 129, 140, 248), 0.5);
+    animation: atlasSonar 1.6s ease-out infinite;
+    animation-delay: 0.6s;
+}
 .atlas-orb.processing::after {
     border-top-color: transparent; border-right-color: transparent;
     animation: atlasSpin 0.9s linear infinite;
@@ -451,9 +465,10 @@ _ORB_CSS = """
 @keyframes atlasListen { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
 @keyframes atlasRing { 0% { transform: scale(1); opacity: 0.9; } 100% { transform: scale(1.6); opacity: 0; } }
 @keyframes atlasSpeak { 0%, 100% { transform: scale(1); } 25% { transform: scale(1.05); } 50% { transform: scale(0.97); } 75% { transform: scale(1.08); } }
+@keyframes atlasSonar { 0% { transform: scale(1); opacity: 0.85; } 100% { transform: scale(2.1); opacity: 0; } }
 @keyframes atlasSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-    .atlas-orb, .atlas-orb::after { animation: none !important; }
+    .atlas-orb, .atlas-orb::after, .atlas-orb::before { animation: none !important; }
 }
 .atlas-orb-label {
     font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.05em;
