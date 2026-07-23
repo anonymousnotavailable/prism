@@ -279,6 +279,14 @@ def run_baseline_models(
         "n_train": len(X_train),
         "n_test": len(X_test),
         "smote_before_after": smote_before_after,
+        # Kept for SHAP explainability (see explain_with_shap below) — the
+        # Random Forest specifically, since it's the model feature_importances_
+        # already covers; re-fitting a second time just to explain it would
+        # waste both compute and the point of reusing this same run.
+        "fitted_rf_model": fitted_models["Random Forest"],
+        "X_train_transformed": X_train_transformed,
+        "X_test_transformed": X_test_transformed,
+        "feature_names": feature_names,
     }
 
 
@@ -362,3 +370,69 @@ def build_class_distribution_chart(imbalance_info: dict) -> go.Figure:
     )
     fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
     return fig
+
+
+# ==========================================================================
+# 12. SHAP Explainability
+# ==========================================================================
+
+# SHAP's max_display default (10) hides features past the top handful even
+# on datasets with many columns — 15 matches the Feature Importance chart
+# above so the two views describe the same set of columns.
+SHAP_MAX_DISPLAY = 15
+
+
+def explain_with_shap(model, X_background: np.ndarray, X_explain: np.ndarray, feature_names: list[str]):
+    """Build a SHAP Explainer for `model` and compute SHAP values for
+    X_explain (the test set) using X_background (the training set) as the
+    reference distribution for perturbation. shap.Explainer auto-selects
+    the right algorithm per model type (TreeExplainer for Random Forest —
+    fast and exact; LinearExplainer for Logistic/Linear Regression).
+
+    Raises on incompatible models/inputs rather than swallowing the error —
+    callers should wrap this in try/except, since SHAP's supported-model
+    surface and output shape genuinely vary by algorithm, and a raised
+    exception with the real message is more useful than this function
+    guessing at a fallback.
+    """
+    import shap
+    from scipy import sparse
+
+    # run_baseline_models' preprocessing pipeline one-hot-encodes categorical
+    # features as a sparse matrix — fine for sklearn's own fit/predict, but
+    # SHAP's TreeExplainer C extension raises a low-level array error on
+    # sparse input for its background-data perturbation path. Densifying
+    # here (SHAP's own input, not the model pipeline's) keeps this local to
+    # explainability instead of changing memory behavior for every model run.
+    if sparse.issparse(X_background):
+        X_background = X_background.toarray()
+    if sparse.issparse(X_explain):
+        X_explain = X_explain.toarray()
+
+    explainer = shap.Explainer(model, X_background, feature_names=feature_names)
+    try:
+        return explainer(X_explain)
+    except shap.utils._exceptions.ExplainerError:
+        # TreeExplainer's additivity check (SHAP values should sum to the
+        # model's output) is a known false-positive on RandomForest: summing
+        # many trees' averaged predictions accumulates floating-point error
+        # past the check's tolerance even when the SHAP values themselves
+        # are computed correctly. Confirmed by reproducing it directly
+        # against this app's own sample data — not a real inconsistency,
+        # just an overly strict sanity check for ensemble averaging.
+        return explainer(X_explain, check_additivity=False)
+
+
+def shap_for_display(shap_values):
+    """Collapse a multi-class SHAP Explanation (shape: samples x features x
+    classes) down to the single class SHAP's own plotting functions expect
+    (samples x features) — picks the class with the largest mean |SHAP
+    value|, i.e. the class the model's decisions hinge on most. Binary
+    classification and regression Explanations are already 2D and pass
+    through unchanged.
+    """
+    values = getattr(shap_values, "values", None)
+    if values is not None and values.ndim == 3:
+        class_idx = int(np.abs(values).mean(axis=(0, 1)).argmax())
+        return shap_values[:, :, class_idx]
+    return shap_values

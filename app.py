@@ -34,6 +34,7 @@ from modules import (
     datetime_intel,
     domains,
     drift,
+    enrichment,
     forecasting,
     geo,
     hellmode,
@@ -116,6 +117,10 @@ _DEFAULTS = {
     "hellmode_impute_recs_error": None,  # error from the last AI-recommend-imputation attempt, if any
     "mllab_result": None,  # last "Run Baseline Models" result dict
     "mllab_error": None,  # error from the last baseline model run, if any
+    "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
+    "mllab_shap_error": None,  # error from the last SHAP attempt, if any
+    "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
+    "chaos_result": None,  # last "Run Chaos Test" preview: {"chaotic_df", "report", "before_health", "after_health"}
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
     "pending_large_upload": None,  # {"df", "filename"} awaiting a Smart Sampling choice before it becomes active
     "sample_info": None,  # persistent banner text when the active dataset is a Smart Sampling sample, else None
@@ -241,6 +246,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hellmode_impute_recs_error = None
     st.session_state.mllab_result = None
     st.session_state.mllab_error = None
+    st.session_state.mllab_shap_values = None
+    st.session_state.mllab_shap_error = None
+    st.session_state.enrichment_report = None
+    st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
@@ -1927,6 +1936,51 @@ elif st.session_state.active_section == "Hell Mode":
                 st.toast(f"Imputed '{impute_col}'. 🧩")
                 st.rerun()
 
+    # --- 8. Chaos Intensity — data resilience stress-tester -----------------
+    st.divider()
+    st.markdown("#### 🌪️ Chaos Intensity — Data Resilience Stress-Test")
+    st.caption(
+        "Deliberately degrades a **preview copy** of this dataset — numeric distribution drift, "
+        "null injection, and casing corruption — scaled by the slider below, so you can see how "
+        "badly a real degradation event would hurt your Data Health Score before it happens for "
+        "real. Nothing changes until you choose to keep the result."
+    )
+    chaos_intensity = st.slider("Chaos Intensity", 0, 100, 30, key="chaos_intensity_pct", format="%d%%")
+    if st.button("🌪️ Run Chaos Test", key="chaos_run_btn", use_container_width=True):
+        before_quality = data_engine.get_data_quality_report(df, column_types)
+        before_health = data_engine.get_health_score(before_quality, column_types)
+        chaotic_df, chaos_report = hellmode.inject_chaos(df, column_types, chaos_intensity)
+        chaotic_types = data_engine.detect_column_types(chaotic_df)
+        after_quality = data_engine.get_data_quality_report(chaotic_df, chaotic_types)
+        after_health = data_engine.get_health_score(after_quality, chaotic_types)
+        st.session_state.chaos_result = {
+            "chaotic_df": chaotic_df, "report": chaos_report,
+            "before_health": before_health, "after_health": after_health, "intensity": chaos_intensity,
+        }
+
+    if st.session_state.chaos_result:
+        cr = st.session_state.chaos_result
+        hres1, hres2 = st.columns(2)
+        hres1.metric("Health Score — Before", cr["before_health"])
+        hres2.metric("Health Score — After", cr["after_health"], delta=cr["after_health"] - cr["before_health"])
+        st.caption(
+            f"Distribution drift: {', '.join(cr['report']['drifted_columns']) or 'none this run'} · "
+            f"Nulls injected: {cr['report']['null_cells_injected']:,} cell(s) · "
+            f"Casing corrupted: {', '.join(cr['report']['casing_corrupted_columns']) or 'none'}"
+        )
+        if st.button("Apply this chaos test to the active dataset", key="chaos_apply_btn", use_container_width=True):
+            push_undo_snapshot()
+            st.session_state.working_df = cr["chaotic_df"]
+            st.session_state.column_types = data_engine.detect_column_types(cr["chaotic_df"])
+            log_step(
+                f"Chaos Intensity stress-test applied at {cr['intensity']}% "
+                f"(Health Score {cr['before_health']} → {cr['after_health']})",
+                "# Chaos Intensity draws from a random generator — not reproducible as a static pandas script.",
+            )
+            st.toast("Chaos applied — data degraded as previewed. 🌪️")
+            st.session_state.chaos_result = None
+            st.rerun()
+
 # --------------------------------------------------------------------------
 # Combine tab — join a second uploaded file onto the active dataset. Setting
 # the result as active rewires every other tab (Clean, Visualize, SQL Lab,
@@ -3064,6 +3118,65 @@ elif st.session_state.active_section == "Geo Lens":
                             for value in unmatched:
                                 st.caption(f"'{value}' — no confident match against a state/UT name")
 
+    st.divider()
+    st.markdown("#### ✨ Titan Enrichment")
+    st.caption(
+        "Merges free public weather data onto rows with a location + date, so a question like "
+        "\"did rain affect sales that week\" is answerable without hunting down weather data yourself. "
+        "Uses Open-Meteo — no API key, nothing sent to a third party beyond the location name and date range."
+    )
+    enrichment_candidates = enrichment.detect_enrichment_columns(df, column_types)
+    if not enrichment_candidates:
+        st.caption("No location + date column pair detected — nothing to enrich.")
+    else:
+        ec1, ec2 = st.columns(2)
+        with ec1:
+            enrich_location_col = st.selectbox(
+                "Location column", [c["location_column"] for c in enrichment_candidates], key="enrich_location_col",
+            )
+        with ec2:
+            matching_date_cols = [c["date_column"] for c in enrichment_candidates if c["location_column"] == enrich_location_col]
+            enrich_date_col = st.selectbox("Date column", matching_date_cols, key="enrich_date_col")
+
+        pii_flagged = pii_detector.flagged_columns(st.session_state.get("pii_findings") or {})
+        blocked_cols = [c for c in (enrich_location_col, enrich_date_col) if c in pii_flagged]
+        if st.session_state.pii_strict_mode and blocked_cols:
+            st.warning(
+                f"Strict mode is on and {', '.join(blocked_cols)} is flagged by the Indian PII Vault — "
+                f"Titan Enrichment is blocked for this column, the same protection the AI Analyst gets. "
+                f"Turn off Strict mode to proceed if you're confident this column is safe to send to Open-Meteo."
+            )
+        elif st.button("✨ Run Titan Enrichment", key="enrich_run_btn", use_container_width=True):
+            with st.spinner(ui.get_loading_message()):
+                enriched_df, enrich_report = enrichment.enrich_with_weather(df, enrich_location_col, enrich_date_col)
+                st.session_state.working_df = enriched_df
+                st.session_state.column_types = data_engine.detect_column_types(enriched_df)
+                st.session_state.enrichment_report = enrich_report
+                if enrich_report["locations_enriched"]:
+                    log_step(
+                        f"Titan Enrichment: merged weather for {len(enrich_report['locations_enriched'])} "
+                        f"location(s) via '{enrich_location_col}' + '{enrich_date_col}'",
+                        f"# Titan Enrichment ran interactively — geocoding + Open-Meteo weather lookup,\n"
+                        f"# not reproducible as a static pandas script.",
+                    )
+                    st.toast(f"Enriched {enrich_report['rows_matched']} row(s) with weather data. ✨")
+                st.rerun()
+
+        if st.session_state.enrichment_report:
+            rep = st.session_state.enrichment_report
+            if rep["locations_enriched"]:
+                st.success(
+                    f"Weather merged for {len(rep['locations_enriched'])} location(s) — "
+                    f"{rep['rows_matched']} row(s) matched. New columns: temp_max_c, temp_min_c, precipitation_mm."
+                )
+            if rep["locations_failed"]:
+                st.caption(f"Couldn't resolve: {', '.join(rep['locations_failed'])}")
+            if rep["locations_skipped_for_cap"]:
+                st.caption(
+                    f"{len(rep['locations_skipped_for_cap'])} additional distinct location(s) skipped — capped at "
+                    f"{enrichment.MAX_DISTINCT_LOCATIONS} per run to stay quick and considerate of a free public API."
+                )
+
 # --------------------------------------------------------------------------
 # ML Lab tab — the data-science bridge: a feature engineering assistant,
 # a baseline model runner (Logistic/Linear Regression vs. Random Forest),
@@ -3136,6 +3249,8 @@ elif st.session_state.active_section == "ML Lab":
             st.info("Pick at least one feature column.")
         elif st.button("Run Baseline Models", type="primary", use_container_width=True):
             with st.spinner(ui.get_loading_message()):
+                st.session_state.mllab_shap_values = None  # a new model run invalidates any prior SHAP explanation
+                st.session_state.mllab_shap_error = None
                 try:
                     st.session_state.mllab_result = mllab.run_baseline_models(
                         df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
@@ -3180,5 +3295,47 @@ elif st.session_state.active_section == "ML Lab":
                 st.plotly_chart(
                     mllab.build_feature_importance_chart(baseline_result["feature_importances"]), use_container_width=True
                 )
+
+            st.divider()
+            st.markdown("#### Explainability (SHAP)")
+            st.caption(
+                "Visual, per-feature explanation of the Random Forest model above — which features "
+                "drive its predictions overall, and how each one pushed a single prediction up or down."
+            )
+            if st.button("Generate SHAP Explanations", key="mllab_shap_btn", use_container_width=True):
+                with st.spinner(ui.get_loading_message()):
+                    try:
+                        st.session_state.mllab_shap_values = mllab.explain_with_shap(
+                            baseline_result["fitted_rf_model"],
+                            baseline_result["X_train_transformed"],
+                            baseline_result["X_test_transformed"],
+                            baseline_result["feature_names"],
+                        )
+                        st.session_state.mllab_shap_error = None
+                    except Exception as e:
+                        st.session_state.mllab_shap_values = None
+                        st.session_state.mllab_shap_error = (
+                            f"SHAP couldn't explain this Random Forest model: {e}"
+                        )
+
+            if st.session_state.mllab_shap_error:
+                st.warning(st.session_state.mllab_shap_error)
+            elif st.session_state.mllab_shap_values is not None:
+                import matplotlib.pyplot as plt
+                import shap
+
+                display_values = mllab.shap_for_display(st.session_state.mllab_shap_values)
+
+                st.markdown(f"**Summary Plot** — top {mllab.SHAP_MAX_DISPLAY} features, overall impact and direction")
+                fig_summary = plt.figure()
+                shap.summary_plot(display_values, max_display=mllab.SHAP_MAX_DISPLAY, show=False)
+                st.pyplot(fig_summary, use_container_width=True)
+                plt.close(fig_summary)
+
+                st.markdown("**Waterfall Plot** — how each feature pushed the first test row's prediction")
+                fig_waterfall = plt.figure()
+                shap.plots.waterfall(display_values[0], max_display=mllab.SHAP_MAX_DISPLAY, show=False)
+                st.pyplot(fig_waterfall, use_container_width=True)
+                plt.close(fig_waterfall)
 
 ui.render_footer()

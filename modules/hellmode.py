@@ -794,3 +794,74 @@ def ai_recommend_imputation(
     if not recommendations:
         return {}, "Gemini's response didn't match any expected columns/strategies."
     return recommendations, None
+
+
+# ==========================================================================
+# 8. Chaos Intensity — data resilience stress-tester
+# ==========================================================================
+
+
+def inject_chaos(df: pd.DataFrame, column_types: dict[str, str], intensity_pct: float, seed: int = 42) -> tuple[pd.DataFrame, dict]:
+    """Deliberately degrade a COPY of df, scaled by intensity_pct (0-100),
+    simulating real-world data decay so a user can see how badly a real
+    degradation event would hurt their Data Health Score before it happens
+    for real. Never mutates df in place.
+
+    Three independent techniques, each scaled by intensity_pct:
+    - Distribution drift: a random subset of numeric columns gets a
+      fraction of their values scaled by a random multiplier — simulates a
+      sensor recalibration, currency mixup, or unit error mid-dataset.
+    - Null injection: every column independently loses ~intensity_pct% of
+      its values.
+    - Casing corruption: text/categorical values get randomized letter
+      casing — simulates inconsistent manual entry.
+
+    Deterministic given `seed` (default fixed, so a repeated run at the
+    same intensity is reproducible) rather than reseeded from the clock —
+    predictable results matter more here than fresh randomness each click.
+
+    Returns (chaotic_df, report) — report names exactly what was changed
+    per technique, so a before/after Health Score comparison has a
+    concrete cause, not just a number.
+    """
+    rng = np.random.default_rng(seed)
+    frac = max(0.0, min(100.0, intensity_pct)) / 100.0
+    work = df.copy()
+    report = {"drifted_columns": [], "null_cells_injected": 0, "casing_corrupted_columns": []}
+    if frac <= 0 or work.empty:
+        return work, report
+
+    numeric_cols = [c for c, t in column_types.items() if t == "numeric" and c in work.columns]
+    text_cols = [c for c, t in column_types.items() if t in ("categorical", "text") and c in work.columns]
+
+    for col in numeric_cols:
+        if rng.random() > 0.6:  # not every numeric column every run — real degradation is partial, not uniform
+            continue
+        cell_mask = rng.random(len(work)) < frac
+        if not cell_mask.any():
+            continue
+        multiplier = float(rng.uniform(1.5, 4.0) * rng.choice([-1.0, 1.0]))
+        work.loc[cell_mask, col] = work.loc[cell_mask, col] * multiplier
+        report["drifted_columns"].append(col)
+
+    for col in work.columns:
+        cell_mask = rng.random(len(work)) < frac
+        n_hit = int(cell_mask.sum())
+        if n_hit == 0:
+            continue
+        work.loc[cell_mask, col] = np.nan
+        report["null_cells_injected"] += n_hit
+
+    def _randomize_case(value):
+        if not isinstance(value, str) or not value:
+            return value
+        return "".join(ch.upper() if rng.random() > 0.5 else ch.lower() for ch in value)
+
+    for col in text_cols:
+        cell_mask = rng.random(len(work)) < frac
+        if not cell_mask.any():
+            continue
+        work.loc[cell_mask, col] = work.loc[cell_mask, col].apply(_randomize_case)
+        report["casing_corrupted_columns"].append(col)
+
+    return work, report
