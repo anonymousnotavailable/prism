@@ -1,0 +1,39 @@
+name: Corpus Benchmark
+
+# Deliberately NOT run on every push/PR: it depends on third-party hosts
+# (data.gov.in, UCI, NYC Open Data, data.gouv.fr) that are sometimes slow
+# or briefly unavailable (data.gov.in specifically has timed out during
+# real local runs) — a flaky government API shouldn't block a merge. Runs
+# weekly as an early-warning check instead, plus on-demand.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download corpus (network failures are recorded, not fatal)
+        run: python tools/corpus.py
+
+      - name: Run the 8-stage gauntlet
+        run: python tools/corpus_gauntlet.py
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-report
+          path: |
+            corpus_report.md
+            corpus_scorecard.json

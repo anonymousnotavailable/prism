@@ -7,8 +7,12 @@ Architecture (safe execution):
     question --> Gemini (schema + sample + stats + chat history, NEVER the
     full dataset) --> ```python code block --> restricted exec() (only df,
     pd, np in scope; import/eval/exec/dunder/subprocess/requests rejected
-    outright) --> on failure, the error is sent back to Gemini exactly once
-    for a corrected version ("self-healing retry") --> final result.
+    outright, pd/np's own file-and-network I/O surface stripped via a
+    proxy so `pd.read_csv(url)` can't be used to read local secrets or
+    exfiltrate data over the network, and a hard wall-clock timeout so a
+    runaway or hallucinated infinite loop can't hang the app) --> on
+    failure, the error is sent back to Gemini exactly once for a corrected
+    version ("self-healing retry") --> final result.
 
 Setup: put GEMINI_API_KEY=... in a .env file at the project root (see
 .env.example). Get a free key at https://aistudio.google.com/apikey.
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from typing import Optional
 
 import numpy as np
@@ -55,13 +60,82 @@ GEMINI_SETUP_HELP = (
 )
 
 # Belt-and-suspenders keyword blocklist, checked before anything is executed.
-# The restricted exec() namespace below is the real safety boundary (no
-# __import__, no file/network builtins) — this list just rejects obviously
-# hostile code earlier, with a clearer error message than a raised NameError.
+# The restricted exec() namespace (safe builtins + the pd/np proxies below)
+# is the real safety boundary — this list just rejects obviously hostile
+# code earlier, with a clearer error message than a raised NameError.
+#
+# The to_*()/tofile( entries matter more than they look: pd.read_csv/read_*
+# are blocked structurally below (the proxy strips them off the `pd` object
+# entirely), but `df.to_csv(path)` etc. are *instance* methods on the
+# DataFrame object itself — not attributes of `pd` — so the proxy can't
+# reach them without wrapping every DataFrame the sandbox ever produces.
+# Blocking the call text here is safe specifically because getattr/eval/
+# dunder access are all unavailable in this namespace: generated code has
+# no way to construct one of these calls except by writing the literal
+# method name in source, which this list catches regardless of how the
+# call is invoked.
 _FORBIDDEN_PATTERNS = [
     "import os", "import sys", "open(", "eval(", "exec(", "__",
     "subprocess", "requests", "socket", "shutil", "compile(",
+    "to_csv(", "to_excel(", "to_pickle(", "to_json(", "to_parquet(",
+    "to_hdf(", "to_feather(", "to_sql(", "to_stata(", "to_gbq(",
+    "to_clipboard(", "tofile(",
 ]
+
+# pd/np attributes that read from or write to the filesystem or network.
+# Generated code is given `df` already loaded — it has no legitimate reason
+# to reach a *new* external data source or write anything to disk; every
+# real question is answered by transforming `df` and assigning `result`.
+# Proven necessary, not theoretical: pd.read_csv(local_path) reads arbitrary
+# files off the server's disk (including a real .env/secrets.toml sitting
+# next to the app) and pd.read_csv(url) makes a genuine outbound HTTP
+# request, letting generated code exfiltrate `df`'s contents by encoding
+# them into the URL — neither is caught by the keyword blocklist above,
+# since it's blocking source text, not what pandas' own I/O layer can do.
+_BLOCKED_PANDAS_ATTRS = frozenset({
+    "read_csv", "read_excel", "read_json", "read_html", "read_pickle",
+    "read_parquet", "read_sql", "read_sql_query", "read_sql_table",
+    "read_hdf", "read_feather", "read_orc", "read_stata", "read_sas",
+    "read_spss", "read_gbq", "read_clipboard", "read_fwf", "read_table",
+    "read_xml", "ExcelFile", "ExcelWriter", "HDFStore",
+})
+_BLOCKED_NUMPY_ATTRS = frozenset({
+    "load", "save", "savez", "savez_compressed", "fromfile", "tofile",
+    "memmap", "genfromtxt", "loadtxt", "DataSource",
+})
+
+
+class _RestrictedModuleProxy:
+    """Wraps `pd`/`np` so generated code gets the normal computation API
+    (groupby, merge, pivot_table, corr, ...) but can never reach the
+    functions in `blocked` — enforced at attribute lookup, so it can't be
+    bypassed by however the code spells the access. The only way around
+    an attribute-lookup guard would be getattr()/importlib, both already
+    absent from this sandbox's builtins.
+    """
+
+    __slots__ = ("_module", "_blocked")
+
+    def __init__(self, module, blocked: frozenset):
+        object.__setattr__(self, "_module", module)
+        object.__setattr__(self, "_blocked", blocked)
+
+    def __getattr__(self, name: str):
+        if name in self._blocked:
+            raise AttributeError(
+                f"'{name}' is disabled in this sandbox — the dataframe is already loaded "
+                f"as `df`; generated code analyzes it, it never loads a new data source "
+                f"or writes files."
+            )
+        return getattr(self._module, name)
+
+
+# Wall-clock cap on generated code — without this, a hallucinated infinite
+# loop (or one steered by an indirect prompt injection hidden in a cell
+# value) hangs the request forever. Streamlit Community Cloud runs a single
+# process per app, so one hung request degrades the app for every
+# concurrent user, not just the one who triggered it.
+_EXEC_TIMEOUT_SECONDS = 10
 
 # The only builtins the generated code is allowed to call. Everything that
 # touches the filesystem, network, process, or Python internals is excluded.
@@ -196,10 +270,53 @@ def extract_code(response_text: str) -> str:
     return match.group(1).strip() if match else response_text.strip()
 
 
-def call_gemini(model, contents) -> tuple[str, Optional[str]]:
-    """Shared error handling around model.generate_content — used by both the
-    chat and key-insights flows so quota/auth failures read the same way everywhere.
+# Every Gemini call in Prism shares one API key, and the app has no login —
+# any anonymous visitor can exhaust the shared free-tier daily quota for
+# everyone else. This doesn't fix that (only auth or BYOK really would),
+# but it raises the bar: no single browser session can burn through the
+# whole day's quota on its own.
+_MAX_GEMINI_CALLS_PER_SESSION_PER_HOUR = 30
+_RATE_LIMIT_WINDOW_SECONDS = 3600
+
+
+def _check_rate_limit() -> Optional[str]:
+    """Returns an error message if this Streamlit session has hit its
+    hourly Gemini call cap, else None. Silently a no-op outside a real
+    Streamlit session (eval harnesses, tools/corpus_gauntlet.py, plain
+    scripts) — there's no per-visitor session to bound there.
     """
+    try:
+        import time as _time
+
+        import streamlit as st
+
+        now = _time.time()
+        window_start = st.session_state.get("_gemini_window_start", now)
+        call_count = st.session_state.get("_gemini_call_count", 0)
+        if now - window_start > _RATE_LIMIT_WINDOW_SECONDS:
+            window_start, call_count = now, 0
+        if call_count >= _MAX_GEMINI_CALLS_PER_SESSION_PER_HOUR:
+            return (
+                f"You've reached this session's limit of {_MAX_GEMINI_CALLS_PER_SESSION_PER_HOUR} "
+                f"AI requests per hour — this keeps the shared free-tier quota available for "
+                f"everyone using the app right now. Try again in a bit."
+            )
+        st.session_state["_gemini_window_start"] = window_start
+        st.session_state["_gemini_call_count"] = call_count + 1
+        return None
+    except Exception:
+        return None
+
+
+def call_gemini(model, contents) -> tuple[str, Optional[str]]:
+    """Shared error handling around model.generate_content — used by every
+    Gemini call in the app (chat, key-insights, Atlas's router, Auto
+    Analyst, ...) so quota/auth failures and the per-session rate limit
+    read the same way everywhere.
+    """
+    limit_error = _check_rate_limit()
+    if limit_error:
+        return "", limit_error
     try:
         response = model.generate_content(contents)
     except google_exceptions.ResourceExhausted:
@@ -267,8 +384,10 @@ def execute_code_safely(code: str, df: pd.DataFrame):
     """Run Gemini-generated pandas code in a locked-down namespace.
 
     Returns (result, error). `result` is whatever the generated code assigned
-    to `result` — typically a DataFrame, Series, or scalar. Only `df`, `pd`,
-    and `np` are exposed; no import, file, network, or dunder access.
+    to `result` — typically a DataFrame, Series, or scalar. `df` is exposed
+    directly; `pd`/`np` are exposed through a proxy that strips their file
+    and network I/O surface (see _RestrictedModuleProxy) — no import, file,
+    network, or dunder access. Bounded to _EXEC_TIMEOUT_SECONDS wall-clock.
     """
     lowered = code.lower()
     for pattern in _FORBIDDEN_PATTERNS:
@@ -281,16 +400,40 @@ def execute_code_safely(code: str, df: pd.DataFrame):
 
     exec_globals = {
         "__builtins__": safe_builtins,
-        "pd": pd,
-        "np": np,
+        "pd": _RestrictedModuleProxy(pd, _BLOCKED_PANDAS_ATTRS),
+        "np": _RestrictedModuleProxy(np, _BLOCKED_NUMPY_ATTRS),
         "df": df.copy(),  # never let generated code mutate the app's real DataFrame
     }
     exec_locals: dict = {}
+    outcome: dict = {}
 
-    try:
-        exec(code, exec_globals, exec_locals)
-    except Exception as e:
-        return None, f"The generated code raised an error: {e}"
+    def _run():
+        try:
+            exec(code, exec_globals, exec_locals)
+        except Exception as e:
+            outcome["error"] = f"The generated code raised an error: {e}"
+
+    # Run on a daemon thread so a runaway/hallucinated infinite loop can be
+    # abandoned instead of hanging the request — or the whole interpreter —
+    # forever. daemon=True specifically matters here: a non-daemon thread
+    # left running past its timeout blocks process shutdown entirely (a
+    # plain ThreadPoolExecutor's workers are non-daemon by default, which
+    # is what a first pass at this fix got wrong). This bounds *this
+    # request's* latency; it still can't reclaim the CPU the orphaned
+    # thread keeps burning (Python has no way to forcibly kill a thread) —
+    # true resource isolation would need a subprocess or container, which
+    # is a bigger infra change than this sandbox alone can provide.
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(timeout=_EXEC_TIMEOUT_SECONDS)
+    if thread.is_alive():
+        return None, (
+            f"Generated code took longer than {_EXEC_TIMEOUT_SECONDS}s and was stopped — "
+            f"likely an unbounded loop or a very expensive operation. Try rephrasing the "
+            f"question more specifically (e.g. filter to fewer rows/columns first)."
+        )
+    if "error" in outcome:
+        return None, outcome["error"]
 
     if "result" not in exec_locals:
         return None, "The generated code did not assign a `result` variable."

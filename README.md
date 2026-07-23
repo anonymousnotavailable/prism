@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.50-FF4B4B?logo=streamlit&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![Code-Gen Eval](https://img.shields.io/badge/code--gen%20eval-7%2F25%20(partial%20run)-yellow)](eval/eval_results.md)
+[![Code-Gen Eval](https://img.shields.io/badge/code--gen%20eval-16%2F25%20(partial%20run)-yellow)](eval/eval_results.md)
 
 <!-- demo.gif here -->
 
@@ -642,7 +642,7 @@ ground truth, and writes the score to
 python eval/run_eval.py
 ```
 
-The most recent run passed **7/7 (100%)** of the questions it reached before
+The most recent run passed **16/16 (100%)** of the questions it reached before
 hitting the Gemini free-tier's daily quota mid-run — see
 `eval_results.md` for the full breakdown and a note on re-running once quota
 resets. A question that can't be evaluated (quota-blocked) is reported as

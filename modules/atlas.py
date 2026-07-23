@@ -39,7 +39,7 @@ from typing import Callable, Optional
 
 import streamlit as st
 
-from modules.ai_analyst import MODEL_NAME, get_api_key
+from modules.ai_analyst import MODEL_NAME, call_gemini, get_api_key
 
 try:
     import google.generativeai as genai
@@ -180,15 +180,16 @@ def classify_intent(utterance: str, context: str = "") -> dict:
 
     prompt = f"{context}\n\nUser: {utterance}" if context else utterance
     for attempt in range(2):  # one retry on malformed JSON
-        try:
-            if attempt == 1:
-                prompt = f"{prompt}\n\n(Your last reply wasn't valid JSON. Respond with ONLY the JSON object this time.)"
-            response = model.generate_content(prompt)
-            parsed = _parse_intent_json(getattr(response, "text", ""))
-            if parsed:
-                return parsed
-        except Exception:
-            break  # network/API error — no point retrying, go straight to the fallback
+        if attempt == 1:
+            prompt = f"{prompt}\n\n(Your last reply wasn't valid JSON. Respond with ONLY the JSON object this time.)"
+        text, error = call_gemini(model, prompt)
+        if error:
+            fallback = dict(FALLBACK_INTENT)
+            fallback["spoken_reply"] = error  # surface quota/auth/rate-limit errors instead of a silent generic fallback
+            return fallback
+        parsed = _parse_intent_json(text)
+        if parsed:
+            return parsed
     return dict(FALLBACK_INTENT)
 
 
