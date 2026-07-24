@@ -1015,7 +1015,16 @@ with st.sidebar:
 # isolated repro before landing on this structure — not a hypothetical.
 # --------------------------------------------------------------------------
 atlas.render_pending_confirmation_ui()
-atlas.render_orb()
+# The floating orb is a standalone indicator for contexts with no Atlas
+# side panel: the landing page (no dataset yet), and Story/Demo Mode
+# (which take over the full screen and skip the side panel — see its own
+# skip condition below). Once a real dataset is active outside those
+# modes, the side panel renders its own small orb in its header — showing
+# both was a real bug: the floating orb sat on top of the side panel,
+# overlapping the "Ask by voice" button and the chat input. Mirrors the
+# side panel's own condition exactly, inverted.
+if st.session_state.working_df is None or st.session_state.demo_mode_running or st.session_state.story_mode_active:
+    atlas.render_orb()
 
 if not st.session_state.atlas_greeted and st.session_state.working_df is None:
     st.session_state.atlas_greeted = True
@@ -1092,8 +1101,14 @@ def _process_atlas_utterance(utterance: Optional[str]) -> None:
 # --------------------------------------------------------------------------
 # Main area
 # --------------------------------------------------------------------------
-st.title("Prism")
-st.caption("Auto-EDA · AI Analyst")
+# Deliberately no plain st.title("Prism") here — confirmed via screenshot
+# that it was pure redundant chrome: the sidebar already carries a
+# persistent "PRISM" brand mark on every screen, the landing page's own
+# hero (below) has a much better-designed title, and the tabbed app's
+# sticky header (dataset name/health) is what's actually useful once a
+# dataset is active. A plain, unstyled duplicate of the brand name at the
+# very top of every single page added visual noise without adding
+# information.
 
 if st.session_state.working_df is None:
     # ---------------------------------------------------------------------

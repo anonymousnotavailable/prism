@@ -97,8 +97,14 @@ THEMES: dict[str, dict] = {
         "border": "#E2E8F0",
         "text": "#0F172A",
         "text_muted": "#5B6B82",
-        "accent": "#0891B2",
-        "accent_rgb": "8, 145, 178",
+        # #0891B2 (the original) only reached 3.68:1 white-on-accent contrast on
+        # buttons — below WCAG AA's 4.5:1 for normal text. One shade darker in
+        # the same cyan family clears 5.36:1 without changing the theme's
+        # character. Found and fixed while adding contrast checks for the two
+        # new themes below — not something this pass introduced, but in scope
+        # once the tooling to catch it was already running.
+        "accent": "#0E7490",
+        "accent_rgb": "14, 116, 144",
         "accent2": "#7C3AED",
         "accent2_rgb": "124, 58, 237",
         "accent3": "#DB2777",
@@ -107,7 +113,51 @@ THEMES: dict[str, dict] = {
         "warning": "#B45309",
         "danger": "#DC2626",
         "on_accent": "#FFFFFF",
-        "chart_colorway": ["#0891B2", "#7C3AED", "#059669", "#B45309", "#DC2626", "#2563EB", "#DB2777", "#64748B"],
+        "chart_colorway": ["#0E7490", "#7C3AED", "#059669", "#B45309", "#DC2626", "#2563EB", "#DB2777", "#64748B"],
+    },
+    "obsidian": {
+        "label": "Obsidian Gold (Dark)",
+        "mode": "dark",
+        "bg": "#0A0908",
+        "bg_end": "#0D0B09",
+        "surface": "rgba(20,17,14,.75)",
+        "surface_hover": "#211C17",
+        "border": "rgba(196,167,108,.18)",
+        "text": "#F5F1E8",
+        "text_muted": "#A69A85",
+        "accent": "#D4AF37",
+        "accent_rgb": "212, 175, 55",
+        "accent2": "#C9A876",
+        "accent2_rgb": "201, 168, 118",
+        "accent3": "#8B6F47",
+        "accent3_rgb": "139, 111, 71",
+        "success": "#4ADE80",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "on_accent": "#1A1408",
+        "chart_colorway": ["#D4AF37", "#C9A876", "#8B6F47", "#4ADE80", "#F87171", "#60A5FA", "#E879F9", "#94A3B8"],
+    },
+    "emerald": {
+        "label": "Emerald (Dark)",
+        "mode": "dark",
+        "bg": "#070E0B",
+        "bg_end": "#0A130F",
+        "surface": "rgba(15,26,20,.75)",
+        "surface_hover": "#17251E",
+        "border": "rgba(110,180,150,.16)",
+        "text": "#E8F5EE",
+        "text_muted": "#8FA89C",
+        "accent": "#2DD4BF",
+        "accent_rgb": "45, 212, 191",
+        "accent2": "#A7F3D0",
+        "accent2_rgb": "167, 243, 208",
+        "accent3": "#67E8F9",
+        "accent3_rgb": "103, 232, 249",
+        "success": "#4ADE80",
+        "warning": "#FBBF24",
+        "danger": "#F87171",
+        "on_accent": "#042F2A",
+        "chart_colorway": ["#2DD4BF", "#A7F3D0", "#67E8F9", "#4ADE80", "#FBBF24", "#F87171", "#818CF8", "#94A3B8"],
     },
 }
 
@@ -194,7 +244,22 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sa
    ambient, static glow for the page itself. */
 div[data-testid="stMainBlockContainer"] {
     box-shadow: 0 10px 30px -10px rgba($accent_rgb, 0.10);
+    /* st.chat_input (the "Ask Atlas anything" bar) is fixed to the
+       viewport bottom — Streamlit doesn't always reserve enough clearance
+       for it on its own, and the landing page's hero tagline was genuinely
+       being clipped underneath it (confirmed by screenshot, not assumed).
+       Comfortably larger than the bar's own height so nothing sits flush
+       against it. */
+    padding-bottom: 120px;
 }
+
+/* Atlas's TTS greeting plays via st.audio(..., autoplay=True) — a real
+   HTML5 player control has no place in a product that's supposed to feel
+   premium. Autoplay fires regardless of visibility, so hiding it costs
+   nothing functionally. The only st.audio() call in the app is this one
+   (modules/atlas.py) — safe to hide unconditionally rather than needing
+   a scoped selector. */
+[data-testid="stAudio"] { display: none; }
 
 ::selection { background: $accent; color: $on_accent; }
 
