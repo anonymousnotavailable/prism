@@ -26,22 +26,39 @@ THEMES: dict[str, dict] = {
         "mode": "dark",
         "bg": "#07090F",
         "bg_end": "#0B0E17",
-        "surface": "rgba(15,20,35,.72)",
-        "surface_hover": "#151A2C",
-        "border": "rgba(138,147,166,.16)",
+        # Soft-glass pass: slightly richer surface opacity than the original
+        # rgba(15,20,35,.72) — needed headroom for the heavier blur/saturate
+        # below (a thin frosted layer over near-black reads muddy; a touch
+        # more body keeps text contrast solid at every blur radius).
+        "surface": "rgba(16,21,38,.78)",
+        # Was a flat opaque hex — meant the glass effect vanished on hover,
+        # exactly when a card has the user's attention. Translucent instead,
+        # so "hovered" reads as *more* glass (brighter, still frosted), not
+        # "glass turned into a plain box."
+        "surface_hover": "rgba(24,30,52,.85)",
+        "border": "rgba(148,163,184,.16)",
         "text": "#E6EAF2",
         "text_muted": "#8A93A6",
-        "accent": "#22D3EE",
-        "accent_rgb": "34, 211, 238",
-        "accent2": "#818CF8",
-        "accent2_rgb": "129, 140, 248",
-        "accent3": "#E879F9",
-        "accent3_rgb": "232, 121, 249",
+        # Aurora trio — softened from the original neon cyan/indigo/magenta
+        # toward a cooler, more refracted-light feel (azure -> violet -> rose)
+        # that reads as premium frosted glass rather than a HUD scanline.
+        # accent2 also now matches the #A78BFA the Atlas orb's CSS fallback
+        # (modules/atlas.py) already assumed — that fallback was quietly
+        # wrong before; now it's just the real value.
+        "accent": "#4FADFF",
+        "accent_rgb": "79, 173, 255",
+        "accent2": "#A78BFA",
+        "accent2_rgb": "167, 139, 250",
+        "accent3": "#F472B6",
+        "accent3_rgb": "244, 114, 182",
         "success": "#34D399",
         "warning": "#FBBF24",
         "danger": "#F87171",
-        "on_accent": "#04141A",
-        "chart_colorway": ["#22D3EE", "#818CF8", "#E879F9", "#34D399", "#FBBF24", "#F87171", "#60A5FA", "#94A3B8"],
+        # Recomputed for the new accent/accent2: ~7.9:1 and ~7.0:1 against
+        # #4FADFF/#A78BFA respectively — clears WCAG AA (4.5:1) with room to
+        # spare at both ends of the button gradient, essentially AAA.
+        "on_accent": "#071023",
+        "chart_colorway": ["#4FADFF", "#A78BFA", "#F472B6", "#34D399", "#FBBF24", "#F87171", "#60A5FA", "#94A3B8"],
     },
     "graphite": {
         "label": "Graphite (Dark)",
@@ -202,6 +219,21 @@ _CSS_TEMPLATE = Template(
     --prism-ease: cubic-bezier(0.16, 1, 0.3, 1);
     --prism-hud-font: 'Rajdhani', 'Inter', sans-serif;
     --prism-mono-font: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+
+    /* Motion scale — one set of durations for every hover/focus/entrance
+       transition, so "rich micro-interactions" stay a coherent rhythm
+       instead of every component picking its own timing. */
+    --prism-dur-fast: 150ms;
+    --prism-dur-med: 320ms;
+    --prism-dur-slow: 600ms;
+
+    /* Shared glass recipe — soft-glass surfaces (Apple-style frosted panels)
+       reuse this instead of each selector hand-rolling its own blur/shadow
+       stack. Kept as tokens, not a mixin, since plain CSS has no mixins;
+       every .prism-card / .glass-card / panel below applies the same three
+       properties by hand, but from one source of truth. */
+    --prism-glass-blur: blur(20px) saturate(180%);
+    --prism-glass-edge: inset 0 1px 0 rgba(255,255,255,.06), inset 0 0 0 1px rgba(255,255,255,.02);
 }
 
 .hud {
@@ -215,6 +247,7 @@ _CSS_TEMPLATE = Template(
 @keyframes prismFadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes prismShimmer { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
 @keyframes prismPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes prismAurora { 0% { transform: translate3d(0,0,0) scale(1); } 100% { transform: translate3d(1.5%,-2%,0) scale(1.06); } }
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -230,6 +263,27 @@ html, body, [class*="css"] { font-family: 'Inter', -apple-system, 'Segoe UI', sa
 .stApp {
     background: linear-gradient(180deg, $bg 0%, $bg_end 100%);
     color: $text;
+}
+
+/* Ambient aurora wash — three soft, slowly-drifting accent blobs behind the
+   whole app, the "light behind frosted glass" cue every soft-glassmorphism
+   reference (visionOS, Dribbble glass shots) leans on so panels have
+   something colorful to actually refract. Pure background dressing:
+   position:fixed + z-index:-1 keeps it behind all real content regardless
+   of Streamlit's own stacking contexts, and pointer-events:none means even
+   if that assumption is ever wrong, it can't swallow a click. */
+.stApp::before {
+    content: "";
+    position: fixed;
+    inset: -10%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(640px circle at 12% 18%, rgba($accent_rgb, .16), transparent 60%),
+        radial-gradient(560px circle at 88% 78%, rgba($accent3_rgb, .13), transparent 60%),
+        radial-gradient(720px circle at 50% 105%, rgba($accent2_rgb, .11), transparent 60%);
+    filter: blur(70px);
+    animation: prismAurora 24s ease-in-out infinite alternate;
 }
 
 /* ── Z-axis elevation ────────────────────────────────────────────────
@@ -279,8 +333,9 @@ div[data-testid="stMainBlockContainer"] {
 section[data-testid="stSidebar"] {
     background: $surface;
     border-right: 1px solid $border;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--prism-glass-blur);
+    -webkit-backdrop-filter: var(--prism-glass-blur);
+    box-shadow: var(--prism-glass-edge);
 }
 section[data-testid="stSidebar"] hr { border-color: $border; }
 
@@ -358,11 +413,16 @@ div[data-testid="stMetricLabel"] { color: $text_muted; }
     border-radius: 8px;
     font-weight: 600;
     letter-spacing: 0.01em;
-    transition: transform 0.15s $ease, box-shadow 0.15s $ease, filter 0.15s $ease;
+    position: relative;
+    /* Glossy top edge — a thin light band across the upper half, the way a
+       real glass/acrylic surface catches an overhead light source. Kept to
+       the gradient CTA only; secondary/outline buttons below stay flat. */
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), inset 0 -12px 16px -12px rgba(0,0,0,.18);
+    transition: transform var(--prism-dur-fast) $ease, box-shadow var(--prism-dur-fast) $ease, filter var(--prism-dur-fast) $ease;
 }
 .stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
     transform: translateY(-1px) scale(1.03);
-    box-shadow: 0 8px 22px -8px rgba($accent_rgb, 0.55), 0 0 18px -4px rgba($accent_rgb, 0.4);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.32), 0 8px 22px -8px rgba($accent_rgb, 0.55), 0 0 18px -4px rgba($accent_rgb, 0.4);
     filter: brightness(1.05);
 }
 .stButton > button:active, .stDownloadButton > button:active { transform: translateY(0) scale(0.98); }
@@ -414,6 +474,27 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"] {
     overflow: hidden;
 }
 
+/* ── Charts ──────────────────────────────────────────────────────────
+   Same border+radius+overflow:hidden recipe as the dataframe wrapper above
+   (no padding — Plotly's own ResizeObserver measures this element's width,
+   so padding here would feed back into chart sizing). Framing every chart
+   in a glass panel is what makes visualizations read as part of the same
+   system instead of a plain white/dark rectangle dropped onto it. */
+div[data-testid="stPlotlyChart"] {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: var(--prism-radius);
+    overflow: hidden;
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    box-shadow: var(--prism-glass-edge);
+    transition: border-color var(--prism-dur-med) $ease, box-shadow var(--prism-dur-med) $ease;
+}
+div[data-testid="stPlotlyChart"]:hover {
+    border-color: rgba($accent_rgb, .32);
+    box-shadow: var(--prism-glass-edge), 0 16px 36px -20px rgba($accent_rgb, .3);
+}
+
 /* ── Alerts ──────────────────────────────────────────────────────── */
 .stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
 
@@ -432,20 +513,40 @@ code { color: $accent; }
     border-radius: var(--prism-radius);
     padding: 1.25rem 1.25rem;
     height: 100%;
-    backdrop-filter: blur(10px) saturate(150%);
-    -webkit-backdrop-filter: blur(10px) saturate(150%);
-    transition: transform 0.2s $ease, border-color 0.2s $ease, box-shadow 0.2s $ease;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: var(--prism-glass-blur);
+    -webkit-backdrop-filter: var(--prism-glass-blur);
+    box-shadow: var(--prism-glass-edge);
+    transition: transform var(--prism-dur-med) $ease, border-color var(--prism-dur-med) $ease,
+                box-shadow var(--prism-dur-med) $ease;
     animation: prismFadeInUp 0.45s $ease both;
 }
+/* Light sweep — a soft diagonal highlight that glides across the card on
+   hover, the one purely decorative "glass catching light" cue borrowed from
+   the Dribbble/visionOS glassmorphism references. overflow:hidden on the
+   card clips this pseudo-element, not the card's own box-shadow (a box's
+   overflow never clips its own shadow), so the hover glow below still
+   escapes the card normally. */
+.prism-card::after {
+    content: "";
+    position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,.08), transparent);
+    transform: skewX(-20deg);
+    transition: left var(--prism-dur-slow) $ease;
+    pointer-events: none;
+}
+.prism-card:hover::after { left: 130%; }
 .prism-card:hover {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
     border-color: rgba($accent_rgb, 0.55);
-    box-shadow: 0 16px 36px -16px rgba($accent_rgb, 0.35);
+    box-shadow: var(--prism-glass-edge), 0 20px 44px -18px rgba($accent_rgb, 0.4), 0 0 0 1px rgba($accent_rgb, 0.1);
 }
 .prism-card-icon {
     width: 22px; height: 22px;
     color: $accent;
     margin-bottom: 0.65rem;
+    filter: drop-shadow(0 0 6px rgba($accent_rgb, .45));
 }
 .prism-card-title { color: $text; font-weight: 700; font-size: 1.02rem; margin-bottom: 0.4rem; }
 .prism-card-desc { color: $text_muted; font-size: 0.86rem; line-height: 1.5; }
@@ -455,14 +556,17 @@ code { color: $accent; }
     font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
     padding: 0.28rem 0.65rem; border-radius: 999px;
     background: rgba($accent_rgb, 0.12); color: $accent;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba($accent_rgb, 0.22);
 }
-.prism-badge.ai { background: rgba($accent2_rgb, 0.14); color: $accent2; }
+.prism-badge.ai { background: rgba($accent2_rgb, 0.14); color: $accent2; border-color: rgba($accent2_rgb, 0.24); }
 
 .prism-hero-title {
     font-weight: 800; font-size: 3.6rem; letter-spacing: -0.02em; line-height: 1;
-    background: linear-gradient(90deg, $accent, $accent2, $accent);
+    background: linear-gradient(90deg, $accent, $accent2, $accent3, $accent);
     background-size: 200% auto;
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    filter: drop-shadow(0 0 30px rgba($accent2_rgb, .28));
     animation: prismShimmer 7s linear infinite;
 }
 
@@ -523,11 +627,26 @@ h1, h2, h3, h4, .prism-heading {
 }
 .glass-card {
     border-radius: 20px;
-    backdrop-filter: blur(14px) saturate(160%);
-    -webkit-backdrop-filter: blur(14px) saturate(160%);
-    transition: transform 0.22s ease, box-shadow 0.22s ease;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: var(--prism-glass-blur);
+    -webkit-backdrop-filter: var(--prism-glass-blur);
+    box-shadow: var(--prism-glass-edge);
+    transition: transform var(--prism-dur-med) $ease, box-shadow var(--prism-dur-med) $ease;
 }
-.glass-card.hoverable:hover { transform: translateY(-4px); }
+.glass-card::after {
+    content: "";
+    position: absolute; top: 0; left: -60%; width: 40%; height: 100%;
+    background: linear-gradient(120deg, transparent, rgba(255,255,255,.07), transparent);
+    transform: skewX(-20deg);
+    transition: left var(--prism-dur-slow) $ease;
+    pointer-events: none;
+}
+.glass-card.hoverable:hover::after { left: 130%; }
+.glass-card.hoverable:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--prism-glass-edge), 0 18px 40px -18px rgba($accent_rgb, .3);
+}
 .prism-empty-state {
     text-align: center;
     border-radius: 20px;
@@ -578,7 +697,8 @@ h1, h2, h3, h4, .prism-heading {
 .prism-dataset-chip {
     display: inline-flex; align-items: center; gap: 8px;
     padding: 5px 14px; border: 1px solid var(--prism-border); border-radius: 999px;
-    background: var(--prism-surface); backdrop-filter: blur(8px);
+    background: var(--prism-surface); backdrop-filter: blur(12px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
     font-size: 12.5px; color: var(--prism-text);
 }
 .prism-dataset-chip .dot {
@@ -631,8 +751,11 @@ h1, h2, h3, h4, .prism-heading {
 .prism-col-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
 .prism-col-card {
     background: var(--prism-surface); border: 1px solid var(--prism-border); border-radius: var(--prism-radius);
-    padding: 14px 16px; backdrop-filter: blur(8px);
+    padding: 14px 16px; backdrop-filter: blur(14px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    transition: transform var(--prism-dur-fast) $ease, border-color var(--prism-dur-fast) $ease;
 }
+.prism-col-card:hover { transform: translateY(-2px); border-color: rgba(var(--prism-accent-rgb),.4); }
 .prism-col-card .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .prism-col-card .cn { font-family: var(--prism-mono-font); font-size: 13px; color: var(--prism-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prism-badge {
@@ -666,7 +789,9 @@ h1, h2, h3, h4, .prism-heading {
 .st-key-atlas_side_panel {
     position: fixed; top: 56px; right: 0; bottom: 0; width: 328px; z-index: 998;
     background: var(--prism-surface); border-left: 1px solid var(--prism-border);
-    backdrop-filter: blur(10px); overflow-y: auto; padding: 14px 16px 8px;
+    backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%);
+    box-shadow: -24px 0 60px -32px rgba(0,0,0,.55), inset 1px 0 0 rgba(255,255,255,.04);
+    overflow-y: auto; padding: 14px 16px 8px;
 }
 .atlas-panel-hd { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--prism-border); margin-bottom: 10px; }
 .atlas-orb-sm.atlas-orb { width: 26px; height: 26px; animation-duration: 2.2s; flex-shrink: 0; }
@@ -675,10 +800,13 @@ h1, h2, h3, h4, .prism-heading {
 .atlas-panel-hd .s::before { content: "\25CF "; font-size: 7px; }
 .atlas-msg {
     max-width: 96%; padding: 9px 11px; border-radius: 11px; font-size: 12.5px; margin-bottom: 8px; line-height: 1.45;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: transform var(--prism-dur-fast) $ease;
     animation: prismFadeInUp 0.35s $ease both;
 }
 .atlas-msg.a { background: rgba(var(--prism-accent-rgb),.08); border: 1px solid rgba(var(--prism-accent-rgb),.24); border-top-left-radius: 3px; }
 .atlas-msg.u { background: rgba(var(--prism-accent2-rgb),.12); border: 1px solid rgba(var(--prism-accent2-rgb),.32); border-top-right-radius: 3px; margin-left: auto; }
+.atlas-msg:hover { transform: translateX(1px); }
 .atlas-msg .who { font-size: 9px; color: var(--prism-text-muted); font-family: var(--prism-hud-font); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 2px; }
 .st-key-atlas_side_panel .stButton button {
     font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
