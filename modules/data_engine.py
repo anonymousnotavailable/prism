@@ -140,6 +140,58 @@ def _recover_missing_header(df: pd.DataFrame, uploaded_file, encoding: str, deli
     return df, True
 
 
+def _unnamed_column_ratio(df: pd.DataFrame) -> float:
+    if df.shape[1] == 0:
+        return 0.0
+    unnamed = sum(1 for c in df.columns if str(c).startswith("Unnamed:"))
+    return unnamed / df.shape[1]
+
+
+def _recover_banner_row(df: pd.DataFrame, reread) -> tuple[pd.DataFrame, bool]:
+    """A banner/title row above the real header is a different failure mode
+    from a missing header entirely (which _recover_missing_header already
+    handles): a merged "Q3 Sales Report" cell, a blank row, THEN the real
+    header. pandas reads that banner as the header, producing either a wall
+    of "Unnamed: N" columns (multi-cell banner) or a bogus single-column
+    parse (single-cell banner). `reread` is a zero-arg callable that
+    re-parses the same source with header=1 (skip row 0, treat row 1 as the
+    real header) — pulled out as a callable so this one recovery routine
+    covers both the CSV and Excel branches in load_data(), which re-read
+    from different underlying sources.
+    """
+    if not (_unnamed_column_ratio(df) > 0.5 or df.shape[1] <= 1) or df.shape[0] <= 1:
+        return df, False
+    try:
+        retried = reread()
+    except Exception:
+        return df, False
+    if retried.shape[1] > df.shape[1] or _unnamed_column_ratio(retried) < _unnamed_column_ratio(df):
+        return retried, True
+    return df, False
+
+
+def _clean_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Strips stray whitespace from header cells — a very common artifact of
+    hand-edited or copy-pasted spreadsheets ('Revenue ' vs 'Revenue' silently
+    becoming two different columns downstream otherwise)."""
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def _strip_object_column_whitespace(df: pd.DataFrame) -> pd.DataFrame:
+    """Strips leading/trailing whitespace from string *values* (not just
+    headers) — ' Bengaluru' and 'Bengaluru' silently becoming two different
+    categories is a very common copy-paste/export artifact, and unlike
+    numeric coercion this can't change what the data means, so it's safe to
+    always apply rather than gate behind a confidence threshold."""
+    df = df.copy()
+    for col in df.columns:
+        if pd.api.types.is_object_dtype(df[col]):
+            df[col] = df[col].apply(lambda v: v.strip() if isinstance(v, str) else v)
+    return df
+
+
 def load_data(
     uploaded_file, sheet_name: Union[str, int] = 0, max_rows: Optional[int] = MAX_ROWS
 ) -> tuple[Optional[pd.DataFrame], Optional[str], list[str]]:
@@ -168,6 +220,14 @@ def load_data(
         if filename.endswith((".xlsx", ".xls")):
             uploaded_file.seek(0)
             df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+
+            def _reread_excel():
+                uploaded_file.seek(0)
+                return pd.read_excel(uploaded_file, sheet_name=sheet_name, header=1)
+
+            df, banner_skipped = _recover_banner_row(df, _reread_excel)
+            if banner_skipped:
+                warnings.append("Detected a banner row above the real header and skipped it.")
         else:
             # Everything else — .csv, .txt, .dat, .data, or no extension at
             # all — is treated as a delimited-text candidate rather than
@@ -195,6 +255,15 @@ def load_data(
                     "not column names), so it would otherwise have been silently used as one — Prism "
                     "generated generic column names (Column_1, Column_2, ...) and kept every row."
                 )
+            else:
+
+                def _reread_csv():
+                    uploaded_file.seek(0)
+                    return pd.read_csv(uploaded_file, encoding=encoding_used, sep=delimiter_used, header=1)
+
+                df, banner_skipped = _recover_banner_row(df, _reread_csv)
+                if banner_skipped:
+                    warnings.append("Detected a banner row above the real header and skipped it.")
     except pd.errors.EmptyDataError:
         return None, "The uploaded file is empty.", warnings
     except pd.errors.ParserError as e:
@@ -210,6 +279,9 @@ def load_data(
         return None, "The uploaded file contains no rows.", warnings
     if df.shape[1] == 0:
         return None, "The uploaded file contains no columns.", warnings
+
+    df = _clean_column_names(df)
+    df = _strip_object_column_whitespace(df)
 
     # Some Excel exports leave fully-empty trailing rows behind — drop them before
     # they skew the quality report. Fully-empty *columns* are intentionally kept:
