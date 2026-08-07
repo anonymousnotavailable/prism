@@ -138,6 +138,8 @@ _DEFAULTS = {
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
+    "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
+    "stl_decomp_error": None,  # error from the last decomposition attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -276,6 +278,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.stats_lab_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
+    st.session_state.stl_decomp_result = None
+    st.session_state.stl_decomp_error = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -3332,6 +3336,44 @@ elif st.session_state.active_section == "Forecasting":
                 mime="text/csv",
                 use_container_width=True,
             )
+
+        st.divider()
+        st.markdown("#### Time Series Decomposition (STL)")
+        st.caption(
+            "Splits the series into trend, seasonal, and residual components — useful for "
+            "understanding *why* a series moves the way it does before (or instead of) forecasting it."
+        )
+        if st.button("Run Decomposition", key="stl_decompose_btn", use_container_width=True):
+            decomp_series, decomp_freq, decomp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if decomp_prep_error:
+                st.session_state.stl_decomp_result = None
+                st.session_state.stl_decomp_error = decomp_prep_error
+            else:
+                ok, reason = forecasting.can_decompose(decomp_series, decomp_freq)
+                if not ok:
+                    st.session_state.stl_decomp_result = None
+                    st.session_state.stl_decomp_error = reason
+                else:
+                    with st.spinner(ui.get_loading_message()):
+                        decomp_outcome = forecasting.decompose_series(decomp_series, decomp_freq)
+                    if decomp_outcome.get("error"):
+                        st.session_state.stl_decomp_result = None
+                        st.session_state.stl_decomp_error = decomp_outcome["error"]
+                    else:
+                        st.session_state.stl_decomp_result = decomp_outcome
+                        st.session_state.stl_decomp_error = None
+
+        if st.session_state.stl_decomp_error:
+            st.error(st.session_state.stl_decomp_error)
+        elif st.session_state.stl_decomp_result is None:
+            ui.render_empty_state(
+                "📈", "No decomposition yet", 'Click "Run Decomposition" to break the series into trend/seasonal/residual.'
+            )
+        else:
+            decomp_result = st.session_state.stl_decomp_result
+            st.markdown(forecasting.decomposition_verdict(decomp_result))
+            decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
+            st.plotly_chart(decomp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
 # Clustering tab — KMeans on standardized numeric columns with an
