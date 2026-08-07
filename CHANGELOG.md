@@ -29,3 +29,44 @@ All notable changes to Prism are logged here, newest first.
   step" card in the Auto Analyst tab with a one-click "Test in Stats Lab"
   button that pre-selects both columns. Deterministic, no extra Gemini
   calls. 5 new tests.
+- **Auto-Insight Engine** (`modules/auto_insights.py`) — proactive
+  statistical insights surfaced automatically on every dataset upload, no
+  button click required. Scans for highly skewed/heavy-tailed
+  distributions, strongly/moderately correlated numeric pairs
+  (multicollinearity warnings), missing-data severity, IQR-based outlier
+  prevalence, near-constant columns, high-cardinality ID-like columns,
+  class imbalance in low-cardinality categoricals, and exact duplicate
+  rows. Findings are severity-ranked (high/medium/low) and shown at the
+  top of the Overview tab, with an optional one-click Gemini narration
+  that turns the raw findings into a stakeholder-readable paragraph. 23
+  new tests covering every detector plus edge cases (empty/single-row/
+  all-null data).
+- **Regression Diagnostics Panel** (`modules/regression_diagnostics.py`) —
+  added to ML Lab for regression targets. Fits its own statsmodels OLS
+  (separate from ML Lab's sklearn baseline, since inference needs
+  statsmodels' standard errors) and runs the standard diagnostic battery:
+  residuals-vs-fitted, Normal Q-Q, and Scale-Location plots; Shapiro-Wilk
+  normality; Breusch-Pagan heteroscedasticity; Durbin-Watson
+  autocorrelation; and Variance Inflation Factor (VIF) per feature for
+  multicollinearity. Each check gets a plain-English verdict. 33 new
+  tests, including coefficient recovery on synthetic data with known
+  collinearity/heteroscedasticity.
+- **Time Series Decomposition (STL)** — added to the Forecasting tab.
+  Splits a time series into trend + seasonal + residual components via
+  statsmodels' STL (robust to outliers by default), reusing the existing
+  `prepare_series()` pipeline. Shows a 0-1 trend/seasonal strength score
+  (Hyndman & Athanasopoulos heuristic) and a 4-panel observed/trend/
+  seasonal/residual chart. 26 new tests, including an additive-
+  reconstruction identity check and known-trend/seasonality recovery on
+  synthetic data.
+
+### Fixed
+- `ai_analyst.call_gemini()` no longer crashes with a `TypeError` if the
+  `google.generativeai` import failed (`google_exceptions` was `None`) —
+  now matches on exception class name as a fallback. Also guards against
+  safety-filtered or empty Gemini responses instead of raising on
+  `response.text` access.
+- `auto_analyst._summarize_result()` now truncates wide DataFrames (20+
+  columns) and long string results before they're folded into the
+  findings-synthesis prompt, avoiding an unbounded token cost on
+  wide datasets.
