@@ -19,7 +19,7 @@ def scroll_main(page, delta_y):
     page.wait_for_timeout(400)
 
 
-def open_app_and_load(page, theme_light=False, mobile=False):
+def open_app_and_load(page, theme_light=False, mobile=False, sample="Load Sales"):
     page.goto(BASE_URL, timeout=60000)
     page.wait_for_timeout(3000)
     if mobile:
@@ -39,7 +39,7 @@ def open_app_and_load(page, theme_light=False, mobile=False):
             page.wait_for_timeout(1200)
         except Exception as e:
             print(f"  ! Theme switch failed: {e}")
-    page.click("text=Load Sales", timeout=10000, force=True)
+    page.click(f"text={sample}", timeout=10000, force=True)
     page.wait_for_timeout(4500)
     try:
         page.click("text=Got it, dismiss", timeout=2500, force=True)
@@ -74,16 +74,17 @@ def capture_regression_diag(page, viewport_name, theme_name):
         print(f"  ! Could not open ML Lab: {e}")
         return
     page.wait_for_timeout(1000)
-    # Set target column to 'quantity' — a genuinely numeric column (unlike
-    # 'revenue', which is intentionally messy currency text in this sample
-    # dataset) so detect_task_type() picks "regression" and the diagnostics
-    # button actually renders.
+    # Set target column to 'close' (stock closing price) — a genuinely
+    # continuous numeric column so detect_task_type() picks "regression"
+    # and the diagnostics button actually renders. (Sales sample's numeric
+    # columns are either low-cardinality integers that trip the
+    # classification heuristic, or currency stored as text.)
     try:
         selects = page.query_selector_all('[data-testid="stSelectbox"]')
         if selects:
             selects[0].click(force=True)
             page.wait_for_timeout(500)
-            page.click('li:has-text("quantity")', timeout=3000, force=True)
+            page.click('li:has-text("close")', timeout=3000, force=True)
             page.wait_for_timeout(1000)
     except Exception as e:
         print(f"  ! Target column select issue (may already default correctly): {e}")
