@@ -42,6 +42,7 @@ from modules import (
     geo,
     hellmode,
     india,
+    insight_verifier,
     join_engine,
     mllab,
     pii_detector,
@@ -127,6 +128,7 @@ _DEFAULTS = {
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -421,6 +423,9 @@ def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tupl
 
     with st.spinner(ui.get_loading_message()):
         findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
+
+    verification = insight_verifier.verify_findings(df_, column_types_, findings) if findings else []
+    st.session_state.auto_analyst_verification = verification
 
     return step_outcomes, findings, findings_error
 
@@ -3064,8 +3069,24 @@ elif st.session_state.active_section == "Auto Analyst":
             if st.session_state.auto_analyst_findings_error:
                 st.error(st.session_state.auto_analyst_findings_error)
             elif st.session_state.auto_analyst_findings:
+                verification = st.session_state.auto_analyst_verification
+                confirmed_count = sum(1 for v in verification if v.get("status") == "confirmed")
+                flagged_count = sum(1 for v in verification if v.get("status") == "flagged")
+                if confirmed_count or flagged_count:
+                    st.caption(
+                        f"🔎 Fact-checked against the data: {confirmed_count} finding(s) with confirmed "
+                        f"figures" + (f", {flagged_count} with an unconfirmed number — verify before citing."
+                                      if flagged_count else ".")
+                    )
+
+                _BADGE = {
+                    "confirmed": '<span class="prism-badge b-pass" title="Every number in this finding matches a value recomputed directly from the data.">✓ verified</span>',
+                    "flagged": '<span class="prism-badge b-fail" title="At least one number here could not be matched to a recomputed value — double-check before citing.">⚠ unconfirmed</span>',
+                    "unverifiable": "",
+                }
                 cards_html = "".join(
-                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d} '
+                    f'{_BADGE.get(verification[i]["status"], "") if i < len(verification) else ""}</div>'
                     f'<div class="insight-text">{finding}</div></div>'
                     for i, finding in enumerate(st.session_state.auto_analyst_findings)
                 )
