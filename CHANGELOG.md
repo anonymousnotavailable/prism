@@ -20,3 +20,12 @@ All notable changes to Prism are logged here, newest first.
   `anomaly` (IsolationForest flagging), and `auto_analyst` (plan fallback
   logic, result summarization, findings synthesis guardrails). Run with
   `pip install -r requirements-dev.txt && pytest`.
+- **Suggested next hypothesis** (`auto_analyst.suggest_followup_hypothesis`)
+  — after an Auto Analyst run, Prism scans the loaded data directly (not
+  LLM prose) for the single most promising column pair to formally test:
+  the strongest numeric/numeric correlation above a "worth testing" bar,
+  or failing that the numeric/categorical pair with the largest one-way
+  ANOVA F-statistic among viable group counts. Shown as a "Suggested next
+  step" card in the Auto Analyst tab with a one-click "Test in Stats Lab"
+  button that pre-selects both columns. Deterministic, no extra Gemini
+  calls. 5 new tests.

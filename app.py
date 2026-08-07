@@ -3092,6 +3092,18 @@ elif st.session_state.active_section == "Auto Analyst":
                 )
                 st.markdown(cards_html, unsafe_allow_html=True)
 
+                hypothesis = auto_analyst.suggest_followup_hypothesis(df, column_types)
+                if hypothesis:
+                    st.info(f"🔬 **Suggested next step:** {hypothesis['reason']}")
+                    if st.button(
+                        f"Test '{hypothesis['col_a']}' vs '{hypothesis['col_b']}' in Stats Lab",
+                        use_container_width=True, key="jump_to_stats_lab_hypothesis",
+                    ):
+                        st.session_state.stats_col_a = hypothesis["col_a"]
+                        st.session_state.stats_col_b = hypothesis["col_b"]
+                        st.session_state.pending_active_section = "Stats Lab"
+                        st.rerun()
+
                 if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
                     # Story Mode (modules/story_mode.py) narrates
                     # st.session_state.key_insights — hand it this run's Auto
