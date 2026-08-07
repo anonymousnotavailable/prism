@@ -41,6 +41,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_engine,
     india,
     join_engine,
     mllab,
@@ -123,6 +124,9 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "hypothesis_results": None,  # last "Generate Hypotheses" ranked, tested result list
+    "hypothesis_narration": "",  # last Gemini prose summary of the hypothesis run, if generated
+    "hypothesis_narration_error": None,  # error from the last narration attempt, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -261,6 +265,9 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.hypothesis_results = None
+    st.session_state.hypothesis_narration = ""
+    st.session_state.hypothesis_narration_error = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1692,6 +1699,49 @@ elif st.session_state.active_section == "Overview":
                         st.session_state.anomaly_result_df = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
+
+    with st.expander("Hypothesis Generator", expanded=False):
+        st.caption(
+            "Autonomously scans every plausible column pair, pre-screens them for a real "
+            "signal, then runs the strongest candidates through actual significance tests "
+            "(t-test, ANOVA, chi-square, or Pearson) via Stats Lab — a ranked, *tested* list "
+            "of hypotheses, not just a suggestion."
+        )
+        if st.button("Generate Hypotheses", key="generate_hypotheses_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.hypothesis_results = hypothesis_engine.generate_hypotheses(df, column_types)
+                st.session_state.hypothesis_narration = ""
+                st.session_state.hypothesis_narration_error = None
+
+        results = st.session_state.hypothesis_results
+        if results is not None:
+            if not results:
+                ui.render_empty_state(
+                    "🔬", "No testable hypotheses found",
+                    "Needs at least two numeric/categorical columns with a workable number of categories.",
+                )
+            else:
+                st.info(hypothesis_engine.narrate_headline(results))
+
+                if ai_analyst.get_api_key():
+                    if st.button("Narrate with AI", key="narrate_hypotheses_btn"):
+                        with st.spinner(ui.get_loading_message()):
+                            text, narr_error = hypothesis_engine.narrate_with_gemini(ai_analyst.get_model(), results)
+                        st.session_state.hypothesis_narration = text
+                        st.session_state.hypothesis_narration_error = narr_error
+                    if st.session_state.hypothesis_narration_error:
+                        st.caption(st.session_state.hypothesis_narration_error)
+                    elif st.session_state.hypothesis_narration:
+                        st.success(st.session_state.hypothesis_narration)
+
+                for h in results:
+                    verdict_icon = "✅" if h["verdict"] == "supported" else "⬜"
+                    with st.container(border=True):
+                        st.markdown(f"{verdict_icon} **{h['statement']}**")
+                        st.caption(f"{stats_lab.TEST_LABELS[h['result']['test']]} · {h['suggestion']['reason']}")
+                        st.write(h["interpretation"])
+                        for warning in h["warnings"]:
+                            st.caption(f"⚠️ {warning}")
 
 # --------------------------------------------------------------------------
 # Clean tab — before/after comparison + cleaned dataset download
