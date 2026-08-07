@@ -78,14 +78,23 @@ def capture_regression_diag(page, viewport_name, theme_name):
     # continuous numeric column so detect_task_type() picks "regression"
     # and the diagnostics button actually renders. (Sales sample's numeric
     # columns are either low-cardinality integers that trip the
-    # classification heuristic, or currency stored as text.)
+    # classification heuristic, or currency stored as text.) Selected by
+    # its <label> text, not index — the page also has hidden selectboxes
+    # (e.g. the collapsed sidebar's theme picker) earlier in DOM order.
     try:
-        selects = page.query_selector_all('[data-testid="stSelectbox"]')
-        if selects:
-            selects[0].click(force=True)
+        target_select = None
+        for s in page.query_selector_all('[data-testid="stSelectbox"]'):
+            label = s.query_selector("label")
+            if label and "Target column" in (label.inner_text() or ""):
+                target_select = s
+                break
+        if target_select:
+            target_select.click(force=True)
             page.wait_for_timeout(500)
             page.click('li:has-text("close")', timeout=3000, force=True)
             page.wait_for_timeout(1000)
+        else:
+            print("  ! Target column selectbox not found by label")
     except Exception as e:
         print(f"  ! Target column select issue (may already default correctly): {e}")
 
