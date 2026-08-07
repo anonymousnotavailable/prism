@@ -38,3 +38,63 @@ No `CHANGELOG.md`, no automated test suite existed before this run.
 
 ---
 
+## Run — 2026-08-07
+
+**Shipped** (branch `feature/auto-analyst-stat-verification`, merged into
+`claude/trusting-curie-ntxjvu` and pushed — see guardrail note below on why
+not `main`):
+1. **Statistical Verification Layer for Auto Analyst** (`modules/insight_verifier.py`) —
+   independently re-derives the dataset's strongest relationships and runs
+   them through `stats_lab`'s real hypothesis tests (t-test/ANOVA/chi-square/
+   Pearson), surfaced as a "🔬 Statistically Verified" panel with p-values and
+   effect sizes. Zero extra Gemini calls. Wired into both the Auto Analyst
+   tab and Atlas's `execute_plan`.
+2. **Auto-narrated anomaly explanations** (`modules/anomaly.py::narrate_anomalies`) —
+   a "🗣️ Narrate anomalies" button that has Gemini explain the flagged
+   IsolationForest rows as a group; content-hash cached.
+
+**Why these two**: research (`.prism/research_2026-08-07.md`) and the audit
+(`.prism/audit_2026-08-07.md`) converged on the same gap — Auto Analyst had
+zero statistical rigor despite `stats_lab.py` already having the machinery,
+and this cycle's priority theme was agentic AI analysis. Anomaly narration
+was the cheapest complementary win (single cached LLM call on data already
+computed) matching what Tableau Pulse/Hex market as "auto-explain anomalies."
+No Atlas-copilot-track feature was built this run (both features are
+core-analysis, not JARVIS/voice/HUD work) — that's within the "at most one
+per run, not mandatory" rule.
+
+**Tests**: repo's first automated suite (`tests/`, pytest), 13 tests, all
+green; existing `eval/autocleaner_eval.py` regression suite unaffected
+(100%, 8/8). CI updated to run pytest.
+
+**Skipped this run** (see `.prism/research_2026-08-07.md` for the full
+ranked table — not rebuilding these without re-reading this log first):
+- Hypothesis auto-generation queue for Atlas (candidate #7) — good next-run
+  pick, natural extension of the verification layer built this run.
+- Cohort/RFM module, causal-inference-lite, A/B power calculator, PyGWalker
+  tab, Polars fast path for Hell Mode, time-series decomposition narration,
+  drift-to-hypothesis bridge — none started.
+
+**New audit findings, not fixed this run** (logged for next run, see
+`.prism/audit_2026-08-07.md` for screenshots):
+- Light theme ("Arctic"): the main dataframe grid, nav segmented-control
+  pills, and a couple of Atlas-panel elements don't pick up the light
+  palette — stay dark-styled, low contrast in a few spots.
+- Mobile viewport (390×844): main analysis content wasn't reachable by
+  scrolling past the Atlas panel in a quick manual pass — needs a proper
+  interactive mobile-nav investigation, not a blind CSS fix.
+- `google.generativeai` SDK is fully deprecated upstream (FutureWarning on
+  every import) — migrating to `google.genai` is a real future task, but
+  is a cross-cutting change touching every Gemini call site, out of scope
+  for a single run without dedicated regression coverage first.
+
+**Guardrail note**: the routine's generic instructions say "merge into main
+and push main." This repo session's explicit git operating instructions
+(hard constraint, takes precedence) assign a specific development branch
+(`claude/trusting-curie-ntxjvu`) and forbid pushing elsewhere or opening a
+PR without being asked. Followed the harder constraint: merged the feature
+branch into the assigned branch and pushed there, did not touch `main`,
+did not open a PR.
+
+---
+
