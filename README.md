@@ -248,6 +248,13 @@ The flagship v2 feature — one button, a full agentic analysis:
   and badges each finding ✓ verified or ⚠ unconfirmed depending on whether
   its numbers match. Catches LLM narration drifting from the data it was
   actually given.
+- **Suggested next hypothesis**: after a run, Prism looks at the loaded
+  data itself (not the LLM's prose) and suggests the single most promising
+  column pair for a real significance test — the strongest numeric/numeric
+  correlation if one clears a "worth testing" bar, else the numeric column
+  that varies most across a categorical column's groups (ranked by a
+  one-way ANOVA F-statistic). One click jumps straight into Stats Lab with
+  both columns pre-selected.
 
 ### Stats Lab
 - Pick two columns; Stats Lab suggests the statistically appropriate test
