@@ -9,6 +9,13 @@ synthesizes the accumulated results into 5 headline findings.
 Reuses modules.ai_analyst's Gemini plumbing (build_data_context, call_gemini,
 ask_and_execute, parse_numbered_bullets) instead of duplicating any of it —
 this module only adds the plan generation and multi-step orchestration on top.
+
+verify_findings() closes the loop into a self-verifying agent: Gemini's prose
+is fluent but not grounded, so every finding gets cross-checked against a
+real scipy.stats hypothesis test (via modules.stats_lab) run on whichever
+columns the finding actually names. A claim that doesn't survive its own
+significance test gets flagged rather than trusted at face value — zero
+extra Gemini calls, zero extra network I/O.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from typing import Optional
 
 import pandas as pd
 
+from modules import stats_lab
 from modules.ai_analyst import ask_and_execute, build_data_context, call_gemini, parse_numbered_bullets
 
 PLAN_SYSTEM_PROMPT = (
@@ -187,3 +195,88 @@ def synthesize_findings(model, step_outcomes: list[dict]) -> tuple[list[str], Op
     if error:
         return [], error
     return parse_numbered_bullets(text), None
+
+
+def _find_mentioned_columns(text: str, columns: list[str]) -> list[str]:
+    """Which of `columns` are actually named in `text`, in order of first
+    appearance. Matches on word boundaries (so a column called "age" doesn't
+    false-positive inside "average") against both the raw column name and an
+    underscore/dash-to-space variant (so "unit_price" also matches the prose
+    "unit price", which is how a model or a human would actually write it).
+    """
+    lower_text = text.lower()
+    hits: list[tuple[int, str]] = []
+    for col in columns:
+        variants = {col.lower(), col.lower().replace("_", " ").replace("-", " ")}
+        earliest: Optional[int] = None
+        for variant in variants:
+            if not variant.strip():
+                continue
+            match = re.search(r"\b" + re.escape(variant) + r"\b", lower_text)
+            if match and (earliest is None or match.start() < earliest):
+                earliest = match.start()
+        if earliest is not None:
+            hits.append((earliest, col))
+    hits.sort(key=lambda pair: pair[0])
+    return [col for _, col in hits]
+
+
+def verify_findings(df: pd.DataFrame, column_types: dict[str, str], findings: list[str]) -> list[dict]:
+    """Cross-check each headline finding against a real statistical test.
+
+    For every finding, name-match it against the dataframe's columns and, if
+    two testable (numeric/categorical) columns are mentioned, run the same
+    suggest_test()/run_test() pipeline Stats Lab uses on them. Returns one
+    dict per finding, same order, each with a "status":
+      - "verified"       — a hypothesis test ran and came back significant (p<0.05)
+      - "not_significant" — a test ran but did NOT support the claim (p>=0.05)
+      - "not_testable"    — fewer than 2 matching columns, or the test couldn't run
+
+    This never calls Gemini and never touches the network — it's a pure
+    pandas/scipy pass, so it's cheap enough to run on every Auto Analyst run.
+    """
+    testable_types = {"numeric", "categorical"}
+    columns = list(column_types.keys())
+    results: list[dict] = []
+
+    for text in findings:
+        mentioned = [c for c in _find_mentioned_columns(text, columns) if column_types.get(c) in testable_types]
+        # dedupe while preserving order (a column matched via two variants shouldn't count twice)
+        seen: set[str] = set()
+        mentioned = [c for c in mentioned if not (c in seen or seen.add(c))]
+
+        if len(mentioned) < 2:
+            results.append({
+                "status": "not_testable",
+                "detail": "No two matching columns named in this finding to run a hypothesis test against.",
+                "test": None, "p_value": None, "columns": mentioned,
+            })
+            continue
+
+        col_a, col_b = mentioned[0], mentioned[1]
+        suggestion = stats_lab.suggest_test(df, column_types, col_a, col_b)
+        if suggestion.get("error"):
+            results.append({
+                "status": "not_testable", "detail": suggestion["error"],
+                "test": None, "p_value": None, "columns": [col_a, col_b],
+            })
+            continue
+
+        result = stats_lab.run_test(df, suggestion)
+        if result.get("error"):
+            results.append({
+                "status": "not_testable", "detail": result["error"],
+                "test": suggestion.get("test"), "p_value": None, "columns": [col_a, col_b],
+            })
+            continue
+
+        significant = result["p_value"] < 0.05
+        results.append({
+            "status": "verified" if significant else "not_significant",
+            "detail": stats_lab.interpret_result(result),
+            "test": stats_lab.TEST_LABELS[result["test"]],
+            "p_value": result["p_value"],
+            "columns": [col_a, col_b],
+        })
+
+    return results

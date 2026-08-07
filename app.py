@@ -127,6 +127,7 @@ _DEFAULTS = {
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "auto_analyst_verification": [],  # per-finding stats_lab verification dicts, same order/length as findings
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -391,12 +392,42 @@ def _render_result_safely(result) -> None:
         st.code(repr(result))
 
 
-def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tuple[list[dict], list[str], Optional[str]]:
+_VERIFICATION_BADGE_STYLE = {
+    "verified": ("verified", "✅", "Statistically verified"),
+    "not_significant": ("not-significant", "⚠️", "Not statistically significant"),
+    "not_testable": ("not-testable", "ℹ️", "Descriptive — no test applicable"),
+}
+
+
+def _verification_badge_html(verification: Optional[dict]) -> str:
+    """Small badge under an Auto Analyst finding card showing whether that
+    finding survived a real stats_lab hypothesis test. See
+    modules.auto_analyst.verify_findings for the self-verifying-agent logic.
+    """
+    if not verification:
+        return ""
+    css_class, icon, label = _VERIFICATION_BADGE_STYLE.get(
+        verification.get("status"), _VERIFICATION_BADGE_STYLE["not_testable"]
+    )
+    detail = html.escape(verification.get("detail") or "")
+    p_value = verification.get("p_value")
+    p_str = f" &middot; p={p_value:.4g}" if p_value is not None else ""
+    return (
+        f'<div class="verify-badge verify-badge--{css_class}" title="{detail}">'
+        f"{icon} {label}{p_str}</div>"
+    )
+
+
+def _run_full_auto_analysis(
+    model, df_, column_types_, plan: list[dict]
+) -> tuple[list[dict], list[str], Optional[str], list[dict]]:
     """Shared step-runner for both the Auto Analyst tab's "Run Full
     Analysis" button and Atlas's "execute_plan" command: run every step in
     `plan` through the safe-execution sandbox (same one AI Analyst chat
     uses), narrating progress via st.status() as it goes, then synthesize
-    the results into headline findings.
+    the results into headline findings and cross-check each one against a
+    real stats_lab hypothesis test (auto_analyst.verify_findings) — the
+    self-verifying pass, no extra Gemini calls.
     """
     step_outcomes: list[dict] = []
     step_history: list[dict] = []
@@ -422,7 +453,9 @@ def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tupl
     with st.spinner(ui.get_loading_message()):
         findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
 
-    return step_outcomes, findings, findings_error
+    verification = auto_analyst.verify_findings(df_, column_types_, findings) if findings else []
+
+    return step_outcomes, findings, findings_error, verification
 
 
 def _cmd_propose_plan(target) -> None:
@@ -478,10 +511,11 @@ def _cmd_execute_plan(target) -> None:
             plan = auto_analyst.generate_analysis_plan(model, df_, column_types_)
         st.session_state.auto_analyst_plan = plan
 
-    step_outcomes, findings, findings_error = _run_full_auto_analysis(model, df_, column_types_, plan)
+    step_outcomes, findings, findings_error, verification = _run_full_auto_analysis(model, df_, column_types_, plan)
     st.session_state.auto_analyst_step_outcomes = step_outcomes
     st.session_state.auto_analyst_findings = findings
     st.session_state.auto_analyst_findings_error = findings_error
+    st.session_state.auto_analyst_verification = verification
     st.session_state.pending_active_section = "Auto Analyst"
 
     if not findings:
@@ -491,8 +525,12 @@ def _cmd_execute_plan(target) -> None:
         return
 
     findings_html = "<br>".join(f"{i}. {html.escape(f)}" for i, f in enumerate(findings, 1))
+    verified_count = sum(1 for v in verification if v["status"] == "verified")
+    summary_line = (
+        f"Done — found {len(findings)} key thing(s) worth knowing, {verified_count} statistically verified."
+    )
     atlas.say(
-        f"Done — found {len(findings)} key thing(s) worth knowing.",
+        summary_line,
         chat_html=f"Done — here's what I found:<br>{findings_html}<br><br>Full detail is in the Auto Analyst tab.",
     )
 
@@ -3044,12 +3082,15 @@ elif st.session_state.active_section == "Auto Analyst":
     else:
         if st.button("Run Full Analysis", type="primary", use_container_width=True):
             plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
-            step_outcomes, findings, findings_error = _run_full_auto_analysis(auto_model, df, column_types, plan)
+            step_outcomes, findings, findings_error, verification = _run_full_auto_analysis(
+                auto_model, df, column_types, plan
+            )
 
             st.session_state.auto_analyst_plan = plan
             st.session_state.auto_analyst_step_outcomes = step_outcomes
             st.session_state.auto_analyst_findings = findings
             st.session_state.auto_analyst_findings_error = findings_error
+            st.session_state.auto_analyst_verification = verification
             st.balloons()
 
         if not st.session_state.auto_analyst_step_outcomes:
@@ -3064,9 +3105,16 @@ elif st.session_state.active_section == "Auto Analyst":
             if st.session_state.auto_analyst_findings_error:
                 st.error(st.session_state.auto_analyst_findings_error)
             elif st.session_state.auto_analyst_findings:
+                verification = st.session_state.auto_analyst_verification
+                verified_count = sum(1 for v in verification if v.get("status") == "verified")
+                st.caption(
+                    f"🔬 Self-verified against real hypothesis tests — {verified_count}/{len(verification)} "
+                    "finding(s) confirmed statistically significant (scipy.stats, p<0.05)."
+                )
                 cards_html = "".join(
                     f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
-                    f'<div class="insight-text">{finding}</div></div>'
+                    f'<div class="insight-text">{finding}</div>'
+                    f'{_verification_badge_html(verification[i] if i < len(verification) else None)}</div>'
                     for i, finding in enumerate(st.session_state.auto_analyst_findings)
                 )
                 st.markdown(cards_html, unsafe_allow_html=True)

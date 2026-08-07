@@ -494,6 +494,25 @@ code { color: $accent; }
 }
 .insight-card .insight-text { color: $text; font-size: 0.95rem; line-height: 1.55; }
 
+.verify-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 8px; padding: 3px 10px;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    border: 1px solid transparent; cursor: default;
+}
+.verify-badge--verified {
+    color: $success; background: color-mix(in srgb, $success 14%, transparent);
+    border-color: color-mix(in srgb, $success 35%, transparent);
+}
+.verify-badge--not-significant {
+    color: $warning; background: color-mix(in srgb, $warning 14%, transparent);
+    border-color: color-mix(in srgb, $warning 35%, transparent);
+}
+.verify-badge--not-testable {
+    color: $text_muted; background: color-mix(in srgb, $text_muted 12%, transparent);
+    border-color: color-mix(in srgb, $text_muted 28%, transparent);
+}
+
 .prism-footer {
     text-align: center; padding: 2rem 0 1rem 0; margin-top: 2rem;
     border-top: 1px solid $border; color: $text_muted; font-size: 0.85rem;
