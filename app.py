@@ -42,6 +42,7 @@ from modules import (
     geo,
     hellmode,
     india,
+    insight_verifier,
     join_engine,
     mllab,
     pii_detector,
@@ -127,6 +128,9 @@ _DEFAULTS = {
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "auto_analyst_verified_findings": [],  # modules.insight_verifier results for the last run
+    "anomaly_narrative": None,  # last "Narrate Anomalies" text
+    "anomaly_narrative_error": None,  # error from the last "Narrate Anomalies" attempt, if any
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -261,10 +265,13 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narrative = None
+    st.session_state.anomaly_narrative_error = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
+    st.session_state.auto_analyst_verified_findings = []
     st.session_state.stats_lab_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
@@ -391,12 +398,18 @@ def _render_result_safely(result) -> None:
         st.code(repr(result))
 
 
-def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tuple[list[dict], list[str], Optional[str]]:
+def _run_full_auto_analysis(
+    model, df_, column_types_, plan: list[dict]
+) -> tuple[list[dict], list[str], Optional[str], list[dict]]:
     """Shared step-runner for both the Auto Analyst tab's "Run Full
     Analysis" button and Atlas's "execute_plan" command: run every step in
     `plan` through the safe-execution sandbox (same one AI Analyst chat
     uses), narrating progress via st.status() as it goes, then synthesize
     the results into headline findings.
+
+    Also runs modules.insight_verifier over df_ (independent of the plan's
+    steps — no extra Gemini call) so the findings come with a set of
+    statistically-tested relationships alongside the LLM prose.
     """
     step_outcomes: list[dict] = []
     step_history: list[dict] = []
@@ -422,7 +435,12 @@ def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tupl
     with st.spinner(ui.get_loading_message()):
         findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
 
-    return step_outcomes, findings, findings_error
+    try:
+        verified_findings = insight_verifier.verify_relationships(df_, column_types_)
+    except Exception:
+        verified_findings = []  # verification is a bonus layer — never let it sink the whole run
+
+    return step_outcomes, findings, findings_error, verified_findings
 
 
 def _cmd_propose_plan(target) -> None:
@@ -478,10 +496,13 @@ def _cmd_execute_plan(target) -> None:
             plan = auto_analyst.generate_analysis_plan(model, df_, column_types_)
         st.session_state.auto_analyst_plan = plan
 
-    step_outcomes, findings, findings_error = _run_full_auto_analysis(model, df_, column_types_, plan)
+    step_outcomes, findings, findings_error, verified_findings = _run_full_auto_analysis(
+        model, df_, column_types_, plan
+    )
     st.session_state.auto_analyst_step_outcomes = step_outcomes
     st.session_state.auto_analyst_findings = findings
     st.session_state.auto_analyst_findings_error = findings_error
+    st.session_state.auto_analyst_verified_findings = verified_findings
     st.session_state.pending_active_section = "Auto Analyst"
 
     if not findings:
@@ -1670,6 +1691,8 @@ elif st.session_state.active_section == "Overview":
                     flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narrative = None
+                st.session_state.anomaly_narrative_error = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1680,6 +1703,22 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     st.dataframe(flagged, use_container_width=True)
+
+                    anomaly_model = ai_analyst.get_model()
+                    if anomaly_model is None:
+                        st.caption("Set a Gemini API key (see AI Analyst tab) to get a narrated explanation.")
+                    elif st.button("🗣️ Narrate anomalies", key="narrate_anomalies_btn"):
+                        with st.spinner(ui.get_loading_message()):
+                            numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+                            narrative, narrative_err = anomaly.narrate_anomalies(anomaly_model, flagged, numeric_cols)
+                        st.session_state.anomaly_narrative = narrative
+                        st.session_state.anomaly_narrative_error = narrative_err
+
+                    if st.session_state.anomaly_narrative_error:
+                        st.error(st.session_state.anomaly_narrative_error)
+                    elif st.session_state.anomaly_narrative:
+                        st.info(f"🗣️ {st.session_state.anomaly_narrative}")
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
@@ -1690,6 +1729,8 @@ elif st.session_state.active_section == "Overview":
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
+                        st.session_state.anomaly_narrative = None
+                        st.session_state.anomaly_narrative_error = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 
@@ -3044,12 +3085,15 @@ elif st.session_state.active_section == "Auto Analyst":
     else:
         if st.button("Run Full Analysis", type="primary", use_container_width=True):
             plan = auto_analyst.generate_analysis_plan(auto_model, df, column_types)
-            step_outcomes, findings, findings_error = _run_full_auto_analysis(auto_model, df, column_types, plan)
+            step_outcomes, findings, findings_error, verified_findings = _run_full_auto_analysis(
+                auto_model, df, column_types, plan
+            )
 
             st.session_state.auto_analyst_plan = plan
             st.session_state.auto_analyst_step_outcomes = step_outcomes
             st.session_state.auto_analyst_findings = findings
             st.session_state.auto_analyst_findings_error = findings_error
+            st.session_state.auto_analyst_verified_findings = verified_findings
             st.balloons()
 
         if not st.session_state.auto_analyst_step_outcomes:
@@ -3080,6 +3124,31 @@ elif st.session_state.active_section == "Auto Analyst":
                     st.session_state.story_slide_index = 0
                     st.session_state.story_mode_active = True
                     st.rerun()
+
+            verified_findings = st.session_state.auto_analyst_verified_findings
+            if verified_findings:
+                st.divider()
+                st.markdown("### 🔬 Statistically Verified")
+                st.caption(
+                    "The findings above are Gemini's prose. These are independently re-checked: "
+                    "modules/stats_lab runs the correct hypothesis test (t-test / ANOVA / chi-square / "
+                    "Pearson) on the dataset's strongest relationships and reports the actual p-value "
+                    "and effect size — no LLM call involved."
+                )
+                for vf in verified_findings:
+                    badge = "✅ Significant" if vf["significant"] else "◯ Not significant"
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**{vf['col_a']} × {vf['col_b']}** — {vf['test_label']} · {badge}"
+                        )
+                        st.caption(vf["reason"])
+                        vc1, vc2, vc3 = st.columns(3)
+                        vc1.metric("p-value", f"{vf['p_value']:.4g}")
+                        vc2.metric(vf["effect_size_label"].capitalize() + " effect", f"{vf['effect_size']:.3f}")
+                        vc3.metric("Test", vf["test_label"].split()[0])
+                        st.write(vf["verdict"])
+                        for warning in vf["warnings"]:
+                            st.caption(f"⚠️ {warning}")
 
             st.divider()
             st.markdown("**Step-by-step results**")

@@ -1,10 +1,13 @@
 """
 Anomaly Detection — flags unusual rows via scikit-learn's IsolationForest
-over the dataset's numeric columns, with a plain-English reason per flagged row.
+over the dataset's numeric columns, with a plain-English reason per flagged
+row, plus an optional Gemini-written narrative summarizing the flagged set
+as a whole (narrate_anomalies).
 """
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 import pandas as pd
@@ -84,3 +87,58 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+# In-process cache of narration text keyed by a hash of the flagged set's
+# content, so re-rendering or re-clicking "Narrate" on the same result
+# doesn't re-hit the Gemini API — Gemini's free-tier quota is a shared,
+# per-session budget (see modules.ai_analyst._check_rate_limit) and a
+# narration of an unchanged anomaly set will always come out the same way.
+_narration_cache: dict[str, str] = {}
+
+
+def _anomaly_cache_key(flagged: pd.DataFrame) -> str:
+    reasons = "|".join(flagged["anomaly_reason"].astype(str).tolist())
+    payload = f"{len(flagged)}::{reasons}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def narrate_anomalies(model, flagged: pd.DataFrame, numeric_cols: list[str]) -> tuple[str, Optional[str]]:
+    """One short LLM paragraph explaining the flagged rows as a group:
+    what pattern dominates, which column(s) drive it, and whether it reads
+    more like data-entry errors or a genuine outlier signal worth digging into.
+
+    Returns (narration, error). narration is "" with error=None when there's
+    nothing to narrate (no flagged rows) — that's a valid no-op, not a failure.
+    Uses modules.ai_analyst.call_gemini for the same quota/error handling as
+    every other Gemini call in the app.
+    """
+    from modules.ai_analyst import call_gemini  # local import: avoids a module-load-time cycle
+
+    if model is None:
+        return "", "No Gemini model available."
+    if flagged is None or flagged.empty:
+        return "", None
+
+    cache_key = _anomaly_cache_key(flagged)
+    if cache_key in _narration_cache:
+        return _narration_cache[cache_key], None
+
+    reason_counts = flagged["anomaly_reason"].value_counts().head(8)
+    reason_summary = "\n".join(f"- {reason} ({count}x)" for reason, count in reason_counts.items())
+    prompt = (
+        "You are a senior data analyst. An IsolationForest model flagged "
+        f"{len(flagged)} anomalous row(s) out of a dataset. Here are the most common "
+        f"reasons rows were flagged:\n\n{reason_summary}\n\n"
+        "In 2-4 sentences: (1) summarize what kind of anomaly this looks like, "
+        "(2) name the column(s) driving it most, and (3) say whether this reads more like "
+        "likely data-entry/measurement errors or a genuine outlier signal worth investigating, "
+        "with one concrete next step. Plain English, no headers, no bullet points."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+
+    narration = text.strip()
+    _narration_cache[cache_key] = narration
+    return narration, None

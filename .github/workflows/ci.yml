@@ -16,10 +16,13 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Compile check (every .py file)
         run: python -m py_compile $(git ls-files '*.py')
+
+      - name: Unit tests (tests/, deterministic, no network/API key needed)
+        run: pytest tests/ -q
 
       - name: Auto Cleaner eval suite (deterministic, no network/API key needed)
         run: python eval/autocleaner_eval.py
