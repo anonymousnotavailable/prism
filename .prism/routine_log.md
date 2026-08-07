@@ -39,11 +39,16 @@ run has to firefight. Web research this cycle was a light pass (no live
 Gemini key was available in the execution sandbox to exercise the
 Gemini-dependent path visually — verified via unit tests instead).
 
+**Second feature shipped same run (`feature/hypothesis-handoff`):**
+budget allowed a second, well-scoped low-risk pick from the backlog below —
+`auto_analyst.suggest_followup_hypothesis()` scans the loaded data directly
+(strongest numeric/numeric correlation, else largest ANOVA F-stat across a
+categorical split) and offers a one-click handoff into Stats Lab with both
+columns pre-selected. 5 more tests (27 total). Same merge/push/fresh-clone-
+boot verification as the first feature. This closes out that backlog item —
+do not rebuild it.
+
 **Not built (backlog for next run):**
-- Hypothesis-suggestion follow-through: after Auto Analyst finds a pattern,
-  auto-route the relevant column pair into Stats Lab's `suggest_test()` so
-  the user gets one click into a real significance test. (Agentic theme,
-  effort S, low risk — good next-run pick.)
 - Anomaly narration: `modules/anomaly.py` already flags rows with a
   templated `anomaly_reason` string; a genuinely agentic upgrade would have
   Gemini narrate the flagged set in plain English with a suggested next
@@ -64,6 +69,10 @@ Gemini-dependent path visually — verified via unit tests instead).
   Next run with a configured key should screenshot the actual findings
   panel with ✓/⚠ badges showing.
 
-**Outcome:** feature branch `feature/insight-verifier` built, tested (22/22
-pytest green), smoke-booted the full Streamlit app (HTTP 200, no traceback),
-screenshotted desktop/mobile/dark/light nav paths, merged to `main`, pushed.
+**Outcome:** two feature branches (`feature/insight-verifier`,
+`feature/hypothesis-handoff`) built, tested (27/27 pytest green), smoke-
+booted the full Streamlit app (HTTP 200, no traceback) after each merge,
+screenshotted desktop/mobile/dark/light nav paths, both merged to `main`
+and pushed. Final fresh-clone-from-scratch boot check on `main` passed.
+Commits: `359e0ed` (verifier), `b5b4c8c` (report), `e988e6a` (hypothesis
+handoff).

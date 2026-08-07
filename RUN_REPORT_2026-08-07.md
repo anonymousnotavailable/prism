@@ -1,7 +1,8 @@
 # Prism Autonomous Improvement Run — 2026-08-07
 
-Full-auto run. Branch `feature/insight-verifier` → merged to `main` → pushed.
-Commit `359e0ed`.
+Full-auto run, two feature branches. `feature/insight-verifier` (commit
+`359e0ed`) and `feature/hypothesis-handoff` (commit `e988e6a`) → both
+merged to `main` → pushed. Fresh-clone boot check passed after each merge.
 
 ## 1. What shipped
 
@@ -55,6 +56,27 @@ and harder skill than testing code you just wrote, and is exactly what a
 data-science-adjacent engineering role expects day one on an existing
 codebase.
 
+### Suggested next hypothesis — data-driven handoff to Stats Lab
+**What it does:** `auto_analyst.suggest_followup_hypothesis(df,
+column_types)` looks at the *actual data*, not the LLM's prose, and ranks
+candidate column pairs for a follow-up significance test: the strongest
+numeric/numeric correlation if it clears a "worth testing" bar (|r| ≥ 0.3),
+else the numeric/categorical pair with the largest one-way ANOVA
+F-statistic among viable group counts. It returns `None` — no card shown —
+rather than suggest something nobody would act on. The Auto Analyst tab
+shows the pick as a "Suggested next step" card with a one-click "Test '<a>'
+vs '<b>' in Stats Lab" button that pre-selects both columns and jumps tabs.
+
+**Why it was chosen:** the top item in this run's own research backlog —
+turns Auto Analyst from "here's what I found" into "here's the specific
+next thing worth formally testing," which is exactly the gap between an
+EDA summary and an actual analyst's workflow.
+
+**Technical-depth argument:** it's grounded in real recomputed statistics
+(a correlation matrix and one-way ANOVA F-tests), not an LLM guess at what
+might be interesting — the suggestion is reproducible and the number behind
+it (r or F) is shown in the reason text, not asserted. 5 dedicated tests.
+
 ## 2. Screenshots
 
 Saved to `.prism/runs/2026-08-07/`:
@@ -83,7 +105,6 @@ be misleading, so it was skipped rather than faked.
 
 | Feature | Depth | Effort | Why not this run |
 |---|---|---|---|
-| Hypothesis-suggestion handoff (Auto Analyst finding → Stats Lab test, one click) | 4 | S | Good next pick — didn't want to ship two shallow features when one deep one plus real test coverage was more valuable this cycle |
 | LLM-narrated anomaly explanations | 3 | S | Needs per-dataset-fingerprint caching to stay inside free-tier limits — deserves its own careful pass |
 | polars/DuckDB-backed main pipeline (currently pandas-only outside SQL Lab) | 4 | L | Architecture-adjacent; explicitly out of scope for a single run per this routine's own guardrails |
 | `google-generativeai` → `google-genai` SDK migration | 2 | M | Deprecation warning observed but not yet broken; touches every Gemini call site, needs dedicated regression testing |
@@ -123,14 +144,25 @@ Full detail and evidence in `.prism/research_2026-08-07.md`.
 > under 2 seconds and are documented as the project's real entry point for
 > "does this still work" (**Result**)."
 
+**Interview note (hypothesis handoff):**
+> "Auto Analyst told the user what it found, but not what to do next — so I
+> closed that gap (**Situation/Task**). I ranked candidate column pairs
+> straight from recomputed statistics — strongest correlation, or largest
+> ANOVA F-statistic across a categorical split — rather than asking the LLM
+> to guess what's interesting, and surfaced the single best pick with a
+> one-click handoff into the app's existing significance-testing tab
+> (**Action**). It's deterministic, reproducible, and backed by 5 tests
+> covering both the "found something" and "correctly found nothing" paths
+> (**Result**)."
+
 ## 5. Recommendation for next run
 
-1. Ship the hypothesis-suggestion handoff (Auto Analyst → Stats Lab) — it's
-   small, low-risk, and is the natural next agentic-theme feature.
-2. If a Gemini API key is available in the execution sandbox next time,
-   capture the live Insight Verifier badges (✓/⚠) in a real findings panel
-   for the portfolio screenshot set — this run could only confirm them via
-   unit tests and CSS-pattern reuse.
+1. If a Gemini API key is available in the execution sandbox next time,
+   capture live screenshots of the Insight Verifier badges (✓/⚠) and the
+   Suggested-Hypothesis card in a real findings panel — this run could only
+   confirm them via unit tests, code review, and CSS-pattern reuse.
+2. LLM-narrated anomaly explanations (with per-dataset-fingerprint caching)
+   is the next-best agentic-theme pick from this run's research.
 3. Consider the `google-generativeai` → `google-genai` migration as its own
    dedicated, fully-regression-tested run once the SDK deprecation risk
    grows (not urgent yet).
