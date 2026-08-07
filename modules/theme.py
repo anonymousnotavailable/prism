@@ -684,6 +684,27 @@ h1, h2, h3, h4, .prism-heading {
     font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
 }
 
+/* Mobile / narrow-PWA-width fallback: a fixed 328px right column plus the
+   352px .block-container padding it forces (app.py, right after this
+   container) leaves ~0 usable width on a phone screen — the nav pills and
+   every tab's content render squeezed into a sliver behind the panel.
+   Below the breakpoint, drop the fixed positioning entirely so Atlas
+   renders as a normal full-width block in document flow instead (it sits
+   above the tab content here, since that's this container's natural
+   position in the script) and cancel the inline padding-right rule with
+   an equal-specificity override — div.block-container to match the
+   .block-container the inline <style> tag also targets, so the cascade's
+   normal same-specificity resolution doesn't matter and this wins outright. */
+@media (max-width: 768px) {
+    .st-key-atlas_side_panel {
+        position: static; top: auto; right: auto; bottom: auto;
+        width: 100%; max-width: 100%; height: auto; z-index: auto;
+        border-left: none; border-top: 1px solid var(--prism-border);
+        margin-top: 16px; backdrop-filter: none;
+    }
+    div.block-container { padding-right: 1rem !important; }
+}
+
 /* Pipeline navigation — restyles st.segmented_control (app.py's step
    router) to read as HUD nav pills instead of generic Streamlit chips.
    The selected pill gets the beam as its underline, matching the sidebar

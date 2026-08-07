@@ -41,6 +41,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_engine,
     india,
     join_engine,
     mllab,
@@ -128,6 +129,9 @@ _DEFAULTS = {
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "hypothesis_results": None,  # last "Generate & Test Hypotheses" run — list of enriched hypothesis dicts
+    "hypothesis_error": None,  # error from the last hypothesis-generation attempt, if any
+    "hypothesis_source": None,  # "gemini" or "heuristic" — which path produced the last batch
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
@@ -266,6 +270,9 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
     st.session_state.stats_lab_result = None
+    st.session_state.hypothesis_results = None
+    st.session_state.hypothesis_error = None
+    st.session_state.hypothesis_source = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
     st.session_state.cluster_result = None
@@ -3125,6 +3132,94 @@ elif st.session_state.active_section == "Stats Lab":
     )
 
     st.subheader("Stats Lab")
+
+    # ----------------------------------------------------------------------
+    # Hypothesis Engine — the agentic entry point. Gemini nominates candidate
+    # relationships (or a deterministic heuristic does, if Gemini is
+    # unavailable); Python alone decides which test fits and runs it; every
+    # p-value in the batch gets a joint Benjamini-Hochberg correction before
+    # a verdict is assigned. Sits above the manual picker below, which is
+    # still there for testing one specific pair by hand.
+    # ----------------------------------------------------------------------
+    with st.container(border=True):
+        st.markdown("#### 🔬 Hypothesis Engine")
+        st.caption(
+            "Gemini proposes testable relationships in this dataset — scipy/statsmodels decides "
+            "whether they actually hold, with a multiple-testing correction across the whole batch."
+        )
+        hyp_col1, hyp_col2 = st.columns([3, 1])
+        with hyp_col2:
+            hyp_count = st.slider("Hypotheses", min_value=3, max_value=8, value=5, key="hyp_count")
+        with hyp_col1:
+            run_hyp = st.button("🧪 Generate & Test Hypotheses", type="primary", use_container_width=True)
+
+        if run_hyp:
+            hyp_model = hypothesis_engine.get_model()
+            with st.spinner(ui.get_loading_message()):
+                candidates, gen_error = hypothesis_engine.generate_hypotheses(
+                    hyp_model,
+                    df,
+                    column_types,
+                    max_hypotheses=hyp_count,
+                    dataset_fingerprint=st.session_state.dataset_fingerprint,
+                    pii_findings=st.session_state.pii_findings,
+                    strict_mode=st.session_state.pii_strict_mode,
+                )
+            if gen_error:
+                st.session_state.hypothesis_results = None
+                st.session_state.hypothesis_error = gen_error
+                st.session_state.hypothesis_source = None
+            else:
+                st.session_state.hypothesis_results = hypothesis_engine.run_hypotheses(df, column_types, candidates)
+                st.session_state.hypothesis_error = None
+                st.session_state.hypothesis_source = candidates[0]["source"] if candidates else None
+
+        if st.session_state.hypothesis_error:
+            st.error(st.session_state.hypothesis_error)
+        elif not st.session_state.hypothesis_results:
+            ui.render_empty_state(
+                "🔬", "No hypotheses tested yet",
+                'Click "Generate & Test Hypotheses" — Gemini proposes relationships worth checking, '
+                "then scipy proves or disproves each one.",
+            )
+        else:
+            if st.session_state.hypothesis_source == "heuristic":
+                st.info(
+                    "Gemini was unavailable (no key, rate limit, or quota) — these hypotheses came from "
+                    "a deterministic correlation/variance scan instead of the LLM.",
+                    icon="⚡",
+                )
+            results = st.session_state.hypothesis_results
+            testable_count = sum(1 for r in results if r["verdict"] != "NOT_TESTABLE")
+            supported_count = sum(1 for r in results if r["verdict"] == "SUPPORTED")
+            st.caption(
+                f"{supported_count} of {testable_count} tested hypotheses held up after a Benjamini-Hochberg "
+                f"FDR correction across all {testable_count} simultaneous tests."
+                if testable_count
+                else "None of the proposed pairs were testable — try again or pick columns manually below."
+            )
+            for r in results:
+                if r["verdict"] == "NOT_TESTABLE":
+                    with st.expander(f"⚪ {r['hypothesis']}", expanded=False):
+                        st.caption(r.get("rationale") or "")
+                        st.warning(r["reason"])
+                    continue
+
+                badge = {"SUPPORTED": "✅", "REJECTED": "❌"}[r["verdict"]]
+                with st.expander(f"{badge} {r['hypothesis']}", expanded=(r["verdict"] == "SUPPORTED")):
+                    if r.get("rationale"):
+                        st.caption(r["rationale"])
+                    st.markdown(r["narration"])
+                    test_result = r["result"]
+                    rc1, rc2, rc3 = st.columns(3)
+                    rc1.metric("Test statistic", f"{test_result['statistic']:.4f}")
+                    rc2.metric("Raw p-value", f"{test_result['p_value']:.4g}")
+                    rc3.metric("Adjusted p-value (FDR)", f"{r['adjusted_p_value']:.4g}")
+                    for warning_msg in stats_lab.normality_warnings(test_result):
+                        st.caption(f"⚠️ {warning_msg}")
+
+    st.divider()
+    st.markdown("**Or pick two columns by hand**")
 
     testable_cols = [c for c, t in column_types.items() if t in ("numeric", "categorical")]
     if len(testable_cols) < 2:
