@@ -241,6 +241,13 @@ The flagship v2 feature — one button, a full agentic analysis:
   pending → running → done, with its own generated code and result
 - Ends with an "Analysis Complete" card summarizing the top 5 findings,
   synthesized by Gemini from everything the steps actually found
+- **Hypothesis Engine** — proposes falsifiable hypotheses about the dataset
+  (Gemini-generated when a key is configured, otherwise a deterministic
+  correlation/variance-ranked heuristic — works with zero API key), then
+  verifies every one itself through Stats Lab's real `scipy.stats` tests.
+  A hypothesis is only ever marked **CONFIRMED** off a p-value this app
+  computed — never off Gemini's own claim — surfaced as CONFIRMED / NOT
+  CONFIRMED / INCONCLUSIVE cards with the test, p-value, and effect size.
 
 ### Stats Lab
 - Pick two columns; Stats Lab suggests the statistically appropriate test
