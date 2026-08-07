@@ -159,12 +159,25 @@ def run_plan_step(model, df: pd.DataFrame, column_types: dict[str, str], step: d
 
 
 def _summarize_result(result) -> str:
-    """Stringify a step's result compactly enough to fit in a follow-up prompt."""
+    """Stringify a step's result compactly enough to fit in a follow-up prompt.
+
+    Wide DataFrames (many columns) are truncated to avoid blowing up the
+    Gemini token budget for the synthesis prompt.
+    """
     if result is None:
         return "(no result)"
-    if isinstance(result, (pd.DataFrame, pd.Series)):
+    if isinstance(result, pd.DataFrame):
+        truncated = result.head(10)
+        if truncated.shape[1] > 20:
+            truncated = truncated.iloc[:, :20]
+            return truncated.to_string() + f"\n... ({result.shape[1] - 20} more columns omitted)"
+        return truncated.to_string()
+    if isinstance(result, pd.Series):
         return result.head(10).to_string()
-    return str(result)
+    text = str(result)
+    if len(text) > 3000:
+        return text[:3000] + "\n... (truncated)"
+    return text
 
 
 def synthesize_findings(model, step_outcomes: list[dict]) -> tuple[list[str], Optional[str]]:

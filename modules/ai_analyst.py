@@ -398,23 +398,34 @@ def call_gemini(model, contents) -> tuple[str, Optional[str]]:
         return "", limit_error
     try:
         response = model.generate_content(contents)
-    except google_exceptions.ResourceExhausted:
-        return "", (
-            "Daily free-tier quota exceeded for the Gemini API. Try again later, "
-            "or check your usage at https://aistudio.google.com/."
-        )
-    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument):
-        return "", (
-            "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
-            "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
-            "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
-            "at https://aistudio.google.com/apikey and update it wherever this app reads it "
-            "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
-            "your host's environment variables."
-        )
     except Exception as e:
+        # Guard against google_exceptions being None (import failed) by
+        # catching everything here and matching on class name instead.
+        etype = type(e).__name__
+        if google_exceptions is not None:
+            if isinstance(e, google_exceptions.ResourceExhausted):
+                return "", (
+                    "Daily free-tier quota exceeded for the Gemini API. Try again later, "
+                    "or check your usage at https://aistudio.google.com/."
+                )
+            if isinstance(e, (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument)):
+                return "", (
+                    "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
+                    "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
+                    "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
+                    "at https://aistudio.google.com/apikey and update it wherever this app reads it "
+                    "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
+                    "your host's environment variables."
+                )
+        elif etype == "ResourceExhausted":
+            return "", "Daily free-tier quota exceeded for the Gemini API."
         return "", f"Gemini request failed: {e}"
-    return response.text, None
+    # Guard against safety-filtered or empty responses
+    try:
+        text = response.text
+    except (ValueError, AttributeError):
+        return "", "Gemini returned an empty or safety-filtered response — try rephrasing your question."
+    return text, None
 
 
 def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:

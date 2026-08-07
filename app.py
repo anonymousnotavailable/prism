@@ -27,6 +27,7 @@ from modules import (
     anomaly,
     atlas,
     auto_analyst,
+    auto_insights,
     autocleaner,
     cleaning,
     clustering,
@@ -85,6 +86,8 @@ _DEFAULTS = {
     "chat_history": [],  # AI Analyst chat transcript
     "key_insights": [],  # last "Generate Key Insights" output — list of up to 5 bullet strings
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
+    "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
+    "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -290,6 +293,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
+    st.session_state.auto_insights = auto_insights.generate_insights(working_df, st.session_state.column_types)
+    st.session_state.auto_insights_narration = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -1435,6 +1440,35 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    # ------------------------------------------------------------------
+    # Auto-Insight Engine — proactive insights surfaced on upload
+    # ------------------------------------------------------------------
+    if st.session_state.auto_insights:
+        insights_list = st.session_state.auto_insights
+        n_high = sum(1 for i in insights_list if i["severity"] == "high")
+        n_med = sum(1 for i in insights_list if i["severity"] == "medium")
+        n_low = sum(1 for i in insights_list if i["severity"] == "low")
+        severity_summary = ", ".join(
+            f"{c} {l}" for c, l in [(n_high, "critical"), (n_med, "notable"), (n_low, "minor")] if c
+        )
+        with st.container(border=True):
+            st.markdown(f"#### 🔍 Auto-Insights  •  {len(insights_list)} finding{'s' if len(insights_list) != 1 else ''}  ({severity_summary})")
+            if st.session_state.auto_insights_narration:
+                st.info(st.session_state.auto_insights_narration)
+            elif st.button("✨ Generate Executive Summary", key="auto_insights_narrate", help="Ask Gemini to narrate these findings"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is summarizing the findings…"):
+                    narration, narr_error = auto_insights.narrate_insights(model, insights_list)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.auto_insights_narration = narration
+                    st.rerun()
+            for ins in insights_list:
+                icon = auto_insights.severity_icon(ins["severity"])
+                cat = auto_insights.category_label(ins["category"])
+                st.markdown(f"{icon} **{cat}** — {ins['message']}")
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
