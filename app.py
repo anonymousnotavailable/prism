@@ -48,6 +48,7 @@ from modules import (
     pii_detector,
     profiling,
     recipes,
+    regression_diagnostics,
     report,
     report_writer,
     session_io,
@@ -87,6 +88,8 @@ _DEFAULTS = {
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
     "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
+    "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
+    "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -288,6 +291,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.regression_diag_result = None
+    st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
@@ -3860,5 +3865,67 @@ elif st.session_state.active_section == "ML Lab":
                 shap.plots.waterfall(display_values[0], max_display=mllab.SHAP_MAX_DISPLAY, show=False)
                 st.pyplot(fig_waterfall, use_container_width=True)
                 plt.close(fig_waterfall)
+
+            if baseline_result["task_type"] == "regression":
+                st.divider()
+                st.markdown("#### Regression Diagnostics")
+                st.caption(
+                    "Fits its own OLS model (statsmodels, not the Random Forest above) on the same "
+                    "features/target so the inferential statistics diagnostics need — standard errors, "
+                    "residuals, VIF — are available. Categorical and zero-variance columns are excluded "
+                    "automatically."
+                )
+                if st.button("Run Regression Diagnostics", key="regression_diag_btn", use_container_width=True):
+                    with st.spinner("Fitting OLS and running the diagnostic battery…"):
+                        diag_fit = regression_diagnostics.fit_ols(df, mllab_selected_features, mllab_target_col)
+                        if "error" in diag_fit:
+                            st.session_state.regression_diag_result = None
+                            st.session_state.regression_diag_error = diag_fit["error"]
+                        else:
+                            st.session_state.regression_diag_result = diag_fit
+                            st.session_state.regression_diag_error = None
+
+                if st.session_state.regression_diag_error:
+                    st.error(st.session_state.regression_diag_error)
+                elif st.session_state.regression_diag_result is not None:
+                    diag_fit = st.session_state.regression_diag_result
+
+                    if diag_fit.get("dropped_categorical"):
+                        st.caption(f"Excluded categorical column(s) (encode first for these to count): {', '.join(diag_fit['dropped_categorical'])}")
+                    if diag_fit.get("dropped_zero_variance"):
+                        st.caption(f"Excluded zero-variance column(s): {', '.join(diag_fit['dropped_zero_variance'])}")
+
+                    fit_summary = regression_diagnostics.summarize_fit(diag_fit)
+                    diag_metric_cols = st.columns(4)
+                    diag_metric_cols[0].metric("R²", f"{fit_summary['r_squared']:.3f}")
+                    diag_metric_cols[1].metric("Adj. R²", f"{fit_summary['adj_r_squared']:.3f}")
+                    diag_metric_cols[2].metric("F-stat p-value", f"{fit_summary['f_pvalue']:.4g}")
+                    diag_metric_cols[3].metric("N observations", fit_summary["n_obs"])
+
+                    with st.expander("Coefficient Table", expanded=False):
+                        st.dataframe(regression_diagnostics.coefficient_table(diag_fit), use_container_width=True)
+
+                    diagnostics_run = regression_diagnostics.run_diagnostics(diag_fit)
+                    vif_table = regression_diagnostics.compute_vif(diag_fit)
+
+                    st.markdown("**Diagnostic Verdict**")
+                    for verdict_line in regression_diagnostics.diagnostics_verdict(diagnostics_run, vif_table):
+                        st.markdown(f"- {verdict_line}")
+
+                    diag_plot_col1, diag_plot_col2 = st.columns(2)
+                    with diag_plot_col1:
+                        st.plotly_chart(regression_diagnostics.plot_residuals_vs_fitted(diagnostics_run), use_container_width=True)
+                    with diag_plot_col2:
+                        st.plotly_chart(regression_diagnostics.plot_qq(diagnostics_run), use_container_width=True)
+
+                    diag_plot_col3, diag_plot_col4 = st.columns(2)
+                    with diag_plot_col3:
+                        st.plotly_chart(regression_diagnostics.plot_scale_location(diagnostics_run), use_container_width=True)
+                    with diag_plot_col4:
+                        vif_fig = regression_diagnostics.plot_vif_chart(vif_table)
+                        if vif_fig is not None:
+                            st.plotly_chart(vif_fig, use_container_width=True)
+                        else:
+                            ui.render_empty_state("📊", "VIF needs 2+ features", "Multicollinearity can't be assessed with a single feature.")
 
 ui.render_footer()
