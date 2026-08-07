@@ -20,9 +20,12 @@ Setup: put GEMINI_API_KEY=... in a .env file at the project root (see
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import threading
+import time
+from collections import OrderedDict
 from typing import Optional
 
 import numpy as np
@@ -387,34 +390,86 @@ def _check_rate_limit() -> Optional[str]:
         return None
 
 
+# Every distinct prompt this app sends (schema+sample+question, always
+# rebuilt fresh) hits the free-tier quota once, even though runs like the
+# eval harness or repeated identical Auto Analyst / Hypothesis Engine calls
+# routinely re-ask the exact same thing. A small in-process LRU cache keyed
+# on (model, contents) means a repeat of an identical request never touches
+# the API — or the per-session rate limit — a second time. Bounded size so
+# a long-running process can't grow this unboundedly.
+_RESPONSE_CACHE: "OrderedDict[str, str]" = OrderedDict()
+_RESPONSE_CACHE_MAXSIZE = 128
+
+# ResourceExhausted covers both "daily quota gone" (retrying won't help) and
+# Gemini's per-minute rate limit (a few seconds usually clears it) — the SDK
+# doesn't distinguish the two, so a couple of short retries buys real
+# resilience against bursty callers (eval harness, Auto Analyst's multi-step
+# plan, Hypothesis Engine) without hammering the API or hanging the UI for
+# long on a truly exhausted daily quota.
+_GEMINI_MAX_ATTEMPTS = 3
+_GEMINI_BACKOFF_SECONDS = (1.5, 3.0)  # sleep before attempt 2 and attempt 3
+
+
+def _cache_key(model, contents) -> str:
+    model_name = getattr(model, "model_name", None) or type(model).__name__
+    raw = f"{model_name}::{contents}"
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _cache_put(key: str, value: str) -> None:
+    _RESPONSE_CACHE[key] = value
+    _RESPONSE_CACHE.move_to_end(key)
+    while len(_RESPONSE_CACHE) > _RESPONSE_CACHE_MAXSIZE:
+        _RESPONSE_CACHE.popitem(last=False)
+
+
 def call_gemini(model, contents) -> tuple[str, Optional[str]]:
     """Shared error handling around model.generate_content — used by every
     Gemini call in the app (chat, key-insights, Atlas's router, Auto
-    Analyst, ...) so quota/auth failures and the per-session rate limit
-    read the same way everywhere.
+    Analyst, Hypothesis Engine, ...) so quota/auth failures and the
+    per-session rate limit read the same way everywhere.
+
+    Two reliability layers on top of the raw call: an identical-prompt
+    response cache (checked before the per-session rate limit, so a cache
+    hit costs nothing against that budget either), and up to two short
+    backoff retries on a transient-looking rate-limit error before giving
+    up with the quota-exceeded message.
     """
+    cache_key = _cache_key(model, contents)
+    if cache_key in _RESPONSE_CACHE:
+        _RESPONSE_CACHE.move_to_end(cache_key)
+        return _RESPONSE_CACHE[cache_key], None
+
     limit_error = _check_rate_limit()
     if limit_error:
         return "", limit_error
-    try:
-        response = model.generate_content(contents)
-    except google_exceptions.ResourceExhausted:
-        return "", (
-            "Daily free-tier quota exceeded for the Gemini API. Try again later, "
-            "or check your usage at https://aistudio.google.com/."
-        )
-    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument):
-        return "", (
-            "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
-            "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
-            "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
-            "at https://aistudio.google.com/apikey and update it wherever this app reads it "
-            "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
-            "your host's environment variables."
-        )
-    except Exception as e:
-        return "", f"Gemini request failed: {e}"
-    return response.text, None
+
+    for attempt in range(_GEMINI_MAX_ATTEMPTS):
+        if attempt > 0:
+            time.sleep(_GEMINI_BACKOFF_SECONDS[attempt - 1])
+        try:
+            response = model.generate_content(contents)
+        except google_exceptions.ResourceExhausted:
+            continue  # try again (short backoff) — may be a transient per-minute limit
+        except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument):
+            return "", (
+                "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
+                "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
+                "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
+                "at https://aistudio.google.com/apikey and update it wherever this app reads it "
+                "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
+                "your host's environment variables."
+            )
+        except Exception as e:
+            return "", f"Gemini request failed: {e}"
+        else:
+            _cache_put(cache_key, response.text)
+            return response.text, None
+
+    return "", (
+        "Daily free-tier quota exceeded for the Gemini API. Try again later, "
+        "or check your usage at https://aistudio.google.com/."
+    )
 
 
 def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:

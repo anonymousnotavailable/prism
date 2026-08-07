@@ -494,6 +494,28 @@ code { color: $accent; }
 }
 .insight-card .insight-text { color: $text; font-size: 0.95rem; line-height: 1.55; }
 
+.hypothesis-card {
+    background: $surface;
+    border: 1px solid $border;
+    border-left: 3px solid $text_muted;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 10px;
+    animation: prismFadeInUp 0.35s $ease both;
+}
+.hypothesis-card.confirmed { border-left-color: $success; }
+.hypothesis-card.not-confirmed { border-left-color: $danger; }
+.hypothesis-card.inconclusive { border-left-color: $warning; }
+.hypothesis-card .hyp-verdict {
+    display: inline-block; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em;
+    padding: 2px 9px; border-radius: 20px; margin-bottom: 6px; text-transform: uppercase;
+}
+.hypothesis-card.confirmed .hyp-verdict { background: $surface_hover; color: $success; border: 1px solid $success; }
+.hypothesis-card.not-confirmed .hyp-verdict { background: $surface_hover; color: $danger; border: 1px solid $danger; }
+.hypothesis-card.inconclusive .hyp-verdict { background: $surface_hover; color: $warning; border: 1px solid $warning; }
+.hypothesis-card .hyp-statement { color: $text; font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+.hypothesis-card .hyp-narrative { color: $text_muted; font-size: 0.85rem; line-height: 1.5; }
+
 .prism-footer {
     text-align: center; padding: 2rem 0 1rem 0; margin-top: 2rem;
     border-top: 1px solid $border; color: $text_muted; font-size: 0.85rem;

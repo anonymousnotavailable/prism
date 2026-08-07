@@ -41,6 +41,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_engine,
     india,
     join_engine,
     mllab,
@@ -127,6 +128,7 @@ _DEFAULTS = {
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "hypothesis_engine_report": None,  # last "Generate & Verify Hypotheses" run_hypothesis_engine() output
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -265,6 +267,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
+    st.session_state.hypothesis_engine_report = None
     st.session_state.stats_lab_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
@@ -3111,6 +3114,56 @@ elif st.session_state.active_section == "Auto Analyst":
                         st.dataframe(result.to_frame(name="value"), use_container_width=True)
                     elif result is not None:
                         _render_result_safely(result)
+
+    st.divider()
+    st.markdown("### 🔬 Hypothesis Engine")
+    st.caption(
+        "Proposes falsifiable hypotheses about your data, then verifies each one itself with a "
+        "real statistical test (via Stats Lab) — a claim only becomes CONFIRMED off a p-value this "
+        "app computed, never off Gemini's say-so."
+    )
+    if auto_model is None:
+        st.caption("No Gemini key configured — hypotheses come from the correlation-ranked heuristic instead.")
+
+    if st.button("Generate & Verify Hypotheses", use_container_width=True, key="run_hypothesis_engine"):
+        with st.spinner("Proposing hypotheses and running the statistical tests..."):
+            st.session_state.hypothesis_engine_report = hypothesis_engine.run_hypothesis_engine(
+                auto_model, df, column_types
+            )
+
+    hyp_report = st.session_state.hypothesis_engine_report
+    if hyp_report is None:
+        ui.render_empty_state(
+            "🔬", "No hypotheses tested yet",
+            'Click "Generate & Verify Hypotheses" to have Prism propose and statistically verify claims about this data.',
+        )
+    elif not hyp_report["hypotheses"]:
+        st.info("Not enough numeric/categorical columns with usable data to propose a testable hypothesis.")
+    else:
+        source_label = "Gemini-proposed" if hyp_report["source"] == "gemini" else "heuristic (correlation-ranked)"
+        st.caption(f"Hypotheses: {source_label}")
+        if hyp_report.get("generation_error"):
+            st.caption(f"⚠️ {html.escape(hyp_report['generation_error'])} — used the heuristic fallback instead.")
+
+        verdict_css = {"CONFIRMED": "confirmed", "NOT CONFIRMED": "not-confirmed", "INCONCLUSIVE": "inconclusive"}
+        cards_html = []
+        for r in hyp_report["results"]:
+            css_class = verdict_css.get(r["verdict"], "inconclusive")
+            detail = html.escape(r["narrative"]) if r.get("narrative") else html.escape(r.get("error") or "")
+            cards_html.append(
+                f'<div class="hypothesis-card {css_class}">'
+                f'<div class="hyp-verdict">{r["verdict"]}</div>'
+                f'<div class="hyp-statement">{html.escape(r["statement"])}</div>'
+                f'<div class="hyp-narrative">{detail}</div>'
+                "</div>"
+            )
+        st.markdown("".join(cards_html), unsafe_allow_html=True)
+
+        n_confirmed = sum(1 for r in hyp_report["results"] if r["verdict"] == "CONFIRMED")
+        st.caption(
+            f"{n_confirmed} of {len(hyp_report['results'])} hypotheses confirmed at p < 0.05. "
+            "Every test's normality/assumption caveats are folded into its narrative line above."
+        )
 
 # --------------------------------------------------------------------------
 # Stats Lab tab — guided statistical testing. Pick two columns, get a
