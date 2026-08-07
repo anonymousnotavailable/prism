@@ -41,6 +41,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_engine,
     india,
     join_engine,
     mllab,
@@ -123,11 +124,15 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_contamination": anomaly.DEFAULT_CONTAMINATION,  # sensitivity slider value
+    "anomaly_narration": None,  # last Gemini (or fallback) narration of the flagged anomalies
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "hypotheses": [],  # last "Generate Hypotheses" proposals from hypothesis_engine
+    "hypothesis_verdicts": [],  # last "Test All Hypotheses" verdicts (statement + p-value + narrative)
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
@@ -261,11 +266,14 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
     st.session_state.stats_lab_result = None
+    st.session_state.hypotheses = []
+    st.session_state.hypothesis_verdicts = []
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
     st.session_state.cluster_result = None
@@ -1665,11 +1673,23 @@ elif st.session_state.active_section == "Overview":
         if not anomaly.is_available():
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
+            st.session_state.anomaly_contamination = st.slider(
+                "Sensitivity (expected anomaly rate)",
+                min_value=anomaly.MIN_CONTAMINATION,
+                max_value=anomaly.MAX_CONTAMINATION,
+                value=st.session_state.anomaly_contamination,
+                step=0.01,
+                key="anomaly_contamination_slider",
+                help="Roughly, the % of rows IsolationForest expects to be unusual. Higher = more rows flagged.",
+            )
             if st.button("Find Anomalies", key="find_anomalies_btn"):
                 with st.spinner(ui.get_loading_message()):
-                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                    flagged, anomaly_err = anomaly.find_anomalies(
+                        df, column_types, contamination=st.session_state.anomaly_contamination
+                    )
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1679,6 +1699,14 @@ elif st.session_state.active_section == "Overview":
                     st.info("No anomalies detected.")
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
+
+                    if st.session_state.anomaly_narration is None:
+                        with st.spinner("Summarizing what's going on..."):
+                            narration_model = ai_analyst.get_sql_model()
+                            narration, _narr_err = anomaly.narrate_anomalies(narration_model, flagged, len(df))
+                        st.session_state.anomaly_narration = narration
+                    st.info(f"🔎 {st.session_state.anomaly_narration}")
+
                     st.dataframe(flagged, use_container_width=True)
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
@@ -3182,6 +3210,45 @@ elif st.session_state.active_section == "Stats Lab":
                         st.dataframe(means_df, use_container_width=True, hide_index=True)
 
                     for warning_msg in stats_lab.normality_warnings(result):
+                        st.warning(warning_msg)
+
+    st.divider()
+    with st.expander("🔬 Auto Hypothesis Engine", expanded=False):
+        st.caption(
+            "Gemini proposes testable hypotheses about this dataset — each is then run through the "
+            "exact same scipy.stats pipeline above, so every verdict is backed by a real p-value, "
+            "never just an LLM's opinion. No Gemini key? A rule-based generator (strongest "
+            "correlations + widest group splits) takes over automatically."
+        )
+        if len(testable_cols) < 2:
+            st.info("Need at least 2 numeric or categorical columns to propose hypotheses.")
+        elif st.button("Generate & Test Hypotheses", type="primary", key="run_hypothesis_engine_btn"):
+            hyp_model = ai_analyst.get_sql_model()
+            with st.spinner("Forming hypotheses..."):
+                hypotheses = hypothesis_engine.generate_hypotheses(hyp_model, df, column_types)
+            with st.spinner("Testing each one against the data..."):
+                verdicts = hypothesis_engine.test_hypotheses(df, column_types, hypotheses)
+            st.session_state.hypotheses = hypotheses
+            st.session_state.hypothesis_verdicts = verdicts
+
+        if not st.session_state.hypothesis_verdicts:
+            ui.render_empty_state(
+                "🔬", "No hypotheses tested yet",
+                'Click "Generate & Test Hypotheses" above to see what Gemini proposes and whether the data backs it up.',
+            )
+        else:
+            verdict_badges = {"confirmed": "✅ Confirmed", "not confirmed": "❌ Not confirmed", "untestable": "⚠️ Untestable"}
+            for i, v in enumerate(st.session_state.hypothesis_verdicts, 1):
+                badge = verdict_badges.get(v["verdict"], v["verdict"])
+                with st.container(border=True):
+                    st.markdown(f"**H{i}: {v['statement']}** — {badge}")
+                    st.caption(v.get("rationale", ""))
+                    st.write(v["narrative"])
+                    if v.get("result"):
+                        rc1, rc2 = st.columns(2)
+                        rc1.metric("p-value", f"{v['result']['p_value']:.4g}")
+                        rc2.metric(v["result"]["effect_size_name"], f"{v['result']['effect_size']:.4f}")
+                    for warning_msg in v.get("warnings", []):
                         st.warning(warning_msg)
 
 # --------------------------------------------------------------------------
