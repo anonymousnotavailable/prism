@@ -23,3 +23,6 @@ jobs:
 
       - name: Auto Cleaner eval suite (deterministic, no network/API key needed)
         run: python eval/autocleaner_eval.py
+
+      - name: Hypothesis Engine eval suite (deterministic, no network/API key needed)
+        run: python eval/hypothesis_engine_eval.py

@@ -41,6 +41,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_engine,
     india,
     join_engine,
     mllab,
@@ -128,6 +129,8 @@ _DEFAULTS = {
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "hypothesis_scan": None,  # last "Run Auto-Scan" result dict from Stats Lab's Hypothesis Engine
+    "hypothesis_scan_bullets": [],  # last Hypothesis Engine narration (Gemini or templated fallback)
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
@@ -3121,7 +3124,9 @@ elif st.session_state.active_section == "Auto Analyst":
 elif st.session_state.active_section == "Stats Lab":
     ui.render_help_expander(
         "Pick two columns and Stats Lab suggests the right statistical test, runs it via "
-        "scipy.stats, and explains the result in plain English — with assumption-check warnings."
+        "scipy.stats, and explains the result in plain English — with assumption-check warnings. "
+        "Or run Auto-Scan below to test every column pair at once, with a false-discovery-rate "
+        "correction applied across the batch."
     )
 
     st.subheader("Stats Lab")
@@ -3183,6 +3188,71 @@ elif st.session_state.active_section == "Stats Lab":
 
                     for warning_msg in stats_lab.normality_warnings(result):
                         st.warning(warning_msg)
+
+    st.divider()
+    st.markdown("### 🔬 Auto-Scan All Column Pairs")
+    st.caption(
+        f"Tests every pairwise relationship among up to {hypothesis_engine.MAX_COLUMNS} columns in one "
+        "click, then applies a Benjamini-Hochberg false-discovery-rate correction across the whole "
+        "batch — the results below are the ones that survive being tested alongside dozens of others, "
+        "not lucky p-values."
+    )
+
+    if st.button("Run Auto-Scan", type="secondary", use_container_width=True, key="hypothesis_scan_button"):
+        with st.spinner("Testing every column pair..."):
+            scan = hypothesis_engine.scan_hypotheses(df, column_types)
+            bullets, _ = hypothesis_engine.narrate_findings(ai_analyst.get_model(), scan)
+        st.session_state.hypothesis_scan = scan
+        st.session_state.hypothesis_scan_bullets = bullets
+
+    scan = st.session_state.hypothesis_scan
+    if scan is None:
+        ui.render_empty_state(
+            "🔬", "No scan yet",
+            'Click "Run Auto-Scan" above to test every column pair at once, correction included.',
+        )
+    elif not scan["results"]:
+        st.info("No testable column pairs found — need at least 2 numeric/categorical columns.")
+    else:
+        if scan["truncated"]:
+            st.caption(
+                f"Scanned the first {scan['columns_scanned']} of {scan['columns_available']} testable "
+                "columns to keep the pairwise scan bounded."
+            )
+
+        n_raw = sum(1 for r in scan["results"] if r["significant_raw"])
+        n_corrected = sum(1 for r in scan["results"] if r["significant_corrected"])
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Pairs tested", scan["pairs_tested"])
+        m2.metric("Raw significant (p<0.05)", n_raw)
+        m3.metric("Significant after FDR correction", n_corrected)
+
+        if st.session_state.hypothesis_scan_bullets:
+            cards_html = "".join(
+                f'<div class="insight-card"><div class="insight-number">HYPOTHESIS {i + 1:02d}</div>'
+                f'<div class="insight-text">{bullet}</div></div>'
+                for i, bullet in enumerate(st.session_state.hypothesis_scan_bullets)
+            )
+            st.markdown(cards_html, unsafe_allow_html=True)
+        else:
+            st.info("No relationship survived the false-discovery-rate correction — nothing conclusive here.")
+
+        with st.expander(f"All {len(scan['results'])} tested pairs", expanded=False):
+            table_df = pd.DataFrame(
+                [
+                    {
+                        "Column A": r["col_a"],
+                        "Column B": r["col_b"],
+                        "Test": r["test_label"],
+                        "p-value": r["p_value"],
+                        "FDR-corrected p": r["p_value_corrected"],
+                        "Significant (corrected)": "Yes" if r["significant_corrected"] else "No",
+                        "Effect size": f"{r['effect_size']:.3f} ({r['effect_size_label']})",
+                    }
+                    for r in scan["results"]
+                ]
+            )
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.

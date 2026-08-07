@@ -684,6 +684,21 @@ h1, h2, h3, h4, .prism-heading {
     font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
 }
 
+/* Below ~900px (phone/PWA width) the fixed 328px-wide panel would eat
+   nearly the whole viewport and bury every other tab underneath it — there
+   was no mobile handling for it at all before this rule. Tried un-fixing it
+   into normal document flow first, but the panel's own scroll-to-bottom
+   behavior (for the chat history) then scrolled the *whole page* to the
+   bottom on every load, burying the main content just as effectively from
+   a different direction. Hiding it on mobile is the safe fix instead:
+   modules.atlas is still fully reachable there through the always-visible
+   st.chat_input command bar at the bottom of the page (app.py's
+   `typed_command`), which isn't part of this panel and needs no override —
+   only the supplementary chat-history-and-quick-chips column goes away. */
+@media (max-width: 900px) {
+    .st-key-atlas_side_panel { display: none; }
+}
+
 /* Pipeline navigation — restyles st.segmented_control (app.py's step
    router) to read as HUD nav pills instead of generic Streamlit chips.
    The selected pill gets the beam as its underline, matching the sidebar
