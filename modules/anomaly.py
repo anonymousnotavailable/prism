@@ -1,10 +1,13 @@
 """
 Anomaly Detection — flags unusual rows via scikit-learn's IsolationForest
-over the dataset's numeric columns, with a plain-English reason per flagged row.
+over the dataset's numeric columns, with a plain-English reason per flagged
+row, plus an optional Gemini narration that summarizes the flagged rows as
+a whole (what's really going on, not just which column deviated most).
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Optional
 
 import pandas as pd
@@ -15,6 +18,9 @@ except ImportError:  # the app should still load even if the package isn't insta
     IsolationForest = None
 
 MIN_ROWS_REQUIRED = 10
+MIN_CONTAMINATION = 0.01
+MAX_CONTAMINATION = 0.25
+DEFAULT_CONTAMINATION = 0.05
 
 
 def is_available() -> bool:
@@ -43,7 +49,7 @@ def _reason_for_row(row: pd.Series, numeric_cols: list[str], medians: pd.Series)
 
 
 def find_anomalies(
-    df: pd.DataFrame, column_types: dict[str, str], contamination: float = 0.05
+    df: pd.DataFrame, column_types: dict[str, str], contamination: float = DEFAULT_CONTAMINATION
 ) -> tuple[Optional[pd.DataFrame], Optional[str]]:
     """Run IsolationForest over numeric columns and return flagged rows with reasons.
 
@@ -51,7 +57,11 @@ def find_anomalies(
     column and may be empty (0 rows) if nothing was flagged — that's a valid
     "no anomalies found" result, not an error. error is set only when
     detection couldn't run at all (no numeric columns, missing dependency,
-    or too few rows).
+    or too few rows). `contamination` (roughly, the expected anomaly rate)
+    is clamped to [MIN_CONTAMINATION, MAX_CONTAMINATION] — IsolationForest
+    itself accepts (0, 0.5], but values outside this band tend to flag
+    either near-nothing or a third of the dataset, neither of which reads
+    as a useful "anomaly" result.
     """
     if IsolationForest is None:
         return None, "scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app."
@@ -62,6 +72,8 @@ def find_anomalies(
 
     if len(df) < MIN_ROWS_REQUIRED:
         return None, f"Not enough rows to reliably detect anomalies (need at least {MIN_ROWS_REQUIRED})."
+
+    contamination = max(MIN_CONTAMINATION, min(MAX_CONTAMINATION, contamination))
 
     numeric_df = df[numeric_cols].copy()
     # IsolationForest can't handle NaNs — fill with the column median for
@@ -84,3 +96,52 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+def _default_narration(flagged: pd.DataFrame, total_rows: int) -> str:
+    """Deterministic fallback narration, built from the per-row reasons
+    without any LLM call — used when Gemini is unavailable or fails.
+    """
+    if len(flagged) == 0:
+        return "No rows were flagged as anomalies at the current sensitivity."
+
+    pct = 100 * len(flagged) / total_rows if total_rows else 0.0
+    culprit_cols = Counter(reason.split(" is ")[0].strip("'") for reason in flagged["anomaly_reason"])
+    top_col, top_count = culprit_cols.most_common(1)[0]
+    return (
+        f"{len(flagged)} row(s) ({pct:.1f}% of the dataset) were flagged as unusual. "
+        f"'{top_col}' was the most common driver, involved in {top_count} of the flagged row(s) — "
+        "worth a closer look before deciding whether these are data-entry errors or genuine outliers."
+    )
+
+
+def narrate_anomalies(model, flagged: pd.DataFrame, total_rows: int) -> tuple[str, Optional[str]]:
+    """Plain-English, 2-3 sentence summary of the flagged rows as a whole —
+    what's really going on, not just "column X deviated most" per row.
+
+    Always returns usable text (falls back to _default_narration on any
+    error) — narration is a nice-to-have, never a blocker. Returns
+    (narration, error); error is only informational (e.g. rate limit hit),
+    the narration field is always populated regardless.
+    """
+    if len(flagged) == 0:
+        return _default_narration(flagged, total_rows), None
+    if model is None:
+        return _default_narration(flagged, total_rows), None
+
+    from modules.ai_analyst import call_gemini  # local import: keep anomaly.py Gemini-optional
+
+    reasons_sample = flagged["anomaly_reason"].head(10).tolist()
+    pct = 100 * len(flagged) / total_rows if total_rows else 0.0
+    prompt = (
+        "An IsolationForest anomaly detector flagged the following rows in a dataset as unusual. "
+        f"{len(flagged)} of {total_rows} rows ({pct:.1f}%) were flagged. Here are up to 10 sample "
+        f"reasons, one per flagged row:\n{chr(10).join(f'- {r}' for r in reasons_sample)}\n\n"
+        "In 2-3 plain-English sentences, summarize what's likely going on across these anomalies as "
+        "a group (a common pattern, a likely data-quality issue, or a genuinely interesting outlier "
+        "segment) — not a restatement of each reason. No markdown, no bullet points, just prose."
+    )
+    text, error = call_gemini(model, prompt)
+    if error or not text.strip():
+        return _default_narration(flagged, total_rows), error
+    return text.strip(), None

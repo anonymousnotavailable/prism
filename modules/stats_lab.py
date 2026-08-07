@@ -77,6 +77,9 @@ def suggest_test(df: pd.DataFrame, column_types: dict[str, str], col_a: str, col
     type_b = column_types.get(col_b)
     base = {"col_a": col_a, "col_b": col_b}
 
+    if col_a == col_b:
+        return {**base, "error": "Pick two different columns — a column can't be tested against itself."}
+
     if type_a == "numeric" and type_b == "numeric":
         return {
             **base,
