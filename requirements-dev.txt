@@ -1,0 +1,4 @@
+# Dev/test-only dependencies — not needed to run the app itself, only to run
+# tests/ locally or in CI. Install with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+pytest==9.1.1
