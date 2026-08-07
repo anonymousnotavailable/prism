@@ -1289,6 +1289,7 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
             f'<div class="s mono">ONLINE &middot; {atlas.MODEL_NAME}</div></div></div>',
             unsafe_allow_html=True,
         )
+        atlas.render_neuron_bg()
         for msg in st.session_state.chat_history[-10:]:
             if msg["role"] == "user":
                 st.markdown(
