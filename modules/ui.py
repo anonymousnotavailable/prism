@@ -487,6 +487,34 @@ def render_column_profiler_grid(
     st.markdown(f'<div class="prism-col-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
 
 
+def render_assertion_results(results: list[dict]) -> None:
+    """SQL Lab's Data Tests: one row per assertion — pass/fail/error badge,
+    name, and a one-line detail. Same per-item-HTML-string-then-single-
+    markdown-call construction as render_column_profiler_grid just above,
+    reusing the .prism-badge pattern with new b-pass/b-fail/b-err variants
+    (modules/theme.py) instead of inventing separate card CSS.
+    """
+    if not results:
+        return
+    badge_map = {"pass": ("b-pass", "PASS"), "fail": ("b-fail", "FAIL"), "error": ("b-err", "ERROR")}
+    rows = []
+    for r in results:
+        badge_cls, badge_txt = badge_map.get(r.get("status"), ("b-txt", "?"))
+        rows.append(
+            f'<div class="prism-test-row">'
+            f'<span class="prism-badge {badge_cls}">{badge_txt}</span>'
+            f'<span class="tn">{r.get("name", "")}</span>'
+            f'<span class="td">{r.get("detail", "")}</span>'
+            f"</div>"
+        )
+    n_pass = sum(1 for r in results if r.get("status") == "pass")
+    st.markdown(
+        f'<div class="prism-test-summary">{n_pass}/{len(results)} passed</div>'
+        f'<div class="prism-test-list">{"".join(rows)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_empty_state(icon: str, title: str, message: str) -> None:
     """A designed "nothing here yet" block (icon + title + one-line
     guidance) used in place of a bare st.info() across every tab's

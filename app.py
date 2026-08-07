@@ -13,6 +13,9 @@ Developed by Prathmesh Katkade.
 """
 
 import html
+import re
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -57,6 +60,11 @@ from modules import (
     voice_input,
 )
 
+try:
+    from streamlit_ace import st_ace
+except ImportError:  # optional dependency — SQL Lab falls back to a plain st.text_area if it's missing
+    st_ace = None
+
 # --------------------------------------------------------------------------
 # Page setup
 # --------------------------------------------------------------------------
@@ -79,12 +87,31 @@ _DEFAULTS = {
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
-    "sql_editor": "",  # SQL Lab's query text (bound to the text_area's key)
+    "sql_lab_tabs": [{"id": "t1", "name": "Query 1", "sql": ""}],  # SQL Lab's open query tabs
+    "sql_lab_active_tab_id": "t1",  # which sql_lab_tabs entry the editor is currently showing
+    "sql_lab_tabs_rev": 0,  # bumped whenever a tab is added/closed, to force the tab-picker widget to remount
+    "sql_lab_editor_rev": 0,  # bumped whenever SQL text is injected programmatically (example/NL2SQL/saved/
+                              # history/fix-suggestion), to force the editor widget to remount with the new
+                              # text — Streamlit forbids writing a widget's session_state key once that widget
+                              # has rendered this run, so a fresh key is the reliable way to push in new content
+                              # regardless of where the triggering button sits relative to the editor on the page
+    "sql_lab_extra_tables": {},  # name -> DataFrame, tables registered in SQL Lab beyond "data"; session-only, never persisted
     "sql_result_df": None,  # last successful query result
     "sql_error": None,  # last query's error message, if any
     "sql_exec_time": None,  # last query's execution time in seconds
+    "sql_lab_truncated": False,  # True if the last result was cut down to sql_lab.DEFAULT_ROW_CAP rows
+    "sql_lab_row_count_full": 0,  # untruncated row count of the last result, for the truncation notice
     "sql_explanation": "",  # last "Explain this query" output
     "sql_explanation_error": None,  # error from the last "Explain this query" attempt, if any
+    "sql_lab_fix_suggestion": "",  # last "Suggest a Fix" output
+    "sql_lab_fix_error": None,  # error from the last "Suggest a Fix" attempt, if any
+    "sql_lab_gen_sql_question": "",  # NL-to-SQL question box text
+    "sql_lab_explain_plan": None,  # last "Analyze Performance" EXPLAIN ANALYZE output
+    "sql_lab_explain_error": None,  # error from the last "Analyze Performance" attempt, if any
+    "sql_lab_history": [],  # [{"sql","status","elapsed_seconds","rows","timestamp"}], newest first, capped at 50
+    "sql_lab_saved_queries": [],  # [{"name","sql"}] loaded/saved this session via the Saved Queries expander
+    "sql_lab_assertions": [],  # current editable Data Tests suite — list of assertion specs (see sql_lab.run_assertions)
+    "sql_lab_assertion_results": [],  # last "Run Test Suite" pass/fail/error results
     "second_df": None,  # second file uploaded in the Combine tab (raw, uncleaned)
     "second_file_name": None,  # detects a new second-file upload vs. a plain rerun
     "combine_preview_df": None,  # last previewed join result
@@ -215,6 +242,16 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.sql_error = None
     st.session_state.sql_explanation = ""
     st.session_state.sql_explanation_error = None
+    st.session_state.sql_lab_truncated = False
+    st.session_state.sql_lab_row_count_full = 0
+    st.session_state.sql_lab_extra_tables = {}  # registered against the *previous* dataset — stale, drop them
+    st.session_state.sql_lab_explain_plan = None
+    st.session_state.sql_lab_explain_error = None
+    st.session_state.sql_lab_fix_suggestion = ""
+    st.session_state.sql_lab_fix_error = None
+    # NOTE: sql_lab_tabs/_history/_saved_queries/_assertions are deliberately
+    # NOT reset here — authored query/test content, same as cleaning_log and
+    # recipes surviving a dataset swap elsewhere in this function.
     st.session_state.second_df = None
     st.session_state.second_file_name = None
     st.session_state.combine_preview_df = None
@@ -256,6 +293,24 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.autocleaner_review_queue = []
     st.session_state.autocleaner_snapshot = None
     st.session_state.last_file_name = source_name
+
+
+def sql_lab_active_tab() -> dict:
+    """The sql_lab_tabs entry the editor is currently showing. Falls back to
+    the first tab if sql_lab_active_tab_id ever points at a closed one."""
+    for t in st.session_state.sql_lab_tabs:
+        if t["id"] == st.session_state.sql_lab_active_tab_id:
+            return t
+    return st.session_state.sql_lab_tabs[0]
+
+
+def sql_lab_all_tables() -> dict:
+    """{"data": active dataframe} plus every table registered via SQL Lab's
+    "Registered Tables" expander — the full table set any query/assertion/
+    EXPLAIN call should run against."""
+    tables = {"data": st.session_state.working_df}
+    tables.update(st.session_state.sql_lab_extra_tables)
+    return tables
 
 
 # --------------------------------------------------------------------------
@@ -1238,7 +1293,7 @@ else:
     # stay one click away rather than gone — Atlas voice navigation and
     # jump_to_tab reach every tab in _nav_options either way, only the
     # *default visible* set is curated.
-    _PRIMARY_NAV = ["Overview", "Clean", "Visualize", "AI Analyst"]
+    _PRIMARY_NAV = ["Overview", "Clean", "Visualize", "SQL Lab", "AI Analyst"]
     _ADVANCED_NAV = [t for t in _nav_options if t not in _PRIMARY_NAV]
 
     nav_col, more_col = st.columns([5, 1.4])
@@ -1255,7 +1310,7 @@ else:
             f"{'▸ ' if advanced_active else ''}⋯ Advanced Tools{' — ' + st.session_state.active_section if advanced_active else ''}",
             use_container_width=True,
         ):
-            st.caption("Combine, SQL Lab, and the analysis labs — one click away, not gone.")
+            st.caption("Combine and the analysis labs — one click away, not gone.")
             for _tab in _ADVANCED_NAV:
                 if st.button(
                     f"{_TAB_ICONS.get(_tab, '')}  {_tab}", key=f"nav_adv_{_tab}", use_container_width=True,
@@ -2422,13 +2477,18 @@ elif st.session_state.active_section == "Visualize":
             )
 
 # --------------------------------------------------------------------------
-# SQL Lab tab — run raw SQL against the active dataset via DuckDB (registered
-# as table "data"), with clickable example queries and an optional
-# AI-generated plain-English explanation of whatever query is in the editor.
+# SQL Lab tab — a standalone DuckDB workbench: multi-table queries, a
+# syntax-highlighted multi-tab editor, a saved/persistent Data Tests suite
+# (assertions + linter + EXPLAIN performance analyzer), NL-to-SQL and
+# AI-suggested fixes on error, and CSV/Parquet export with one-click
+# hand-off into Visualize / AI Analyst. modules/sql_lab.py holds every pure
+# function; this branch is Streamlit wiring only, same split as every tab.
 # --------------------------------------------------------------------------
 elif st.session_state.active_section == "SQL Lab":
     ui.render_help_expander(
-        "Run raw SQL against your active dataset via DuckDB — registered as a table named `data`."
+        "A full DuckDB workbench: query your active dataset (registered as table `data`) plus any extra "
+        "tables you register, save queries and test suites, and check results with data-quality "
+        "assertions — all local, no server required."
     )
 
     st.subheader("SQL Lab")
@@ -2436,68 +2496,427 @@ elif st.session_state.active_section == "SQL Lab":
     if sql_lab.duckdb is None:
         st.warning("The `duckdb` package isn't installed. Run `pip install -r requirements.txt` and restart the app.")
     else:
-        st.caption('Your active dataset is registered as a table named `data`. Any DuckDB SQL works.')
+        with st.container(key="sql_lab_console"):
+            tables = sql_lab_all_tables()
 
-        examples = sql_lab.build_example_queries(df, column_types)
-        st.markdown("**Example Queries**")
-        example_cols = st.columns(len(examples))
-        for ex_col, (label, example_sql) in zip(example_cols, examples.items()):
-            with ex_col:
-                if st.button(label, key=f"sql_example_{label}", use_container_width=True):
-                    st.session_state.sql_editor = example_sql
+            # ---- Registered Tables ---------------------------------------
+            with st.expander(f"Registered Tables ({len(tables)})", expanded=False):
+                st.caption(f'`data` — active dataset · {len(df):,} rows × {df.shape[1]} columns')
+                for tname, tdf in list(st.session_state.sql_lab_extra_tables.items()):
+                    rm_col, info_col = st.columns([1, 8])
+                    if rm_col.button("✕", key=f"sql_table_rm_{tname}", help=f"Remove {tname}"):
+                        del st.session_state.sql_lab_extra_tables[tname]
+                        st.rerun()
+                    info_col.caption(f'`{tname}` — {len(tdf):,} rows × {tdf.shape[1]} columns')
 
-        st.text_area(
-            "SQL query", key="sql_editor", height=140,
-            placeholder="SELECT * FROM data LIMIT 10;",
-        )
+                st.markdown("**Register another table**")
+                extra_file = st.file_uploader(
+                    "Upload a CSV/Excel file to query alongside `data` (this session only)",
+                    type=["csv", "xlsx", "xls"], key="sql_lab_extra_uploader",
+                )
+                if extra_file is not None:
+                    default_name = re.sub(r"\W+", "_", extra_file.name.rsplit(".", 1)[0]).strip("_").lower() or "table2"
+                    new_table_name = st.text_input("Table name", value=default_name, key="sql_lab_extra_name")
+                    if st.button("Register Table", key="sql_lab_register_btn"):
+                        extra_df, load_error, _warnings = data_engine.load_data(extra_file)
+                        if load_error:
+                            st.error(load_error)
+                        elif new_table_name == "data" or new_table_name in st.session_state.sql_lab_extra_tables:
+                            st.error(f'"{new_table_name}" is already in use — pick a different table name.')
+                        else:
+                            st.session_state.sql_lab_extra_tables[new_table_name] = extra_df
+                            st.toast(f'Registered "{new_table_name}" — {len(extra_df):,} rows. 🗄️')
+                            st.rerun()
 
-        run_col, explain_col = st.columns(2)
-        with run_col:
-            run_clicked = st.button("Run Query", type="primary", use_container_width=True)
-        with explain_col:
-            explain_clicked = st.button("Explain This Query", use_container_width=True)
+            # ---- Query tabs strip -----------------------------------------
+            # A selectbox, not st.tabs() — same reason the app's own main nav
+            # avoids it: this needs Python-side control over which tab's text
+            # feeds the one editor instance below. Keyed with sql_lab_tabs_rev
+            # so New/Close force a clean remount instead of fighting the
+            # widget's own sticky session_state (same trick the primary nav
+            # uses via nav_primary_pills — see its comment above).
+            tab_pick_col, new_tab_col, close_tab_col = st.columns([6, 1, 1])
+            tab_labels = {t["id"]: t["name"] for t in st.session_state.sql_lab_tabs}
+            picker_key = f"sql_lab_tab_picker_{st.session_state.sql_lab_tabs_rev}"
+            with tab_pick_col:
+                default_index = (
+                    list(tab_labels.keys()).index(st.session_state.sql_lab_active_tab_id)
+                    if st.session_state.sql_lab_active_tab_id in tab_labels else 0
+                )
+                picked_id = st.selectbox(
+                    "Open queries", options=list(tab_labels.keys()), format_func=lambda tid: tab_labels[tid],
+                    index=default_index, key=picker_key, label_visibility="collapsed",
+                )
+            if picked_id != st.session_state.sql_lab_active_tab_id:
+                st.session_state.sql_lab_active_tab_id = picked_id
+                st.rerun()
+            with new_tab_col:
+                if st.button("+ New", key="sql_lab_new_tab", use_container_width=True):
+                    new_id = f"t{uuid.uuid4().hex[:8]}"
+                    n = len(st.session_state.sql_lab_tabs) + 1
+                    st.session_state.sql_lab_tabs.append({"id": new_id, "name": f"Query {n}", "sql": ""})
+                    st.session_state.sql_lab_active_tab_id = new_id
+                    st.session_state.sql_lab_tabs_rev += 1
+                    st.rerun()
+            with close_tab_col:
+                if st.button(
+                    "✕ Close", key="sql_lab_close_tab", use_container_width=True,
+                    disabled=len(st.session_state.sql_lab_tabs) <= 1,
+                ):
+                    st.session_state.sql_lab_tabs = [
+                        t for t in st.session_state.sql_lab_tabs if t["id"] != st.session_state.sql_lab_active_tab_id
+                    ]
+                    st.session_state.sql_lab_active_tab_id = st.session_state.sql_lab_tabs[0]["id"]
+                    st.session_state.sql_lab_tabs_rev += 1
+                    st.rerun()
 
-        if run_clicked:
-            query_text = st.session_state.sql_editor.strip()
-            if not query_text:
-                st.warning("Write a query first — the editor is empty.")
+            active_tab = sql_lab_active_tab()
+
+            def _sql_lab_inject(new_sql: str) -> None:
+                """Programmatically replace the editor's content (example
+                query, NL2SQL result, a loaded saved query/history entry, an
+                AI fix suggestion). Bumps sql_lab_editor_rev so the editor
+                widget remounts under a fresh key instead of trying to write
+                to an already-instantiated widget's session_state — which
+                Streamlit forbids, and which a button below the editor on
+                the page would otherwise hit every time."""
+                active_tab["sql"] = new_sql
+                st.session_state.sql_lab_editor_rev += 1
+                st.rerun()
+
+            # ---- Example queries --------------------------------------------
+            examples = sql_lab.build_example_queries(df, column_types)
+            st.markdown("**Example Queries**")
+            example_cols = st.columns(len(examples))
+            for ex_col, (label, example_sql) in zip(example_cols, examples.items()):
+                with ex_col:
+                    if st.button(label, key=f"sql_example_{active_tab['id']}_{label}", use_container_width=True):
+                        _sql_lab_inject(example_sql)
+
+            # ---- NL-to-SQL ----------------------------------------------
+            with st.expander("💬 Generate SQL from a question", expanded=False):
+                st.text_input(
+                    "Describe what you want", key="sql_lab_gen_sql_question",
+                    placeholder="e.g. average order value by month for the last year",
+                )
+                if st.button("Generate SQL", key="sql_lab_generate_btn"):
+                    question = st.session_state.sql_lab_gen_sql_question.strip()
+                    if not question:
+                        st.warning("Describe what you want first.")
+                    else:
+                        gen_model = ai_analyst.get_sql_model()
+                        if gen_model is None:
+                            st.warning(ai_analyst.GEMINI_SETUP_HELP)
+                        else:
+                            with st.spinner(ui.get_loading_message()):
+                                generated_sql, gen_error = ai_analyst.generate_sql(gen_model, df, column_types, question)
+                            if gen_error:
+                                st.error(gen_error)
+                            else:
+                                _sql_lab_inject(generated_sql)
+
+            # ---- Column chips — the practical stand-in for autocomplete;
+            # no maintained Streamlit code-editor component exposes a real
+            # completion hook (flagged in the approved plan). ----------------
+            with st.expander("Insert a column name", expanded=False):
+                col_names = list(df.columns)
+                per_row = 4
+                for i in range(0, len(col_names), per_row):
+                    row_cols = st.columns(per_row)
+                    for j, cname in enumerate(col_names[i:i + per_row]):
+                        with row_cols[j]:
+                            if st.button(cname, key=f"sql_colchip_{active_tab['id']}_{cname}", use_container_width=True):
+                                _sql_lab_inject((active_tab["sql"].rstrip() + f' "{cname}"').lstrip())
+
+            # ---- Editor -------------------------------------------------
+            editor_key = f"sql_lab_editor_{active_tab['id']}_{st.session_state.sql_lab_editor_rev}"
+            if st_ace is not None:
+                query_text = st_ace(
+                    value=active_tab["sql"], language="sql", theme="tomorrow_night",
+                    key=editor_key, height=180, font_size=14, tab_size=2,
+                    show_gutter=True, wrap=False, auto_update=True,
+                    placeholder="SELECT * FROM data LIMIT 10;",
+                )
             else:
-                sql_result, sql_error, sql_elapsed = sql_lab.run_query(df, query_text)
-                st.session_state.sql_result_df = sql_result
-                st.session_state.sql_error = sql_error
-                st.session_state.sql_exec_time = sql_elapsed
+                query_text = st.text_area(
+                    "SQL query", value=active_tab["sql"], key=editor_key, height=180,
+                    placeholder="SELECT * FROM data LIMIT 10;", label_visibility="collapsed",
+                )
+            active_tab["sql"] = query_text or ""
 
-        if st.session_state.sql_error:
-            st.error(st.session_state.sql_error)
-        elif st.session_state.sql_result_df is not None:
-            st.caption(
-                f"{len(st.session_state.sql_result_df):,} rows · "
-                f"{st.session_state.sql_exec_time * 1000:.1f} ms"
-            )
-            st.dataframe(st.session_state.sql_result_df, use_container_width=True)
-        else:
-            ui.render_empty_state(
-                "🗄️", "No query run yet", "Try an example query above, or write your own and click \"Run Query\"."
-            )
+            lint_findings = sql_lab.lint_query(query_text)
+            if lint_findings:
+                st.markdown(
+                    "".join(
+                        f'<span class="prism-badge {"b-fail" if f["severity"] == "warn" else "b-txt"}" '
+                        f'style="margin:2px 6px 2px 0;">{html.escape(f["message"])}</span>'
+                        for f in lint_findings
+                    ),
+                    unsafe_allow_html=True,
+                )
 
-        if explain_clicked:
-            query_text = st.session_state.sql_editor.strip()
-            if not query_text:
-                st.warning("Write a query first — the editor is empty.")
-            else:
-                sql_gemini_model = ai_analyst.get_model()
-                if sql_gemini_model is None:
-                    st.warning(ai_analyst.GEMINI_SETUP_HELP)
+            # ---- Actions --------------------------------------------------
+            run_col, explain_col, fix_col = st.columns(3)
+            with run_col:
+                run_clicked = st.button("Run Query", type="primary", use_container_width=True)
+            with explain_col:
+                explain_clicked = st.button("Explain This Query", use_container_width=True)
+            with fix_col:
+                # Not gated on `disabled=not st.session_state.sql_error` — Run Query sets
+                # sql_error further down in this SAME script pass, after this row has
+                # already rendered, so a disabled= computed here would always be one run
+                # stale (permanently disabled the instant an error first appears, since a
+                # browser-disabled button never sends the click that would re-render it
+                # enabled). The empty-error case is instead handled inside the click branch.
+                fix_clicked = st.button("Suggest a Fix", use_container_width=True)
+
+            if run_clicked:
+                query_text_run = active_tab["sql"].strip()
+                if not query_text_run:
+                    st.warning("Write a query first — the editor is empty.")
                 else:
-                    with st.spinner(ui.get_loading_message()):
-                        explanation, explain_error = ai_analyst.explain_sql(sql_gemini_model, query_text)
-                    st.session_state.sql_explanation = explanation
-                    st.session_state.sql_explanation_error = explain_error
+                    result = sql_lab.run_query_multi(tables, query_text_run)
+                    st.session_state.sql_result_df = result["result_df"]
+                    st.session_state.sql_error = result["error"]
+                    st.session_state.sql_exec_time = result["elapsed_seconds"]
+                    st.session_state.sql_lab_truncated = result["truncated"]
+                    st.session_state.sql_lab_row_count_full = result["row_count_full"]
+                    st.session_state.sql_lab_fix_suggestion = ""
+                    st.session_state.sql_lab_fix_error = None
+                    history_entry = {
+                        "sql": query_text_run,
+                        "status": "error" if result["error"] else "ok",
+                        "elapsed_seconds": result["elapsed_seconds"],
+                        "rows": result["row_count_full"],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                    st.session_state.sql_lab_history = ([history_entry] + st.session_state.sql_lab_history)[:50]
 
-        if st.session_state.sql_explanation_error:
-            st.error(st.session_state.sql_explanation_error)
-        elif st.session_state.sql_explanation:
-            st.info(st.session_state.sql_explanation)
+            # ---- Results ----------------------------------------------------
+            if st.session_state.sql_error:
+                st.error(st.session_state.sql_error)
+                if fix_clicked:
+                    fix_model = ai_analyst.get_sql_model()
+                    if fix_model is None:
+                        st.warning(ai_analyst.GEMINI_SETUP_HELP)
+                    else:
+                        with st.spinner(ui.get_loading_message()):
+                            fix_sql, fix_error = ai_analyst.suggest_sql_fix(
+                                fix_model, active_tab["sql"], st.session_state.sql_error
+                            )
+                        st.session_state.sql_lab_fix_suggestion = fix_sql
+                        st.session_state.sql_lab_fix_error = fix_error
+                if st.session_state.sql_lab_fix_error:
+                    st.error(st.session_state.sql_lab_fix_error)
+                elif st.session_state.sql_lab_fix_suggestion:
+                    st.code(st.session_state.sql_lab_fix_suggestion, language="sql")
+                    if st.button("Use This Fix", key="sql_lab_use_fix"):
+                        _sql_lab_inject(st.session_state.sql_lab_fix_suggestion)
+            elif st.session_state.sql_result_df is not None:
+                result_df = st.session_state.sql_result_df
+                cap_note = (
+                    f" · showing first {len(result_df):,} of {st.session_state.sql_lab_row_count_full:,} rows"
+                    if st.session_state.sql_lab_truncated else ""
+                )
+                st.caption(f"{len(result_df):,} rows · {st.session_state.sql_exec_time * 1000:.1f} ms{cap_note}")
+                if st.session_state.sql_lab_truncated:
+                    st.info(f"Result truncated to {sql_lab.DEFAULT_ROW_CAP:,} rows for display — export for the full result.")
+                st.dataframe(result_df, use_container_width=True)
+
+                exp_col1, exp_col2, viz_col, ai_col = st.columns(4)
+                with exp_col1:
+                    st.download_button(
+                        "Download CSV", data=result_df.to_csv(index=False).encode("utf-8"),
+                        file_name="prism_sql_result.csv", mime="text/csv", use_container_width=True,
+                    )
+                with exp_col2:
+                    try:
+                        parquet_bytes = result_df.to_parquet(index=False)
+                    except Exception:
+                        parquet_bytes = None
+                    if parquet_bytes is not None:
+                        st.download_button(
+                            "Download Parquet", data=parquet_bytes, file_name="prism_sql_result.parquet",
+                            mime="application/octet-stream", use_container_width=True,
+                        )
+                    else:
+                        st.caption("Parquet export unavailable for this result.")
+                with viz_col:
+                    if st.button("Send to Visualize", use_container_width=True):
+                        set_active_dataset(
+                            result_df.copy(), result_df.copy(), "sql_lab_result",
+                            cleaning_log=[{"description": "SQL Lab query result", "code": active_tab["sql"]}],
+                        )
+                        st.session_state.jump_to_tab = "Visualize"
+                        st.rerun()
+                with ai_col:
+                    if st.button("Send to AI Analyst", use_container_width=True):
+                        set_active_dataset(
+                            result_df.copy(), result_df.copy(), "sql_lab_result",
+                            cleaning_log=[{"description": "SQL Lab query result", "code": active_tab["sql"]}],
+                        )
+                        st.session_state.jump_to_tab = "AI Analyst"
+                        st.rerun()
+            else:
+                ui.render_empty_state(
+                    "🗄️", "No query run yet", "Try an example query above, or write your own and click \"Run Query\"."
+                )
+
+            if explain_clicked:
+                query_text_exp = active_tab["sql"].strip()
+                if not query_text_exp:
+                    st.warning("Write a query first — the editor is empty.")
+                else:
+                    gemini_model_sql = ai_analyst.get_sql_model()
+                    if gemini_model_sql is None:
+                        st.warning(ai_analyst.GEMINI_SETUP_HELP)
+                    else:
+                        with st.spinner(ui.get_loading_message()):
+                            explanation, explain_error = ai_analyst.explain_sql(gemini_model_sql, query_text_exp)
+                        st.session_state.sql_explanation = explanation
+                        st.session_state.sql_explanation_error = explain_error
+
+            if st.session_state.sql_explanation_error:
+                st.error(st.session_state.sql_explanation_error)
+            elif st.session_state.sql_explanation:
+                st.info(st.session_state.sql_explanation)
+
+            # ---- Data Tests -------------------------------------------------
+            st.divider()
+            st.markdown("#### Data Tests")
+            st.caption("Assertions that check your query result — one failing check never blocks the others.")
+
+            sugg_col, run_suite_col = st.columns(2)
+            with sugg_col:
+                if st.button("Auto-Suggest Assertions", use_container_width=True):
+                    quality = data_engine.get_data_quality_report(df, column_types)
+                    st.session_state.sql_lab_assertions = sql_lab.suggest_assertions(df, column_types, quality)
+            with run_suite_col:
+                if st.button(
+                    "Run Test Suite", type="primary", use_container_width=True,
+                    disabled=not st.session_state.sql_lab_assertions,
+                ):
+                    st.session_state.sql_lab_assertion_results = sql_lab.run_assertions(
+                        tables, st.session_state.sql_lab_assertions
+                    )
+
+            if st.session_state.sql_lab_assertions:
+                with st.expander(f"Current suite ({len(st.session_state.sql_lab_assertions)} checks)", expanded=False):
+                    for i, a in enumerate(st.session_state.sql_lab_assertions):
+                        acol, xcol = st.columns([8, 1])
+                        acol.caption(f'`{a["name"]}` — {a["type"]}' + (f' on `{a["column"]}`' if a.get("column") else ""))
+                        if xcol.button("✕", key=f"sql_lab_assertion_rm_{i}"):
+                            st.session_state.sql_lab_assertions.pop(i)
+                            st.rerun()
+
+                    st.markdown("**Add a custom check**")
+                    custom_name = st.text_input("Name", key="sql_lab_custom_assertion_name")
+                    custom_expr = st.text_input(
+                        "SQL that returns a single boolean", key="sql_lab_custom_assertion_expr",
+                        placeholder="SELECT COUNT(*) = 0 FROM data WHERE amount < 0",
+                    )
+                    if st.button("Add Check", key="sql_lab_add_assertion"):
+                        if not custom_expr.strip():
+                            st.warning("Write a boolean SQL check first.")
+                        else:
+                            st.session_state.sql_lab_assertions.append({
+                                "name": custom_name.strip() or "custom check",
+                                "type": "custom_sql", "table": "data", "column": None,
+                                "value": None, "sql_expr": custom_expr.strip(),
+                            })
+                            st.rerun()
+
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    suite_name = st.text_input("Suite name", key="sql_lab_suite_name_input", value="my_test_suite")
+                    st.download_button(
+                        "Save Test Suite", data=sql_lab.save_test_suite(suite_name, st.session_state.sql_lab_assertions),
+                        file_name=f"{suite_name or 'test_suite'}.json", mime="application/json", use_container_width=True,
+                    )
+                with sc2:
+                    suite_file = st.file_uploader("Load Test Suite", type=["json"], key="sql_lab_suite_uploader")
+                    if suite_file is not None:
+                        loaded_suite, load_error = sql_lab.load_test_suite(suite_file.getvalue())
+                        if load_error:
+                            st.error(load_error)
+                        elif st.button("Apply Loaded Suite", key="sql_lab_apply_suite"):
+                            st.session_state.sql_lab_assertions = loaded_suite["assertions"]
+                            st.rerun()
+
+            if st.session_state.sql_lab_assertion_results:
+                ui.render_assertion_results(st.session_state.sql_lab_assertion_results)
+            elif not st.session_state.sql_lab_assertions:
+                st.caption('No checks yet — click "Auto-Suggest Assertions" or add a custom one above.')
+
+            # ---- Performance Analyzer -----------------------------------
+            with st.expander("⚡ Performance Analyzer", expanded=False):
+                st.caption("Runs EXPLAIN ANALYZE against the query above — executes it once more to profile it.")
+                if st.button("Analyze Performance", key="sql_lab_explain_btn"):
+                    query_text_plan = active_tab["sql"].strip()
+                    if not query_text_plan:
+                        st.warning("Write a query first — the editor is empty.")
+                    else:
+                        plan_text, plan_error = sql_lab.explain_query(tables, query_text_plan)
+                        st.session_state.sql_lab_explain_plan = plan_text
+                        st.session_state.sql_lab_explain_error = plan_error
+                if st.session_state.sql_lab_explain_error:
+                    st.error(st.session_state.sql_lab_explain_error)
+                elif st.session_state.sql_lab_explain_plan:
+                    st.code(st.session_state.sql_lab_explain_plan, language="text")
+
+            # ---- Saved Queries --------------------------------------------
+            with st.expander("💾 Saved Queries", expanded=False):
+                name_col, save_col = st.columns([3, 1])
+                query_name = name_col.text_input(
+                    "Name this query", key="sql_lab_query_name_input",
+                    label_visibility="collapsed", placeholder="Name this query",
+                )
+                save_col.download_button(
+                    "Save", data=sql_lab.save_saved_query(query_name or active_tab["name"], active_tab["sql"]),
+                    file_name=f"{(query_name or 'query').strip().replace(' ', '_')}.json", mime="application/json",
+                    use_container_width=True,
+                )
+
+                loaded_query_file = st.file_uploader("Load a saved query", type=["json"], key="sql_lab_query_uploader")
+                if loaded_query_file is not None:
+                    loaded_query, load_q_error = sql_lab.load_saved_query(loaded_query_file.getvalue())
+                    if load_q_error:
+                        st.error(load_q_error)
+                    elif st.button("Load Into Active Tab", key="sql_lab_load_query_btn"):
+                        if not any(q["name"] == loaded_query["name"] for q in st.session_state.sql_lab_saved_queries):
+                            st.session_state.sql_lab_saved_queries.append(loaded_query)
+                        _sql_lab_inject(loaded_query["sql"])
+
+                if st.session_state.sql_lab_saved_queries:
+                    st.markdown("**This session**")
+                    for q in st.session_state.sql_lab_saved_queries:
+                        if st.button(q["name"], key=f"sql_lab_saved_pick_{q['name']}", use_container_width=True):
+                            _sql_lab_inject(q["sql"])
+
+            # ---- Query History ----------------------------------------------
+            with st.expander(f"🕘 Query History ({len(st.session_state.sql_lab_history)})", expanded=False):
+                hcol1, hcol2 = st.columns(2)
+                with hcol1:
+                    st.download_button(
+                        "Export History", data=sql_lab.save_query_history(st.session_state.sql_lab_history),
+                        file_name="prism_sql_history.json", mime="application/json", use_container_width=True,
+                        disabled=not st.session_state.sql_lab_history,
+                    )
+                with hcol2:
+                    history_file = st.file_uploader("Import History", type=["json"], key="sql_lab_history_uploader")
+                    if history_file is not None:
+                        loaded_history, hist_error = sql_lab.load_query_history(history_file.getvalue())
+                        if hist_error:
+                            st.error(hist_error)
+                        else:
+                            st.session_state.sql_lab_history = (loaded_history + st.session_state.sql_lab_history)[:50]
+
+                for idx, h in enumerate(st.session_state.sql_lab_history[:20]):
+                    hrow1, hrow2 = st.columns([5, 1])
+                    status_txt = "OK" if h["status"] == "ok" else "ERROR"
+                    hrow1.caption(f'`{status_txt}` · {h["rows"]:,} rows · {h["elapsed_seconds"] * 1000:.0f} ms — {h["sql"][:80]}')
+                    if hrow2.button("Reload", key=f"sql_lab_history_reload_{idx}", use_container_width=True):
+                        _sql_lab_inject(h["sql"])
 
 # --------------------------------------------------------------------------
 # AI Analyst tab — key insights + natural-language chat over the dataframe

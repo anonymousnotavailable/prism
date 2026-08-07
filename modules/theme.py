@@ -698,6 +698,38 @@ div[data-testid="stSegmentedControl"] label[data-baseweb="radio"][aria-checked="
 div[data-testid="stSegmentedControl"] label[aria-selected="true"] {
     box-shadow: inset 0 -2px 0 0 var(--prism-accent2);
 }
+
+/* SQL Lab data-test badges — same .prism-badge pattern as b-num/b-cat/b-dt/b-txt above. */
+.prism-badge.b-pass { color: var(--prism-success); border-color: var(--prism-success); }
+.prism-badge.b-fail { color: var(--prism-danger); border-color: var(--prism-danger); }
+.prism-badge.b-err  { color: var(--prism-warning); border-color: var(--prism-warning); }
+
+.prism-test-summary {
+    font-family: var(--prism-hud-font); font-size: 12px; letter-spacing: .06em;
+    color: var(--prism-text-muted); margin: 4px 0 8px;
+}
+.prism-test-list { display: flex; flex-direction: column; gap: 6px; }
+.prism-test-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--prism-surface); border: 1px solid var(--prism-border); border-radius: var(--prism-radius);
+}
+.prism-test-row .tn { font-family: var(--prism-mono-font); font-size: 12.5px; color: var(--prism-text); flex-shrink: 0; }
+.prism-test-row .td { font-size: 11.5px; color: var(--prism-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* SQL Lab console — a distinct terminal-style wrapper scoped to the SQL Lab
+   tab only, via the .st-key-<container key> technique (same trick
+   .st-key-atlas_side_panel above uses) — still driven by the shared
+   --prism-* tokens, not a parallel theming system. */
+.st-key-sql_lab_console {
+    background: linear-gradient(180deg, rgba(0,0,0,.14), transparent 140px), var(--prism-bg);
+    border: 1px solid var(--prism-border); border-radius: var(--prism-radius);
+    padding: 18px 20px 6px;
+}
+.st-key-sql_lab_console::before {
+    content: "PRISM SQL LAB · DUCKDB CONSOLE";
+    display: block; font-family: var(--prism-mono-font); font-size: 10px; letter-spacing: .22em;
+    color: var(--prism-accent); opacity: .75; margin-bottom: 12px;
+}
 </style>
 """
 )

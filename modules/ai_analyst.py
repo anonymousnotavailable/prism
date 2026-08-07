@@ -192,6 +192,27 @@ def get_model(api_key: Optional[str] = None):
     return genai.GenerativeModel(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT)
 
 
+def get_sql_model(api_key: Optional[str] = None):
+    """A second model instance for SQL Lab's AI features (explain_sql,
+    generate_sql, suggest_sql_fix) — deliberately WITHOUT CODE_SYSTEM_PROMPT.
+
+    That system instruction hard-codes "write Python code... assign to a
+    variable named `result`... return ONLY a python code block" — fine for
+    ask_question's pandas pipeline, but it overrides a plain per-request
+    prompt asking for SQL instead: generate_sql/suggest_sql_fix were
+    observed returning pandas snippets (`result = df[...]`) instead of SQL
+    when built on get_model(), because the system instruction outranks a
+    same-shaped "return only code" request in the user turn. Each of these
+    three functions puts its full task instructions directly in the prompt,
+    so no system instruction is needed here at all.
+    """
+    key = api_key or get_api_key()
+    if not key or genai is None:
+        return None
+    genai.configure(api_key=key)
+    return genai.GenerativeModel(MODEL_NAME)
+
+
 def generate_df_metadata(df: pd.DataFrame, column_types: Optional[dict[str, str]] = None) -> str:
     """Compact, structured description of a dataframe's shape and contents —
     shape, per-column dtype, per-column missing count, min/mean/max for
@@ -410,6 +431,56 @@ def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:
     if error:
         return "", error
     return text.strip(), None
+
+
+def _strip_sql_fence(text: str) -> str:
+    """Defensive cleanup for generate_sql/suggest_sql_fix: both prompts ask
+    for raw SQL with no markdown fences, but models don't always comply.
+    extract_code() isn't reusable here — its regex only optionally strips a
+    'python' tag, not 'sql', and would leave a literal "sql\\n" behind.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:sql)?\s*", "", stripped)
+        stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()
+
+
+def generate_sql(
+    model, df: pd.DataFrame, column_types: dict[str, str], question: str, table_name: str = "data"
+) -> tuple[str, Optional[str]]:
+    """Natural-language-to-SQL for the SQL Lab tab's "Generate SQL" button.
+    One-shot prompt-in/text-out, same minimal shape as explain_sql — not
+    ask_question's multi-turn pandas pipeline, since this only has to
+    produce a query, not run one.
+    """
+    context = build_data_context(df, column_types)
+    prompt = (
+        f"You write DuckDB SQL. The dataset is registered as a table named `{table_name}`.\n\n"
+        f"{context}\n\n"
+        f"Write a single DuckDB SQL query that answers this question: {question}\n\n"
+        "Return ONLY the raw SQL query — no explanation, no markdown code fences, no comments."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return _strip_sql_fence(text), None
+
+
+def suggest_sql_fix(model, sql: str, error_message: str, table_name: str = "data") -> tuple[str, Optional[str]]:
+    """Given a query that failed and DuckDB's own error text, ask for a
+    corrected query — the SQL Lab tab's "Suggest a Fix" button, shown
+    alongside the existing error banner rather than replacing it."""
+    prompt = (
+        f"The following DuckDB SQL query (against a table named `{table_name}`) failed.\n\n"
+        f"```sql\n{sql}\n```\n\n"
+        f"DuckDB's error message:\n{error_message}\n\n"
+        "Return ONLY the corrected raw SQL query — no explanation, no markdown code fences, no comments."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return _strip_sql_fence(text), None
 
 
 def ask_question(
