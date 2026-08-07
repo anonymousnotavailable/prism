@@ -60,11 +60,15 @@ except ImportError:  # pragma: no cover
 VOICE_NAME = "en-GB-RyanNeural"  # calm, precise — the closest free neural voice to the persona
 
 PERSONA = (
-    "You are Atlas, the voice operator embedded in Prism — an auto-EDA and AI analyst "
-    "tool built by Prathmesh Katkade. Your personality: calm, precise, lightly witty — "
-    "JARVIS energy, not a chatbot. You are terse and confident, you never pad a reply "
-    "with filler, and you never claim to have done something you haven't. Address the "
-    "user directly, in second person."
+    "You are Atlas, embedded in Prism — Prathmesh's copilot for this session, not a tool "
+    "he opens and closes. He's actually chatting with you while he works the data, so talk "
+    "like Claude would, in Atlas's voice: thoughtful, direct, genuinely warm — not a stiff "
+    "JARVIS-butler reciting status updates. Have real personality: dry wit, an occasional "
+    "sharp remark when the data actually earns it (a genuinely ugly column of nulls, a wild "
+    "outlier, a duplicate-riddled mess) — humour as a real trait, not a footnote bolted onto "
+    "the 'real' answer. Terse because spoken replies have to stay short, never because "
+    "you're being flat — those are different things. Confident, never claims to have done "
+    "something it hasn't. Address the user directly, in second person."
 )
 
 TAB_NAMES = [
@@ -483,6 +487,140 @@ _ORB_CSS = """
 }
 </style>
 """
+
+
+_NEURON_BG_JS = """
+<script>
+(function() {
+    const win = window.parent;
+    const doc = win.document;
+    const panel = doc.querySelector('.st-key-atlas_side_panel');
+    if (!panel) return;
+    // Marker lives on the panel's own DOM node (not a global flag) so this
+    // survives Streamlit reruns cleanly: st.container(key=...) keeps the
+    // same node alive across reruns, so the marker (and the loop it guards)
+    // persists too — no duplicate animation loops piling up on every rerun.
+    if (panel.dataset.neuronInit) return;
+    panel.dataset.neuronInit = '1';
+
+    const canvas = doc.createElement('canvas');
+    canvas.style.cssText = 'position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:0.55;';
+    panel.insertBefore(canvas, panel.firstChild);
+    const ctx = canvas.getContext('2d');
+    let w, h, dpr;
+
+    function resize() {
+        dpr = Math.min(win.devicePixelRatio || 1, 2);
+        w = panel.clientWidth; h = panel.clientHeight;
+        canvas.width = w * dpr; canvas.height = h * dpr;
+        canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resize();
+    win.addEventListener('resize', resize);
+
+    const REDUCED = win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const LINK_DIST = 110;
+    const COUNT = Math.min(40, Math.max(16, Math.floor((w * h) / 9000)));
+    let nodes = Array.from({ length: COUNT }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.1, vy: (Math.random() - 0.5) * 0.1,
+        r: Math.random() * 1.3 + 1,
+    }));
+    let pulses = [];
+
+    function accentRgb() {
+        // Reads Prism's own theme token so the mesh matches whichever theme
+        // (Graphite/Midnight/Arctic) is active, same trick as the rest of
+        // the app's CSS — no hardcoded color to fall out of sync.
+        const v = getComputedStyle(panel).getPropertyValue('--prism-accent-rgb').trim();
+        return v || '34,211,238';
+    }
+
+    function draw() {
+        const rgb = accentRgb();
+        ctx.clearRect(0, 0, w, h);
+        const links = [];
+        for (const n of nodes) {
+            n.x += n.vx; n.y += n.vy;
+            if (n.x < 0 || n.x > w) n.vx *= -1;
+            if (n.y < 0 || n.y > h) n.vy *= -1;
+            n.x = Math.max(0, Math.min(w, n.x));
+            n.y = Math.max(0, Math.min(h, n.y));
+        }
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const a = nodes[i], b = nodes[j];
+                const dist = Math.hypot(a.x - b.x, a.y - b.y);
+                if (dist < LINK_DIST) {
+                    const alpha = (1 - dist / LINK_DIST) * 0.55;
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(${rgb},${alpha.toFixed(3)})`;
+                    ctx.lineWidth = 0.7;
+                    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                    links.push({ a, b });
+                }
+            }
+        }
+        for (const n of nodes) {
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(${rgb},0.6)`;
+            ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (!REDUCED && pulses.length < 2 && links.length && Math.random() < 0.025) {
+            const link = links[Math.floor(Math.random() * links.length)];
+            pulses.push({ a: link.a, b: link.b, t: 0, speed: 0.015 + Math.random() * 0.01 });
+        }
+        pulses = pulses.filter((p) => p.t <= 1);
+        for (const p of pulses) {
+            p.t += p.speed;
+            const x = p.a.x + (p.b.x - p.a.x) * p.t;
+            const y = p.a.y + (p.b.y - p.a.y) * p.t;
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(${rgb},0.95)`;
+            ctx.shadowColor = `rgba(${rgb},0.95)`;
+            ctx.shadowBlur = 6;
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    if (REDUCED) { draw(); return; }
+
+    function tick() {
+        // Panel gone (Demo/Story Mode took over the screen) — stop rather
+        // than spin forever against a detached node; a fresh loop starts
+        // cleanly next time the panel remounts, since the marker only
+        // lives on that (now-discarded) node.
+        if (!doc.body.contains(panel)) return;
+        if (doc.hidden) { win.requestAnimationFrame(tick); return; }
+        draw();
+        win.requestAnimationFrame(tick);
+    }
+    tick();
+})();
+</script>
+"""
+
+
+def render_neuron_bg() -> None:
+    """Animated neuron-network canvas behind the Atlas side panel's message
+    list — drifting nodes, fading synapse links when close, an occasional
+    bright pulse traveling a live connection. Injected via a zero-height
+    components.html() iframe reaching into window.parent.document (the same
+    technique modules/ui.py's render_tab_jump_script already uses) rather
+    than st.markdown(unsafe_allow_html=True): browsers never execute
+    <script> tags inserted via innerHTML (which is what Streamlit's markdown
+    path does under the hood), only ones present in a real document's
+    initial HTML — which is exactly what a components.html() iframe is.
+    Call once per rerun, right after the panel's header markdown.
+    """
+    import streamlit.components.v1 as components
+
+    components.html(_NEURON_BG_JS, height=0)
 
 
 def render_orb() -> None:
