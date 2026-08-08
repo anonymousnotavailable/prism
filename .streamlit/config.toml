@@ -1,15 +1,17 @@
-# Prism's default theme — dark navy + electric cyan. Matches
-# modules/theme.py's CUSTOM_CSS_DARK so the native Streamlit chrome (widget
-# borders, focus rings, etc.) agrees with the app's own injected CSS. The
-# in-app light/dark toggle overrides this at runtime via injected CSS; this
-# file only controls the very first paint before any CSS is injected, and
-# whatever the sidebar toggle hasn't touched (e.g. some native widget chrome).
+# Prism's default theme — matches modules/theme.py's DEFAULT_THEME ("slash":
+# obsidian canvas + copper accent) so the native Streamlit chrome (widget
+# borders, focus rings, etc.) agrees with the app's own injected CSS from
+# first paint. The in-app theme selector overrides this at runtime via
+# injected CSS; this file only controls the very first paint before any CSS
+# is injected, and whatever the selector hasn't touched (e.g. some native
+# widget chrome). Keep in sync with THEMES["slash"] in modules/theme.py if
+# the default theme ever changes.
 [theme]
 base = "dark"
-primaryColor = "#00e5ff"
-backgroundColor = "#0a0e17"
-secondaryBackgroundColor = "#111827"
-textColor = "#e0f7fa"
+primaryColor = "#cc9166"
+backgroundColor = "#08080a"
+secondaryBackgroundColor = "#121317"
+textColor = "#e2e3e9"
 font = "sans serif"
 
 [server]

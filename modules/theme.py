@@ -176,9 +176,40 @@ THEMES: dict[str, dict] = {
         "on_accent": "#042F2A",
         "chart_colorway": ["#2DD4BF", "#A7F3D0", "#67E8F9", "#4ADE80", "#FBBF24", "#F87171", "#818CF8", "#94A3B8"],
     },
+    # Slash — midnight-vault editorial theme, built from a client-supplied
+    # style reference (DESIGN.md, uploaded 2026-08-08: "Slash — Style
+    # Reference", a fintech dark-mode brand system). Token values below are
+    # copied 1:1 from that doc's color table (Obsidian/Onyx/Carbon/Graphite/
+    # Copper/etc.) — see _slash_overrides() for the structural rules (flat
+    # surfaces, hairline borders, no blur/glow, Playfair Display display
+    # type) the shared token-driven CSS can't express through color tokens
+    # alone.
+    "slash": {
+        "label": "Slash (Editorial Vault)",
+        "mode": "dark",
+        "bg": "#08080A",  # Obsidian — page canvas
+        "bg_end": "#08080A",  # flat canvas — the doc is explicit that the whole
+        # page is "one continuous #08080a canvas", not a gradient
+        "surface": "#040406",  # Onyx — card surface
+        "surface_hover": "#121317",  # Carbon — elevated/hover panels
+        "border": "#1C1D22",  # Graphite — hairline dividers
+        "text": "#E2E3E9",  # Bone — default body text
+        "text_muted": "#9194A1",  # Fog
+        "accent": "#CC9166",  # Copper — the one chromatic accent, used sparingly
+        "accent_rgb": "204, 145, 102",
+        "accent2": "#FFFFFF",  # Paper White — primary-button fill, heading emphasis
+        "accent2_rgb": "255, 255, 255",
+        "accent3": "#AE9357",  # Gilded gradient's base gold — chart-line accent
+        "accent3_rgb": "174, 147, 87",
+        "success": "#8CA88A",  # desaturated sage — "reads on dark without vibrating"
+        "warning": "#C9A35A",
+        "danger": "#C9766C",
+        "on_accent": "#000000",  # true black — the Primary Action Button's text
+        "chart_colorway": ["#CC9166", "#E2E3E9", "#9194A1", "#AE9357", "#C7C9D1", "#777A88", "#8CA88A", "#5E616E"],
+    },
 }
 
-DEFAULT_THEME = "prism_hud"
+DEFAULT_THEME = "slash"
 
 
 def theme_options() -> dict[str, str]:
@@ -195,7 +226,7 @@ def _tokens(theme_key: str) -> dict:
 _CSS_TEMPLATE = Template(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Playfair+Display:wght@400;500;600&display=swap');
 
 :root {
     --prism-bg: $bg;
@@ -831,11 +862,186 @@ div[data-testid="stSegmentedControl"] label[aria-selected="true"] {
 )
 
 
+_SLASH_OVERRIDES = """
+<style>
+/* ══════════════════════════════════════════════════════════════════
+   SLASH BRAND OVERRIDE — rewrites the shared HUD-glass system (blur,
+   color-tinted glow, gradient CTAs, uppercase mono labels) into the
+   client-supplied Slash style reference: flat obsidian canvas, hairline
+   borders instead of shadows, Playfair Display (Ivy Presto substitute
+   named in the doc) for display type >=28px, Inter everywhere else,
+   Copper as the single restrained chromatic accent, pill controls, 10px
+   cards, 2px nav. Injected as its own <style> tag AFTER the shared
+   template's, so equal-specificity selectors win on DOM/source order
+   alone — only reached for `!important` where BaseWeb's own generated
+   classes fight back (same pattern the base template already uses for
+   inputs/selects). Only active when theme_key == "slash"; every other
+   theme's CSS is completely untouched by this block's existence.
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+    /* Kills every var(--prism-glass-*) consumer in one shot — sidebar,
+       .prism-card, .glass-card all read these instead of their own blur. */
+    --prism-glass-blur: none;
+    --prism-glass-edge: none;
+    --prism-radius: 10px;
+    --prism-hud-font: 'Inter', sans-serif;
+}
+
+/* Flat canvas — no ambient wash, no content-area glow. Depth comes from
+   the surface color steps (Obsidian -> Onyx -> Carbon -> Graphite), never
+   from blur or light bloom. */
+.stApp::before { display: none; }
+div[data-testid="stMainBlockContainer"] { box-shadow: none; }
+
+/* Display type — Ivy Presto substitute, used only at 28px+ per the doc's
+   own rule ("serif never goes below 28px, sans never goes above 48px").
+   Solid Paper White, not the HUD gradient/shimmer — the gilded gradient
+   is reserved for chart lines, never headline text. */
+h1, h2, h3, .prism-heading, .hero-title-animated {
+    font-family: 'Playfair Display', Georgia, serif !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.01em !important;
+    text-transform: none !important;
+}
+.prism-hero-title, .hero-title-animated {
+    background: none !important;
+    -webkit-text-fill-color: #ffffff !important;
+    color: #ffffff !important;
+    filter: none !important;
+    animation: none !important;
+}
+.prism-hero-title { font-family: 'Playfair Display', Georgia, serif; font-weight: 500; letter-spacing: 0.01em; }
+
+/* Primary button — the spec's one loud signal: solid Paper White fill,
+   true black text, no gradient, no glow, pill radius. Ghost/secondary —
+   transparent with a 1px white border. Neither lifts or scales on hover. */
+.stButton > button, .stDownloadButton > button, .stFormSubmitButton > button {
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    border-radius: 9999px !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    box-shadow: none !important;
+    transition: opacity var(--prism-dur-fast) var(--prism-ease);
+}
+.stButton > button:hover, .stDownloadButton > button:hover, .stFormSubmitButton > button:hover {
+    transform: none !important;
+    opacity: 0.88;
+    box-shadow: none !important;
+    filter: none !important;
+}
+.stButton > button:active, .stDownloadButton > button:active { transform: none !important; opacity: 0.78; }
+button[kind="secondary"] {
+    background: transparent !important;
+    color: #ffffff !important;
+    border: 1px solid #ffffff !important;
+    border-radius: 9999px !important;
+}
+button[kind="secondary"]:hover {
+    background: rgba(255,255,255,.06) !important;
+    border-color: #ffffff !important;
+    color: #ffffff !important;
+}
+
+/* Inputs — pill radius, hairline border, no colored focus glow (a plain
+   brighter border stands in for it). Textarea keeps a modest radius — a
+   multi-line box inside a full pill reads wrong. */
+.stTextInput input, .stNumberInput input,
+.stSelectbox [data-baseweb="select"] > div, .stMultiSelect [data-baseweb="select"] > div {
+    border-radius: 9999px !important;
+}
+.stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+    border-color: #ffffff !important;
+    box-shadow: none !important;
+}
+span[data-baseweb="tag"] { background: transparent !important; border: 1px solid #777a88 !important; color: #e2e3e9 !important; }
+
+/* Cards, metrics, tables, charts, expanders — hairline border for edges,
+   flat surface fill, no blur, no color-tinted glow. Hover reads as a
+   border-color shift only, never a lift-and-glow. */
+.prism-card, .glass-card, div[data-testid="stMetric"], div[data-testid="stPlotlyChart"],
+div[data-testid="stDataFrame"], div[data-testid="stTable"], .prism-col-card,
+.streamlit-expanderHeader, div[data-testid="stExpander"] summary, .insight-card,
+.prism-empty-state, .prism-sticky-header, .prism-palette-hit {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+.prism-card::after, .glass-card::after { display: none; }
+.prism-card:hover, .glass-card.hoverable:hover {
+    transform: none !important;
+    box-shadow: none !important;
+    border-color: #464853 !important;
+}
+div[data-testid="stMetric"]:hover { transform: none !important; box-shadow: none !important; border-color: #464853 !important; }
+div[data-testid="stPlotlyChart"]:hover { box-shadow: none !important; border-color: #464853 !important; }
+.prism-col-card:hover { transform: none !important; border-color: #464853 !important; }
+
+/* Icons — monochrome steel, never accent-filled or glowing (doc: "Icons
+   are monochrome... never filled with brand color"). */
+.prism-card-icon { color: #777a88; filter: none; }
+
+/* Badges / tags / dataset chip — Pill Tag Button spec: transparent fill,
+   1px steel border, no blur, no chromatic fill by default. Copper is
+   reserved for the "ai"/category-label variant, matching the doc's
+   editorial-link/category use of the color. */
+.prism-badge, .prism-dataset-chip {
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    background: transparent !important;
+    border: 1px solid #777a88 !important;
+    color: #e2e3e9 !important;
+    box-shadow: none !important;
+}
+.prism-badge.ai { border-color: rgba(204,145,102,.5) !important; color: #cc9166 !important; }
+.prism-badge.b-num, .prism-badge.b-cat, .prism-badge.b-dt, .prism-badge.b-txt {
+    color: #9194a1 !important; border-color: #464853 !important;
+}
+.prism-live-dot, .prism-dataset-chip .dot { box-shadow: none !important; }
+
+/* Section labels / eyebrows — Category Eyebrow spec: 13px Inter 600,
+   tight tracking, NOT uppercase. Copper is the one place this editorial
+   punctuation belongs. */
+.hud, .prism-sec, .prism-step, .prism-health-label {
+    text-transform: none !important;
+    letter-spacing: -0.02em !important;
+    font-family: 'Inter', sans-serif !important;
+}
+.prism-sec { color: #cc9166 !important; font-weight: 600 !important; }
+
+/* Tabs / segmented nav — 2px "nav" radius, no uppercase, no colored
+   underline bar. */
+.stTabs [data-baseweb="tab"] { border-radius: 2px 2px 0 0 !important; }
+div[data-testid="stSegmentedControl"] label {
+    text-transform: none !important;
+    font-family: 'Inter', sans-serif !important;
+    border-radius: 2px !important;
+}
+
+/* Atlas panel — flatten to a hairline-divided column, no blur, no glow. */
+.st-key-atlas_side_panel {
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+.atlas-panel-hd .t { font-family: 'Inter', sans-serif !important; letter-spacing: 0.06em !important; }
+.atlas-msg { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.atlas-msg .who { font-family: 'Inter', sans-serif !important; text-transform: none !important; letter-spacing: 0.04em !important; }
+</style>
+"""
+
+
 def apply_custom_theme(theme_key: str = DEFAULT_THEME) -> None:
     """Inject the CSS for the given theme key. Call once per rerun, right
     after set_page_config, before any other UI is rendered.
+
+    "slash" gets a second, separate <style> tag appended after the shared
+    one (_SLASH_OVERRIDES) — see that constant's own docstring-comment for
+    why a second tag instead of a bigger template.
     """
     st.markdown(_CSS_TEMPLATE.substitute(_tokens(theme_key), ease="var(--prism-ease)"), unsafe_allow_html=True)
+    if theme_key == "slash":
+        st.markdown(_SLASH_OVERRIDES, unsafe_allow_html=True)
 
 
 def _build_template(tokens: dict) -> go.layout.Template:
