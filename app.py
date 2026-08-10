@@ -130,6 +130,7 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # last Gemini explanation of the flagged anomalies, if generated
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -271,6 +272,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1713,11 +1715,25 @@ elif st.session_state.active_section == "Overview":
         if not anomaly.is_available():
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
+            method_options = list(anomaly.METHODS)
+            if not anomaly.lof_available():
+                method_options = [m for m in method_options if m != "lof"]
+            method = st.selectbox(
+                "Detection method",
+                options=method_options,
+                format_func=lambda m: anomaly.METHODS[m],
+                key="anomaly_method",
+                help="Isolation Forest looks for points easy to isolate from the whole dataset. "
+                "Local Outlier Factor compares each point only to its nearest neighbors, so it "
+                "can catch outliers that look normal globally but not locally.",
+            )
+
             if st.button("Find Anomalies", key="find_anomalies_btn"):
                 with st.spinner(ui.get_loading_message()):
-                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types, method=method)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None  # stale narration from a prior run
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1726,18 +1742,34 @@ elif st.session_state.active_section == "Overview":
                 if flagged.empty:
                     st.info("No anomalies detected.")
                 else:
-                    st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
+                    st.write(f"**{len(flagged)} anomalous row(s) flagged** ({anomaly.METHODS.get(method, method).split(' (')[0]}):")
                     st.dataframe(flagged, use_container_width=True)
+
+                    if st.session_state.anomaly_narration:
+                        st.info(f"🤖 {st.session_state.anomaly_narration}")
+                    elif st.button(
+                        "✨ Explain these anomalies", key="anomaly_narrate_btn", help="Ask Gemini to explain the pattern in plain English"
+                    ):
+                        gemini_model_anomaly = ai_analyst.get_model()
+                        with st.spinner("Gemini is reviewing the flagged rows…"):
+                            narration, narr_error = anomaly.narrate_anomalies(gemini_model_anomaly, flagged, method=method)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.anomaly_narration = narration
+                            st.rerun()
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
                         st.session_state.working_df = new_df
                         st.session_state.column_types = data_engine.detect_column_types(new_df)
                         log_step(
-                            f"Excluded {len(flagged)} anomalous row(s) (IsolationForest)",
+                            f"Excluded {len(flagged)} anomalous row(s) ({anomaly.METHODS.get(method, method).split(' (')[0]})",
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
+                        st.session_state.anomaly_narration = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 
