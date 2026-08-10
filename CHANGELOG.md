@@ -2,6 +2,47 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 4)
+
+### Added
+- **Ensemble Anomaly Consensus** (`modules/anomaly.py`) — an "Ensemble
+  mode" checkbox in Anomaly Detection cross-checks Isolation Forest
+  (global isolation) against LOF (local density) and DBSCAN
+  (density-based clustering, eps auto-tuned via a k-distance percentile
+  heuristic). Flagged rows carry a `consensus_count` (1-3) and are sorted
+  by agreement, with per-method metric cards and a "🔗 N of M flagged by
+  all 3 methods" summary. `narrate_ensemble_disagreement()` asks Gemini to
+  explain what the agreement/disagreement pattern suggests — detection
+  stays deterministic and auditable (three independent sklearn models),
+  the LLM's only job is interpretation. Closes the "Advanced outlier
+  detection (LOF, DBSCAN)" backlog item open since 2026-08-07; serves this
+  cycle's required agentic-AI theme via the self-verifying multi-detector
+  pattern. 19 new tests.
+
+### Fixed
+- **Native theme sync for `st.dataframe`/`st.table`** (`modules/theme.py`,
+  `sync_native_theme()`) — these render through glide-data-grid, a
+  `<canvas>` element whose colors come from Streamlit's `theme.base`
+  runtime config, not the CSS this app injects. `.streamlit/config.toml`
+  only sets that once, hardcoded dark, so every dataframe kept dark
+  row/header styling even under the Arctic (Light) theme — flagged as an
+  open finding in the 2026-08-10 Run 3 report. Now pushed via
+  `st._config.set_option` on every theme switch, guarded so a future
+  Streamlit version removing that private hook degrades gracefully
+  instead of crashing. 7 new tests.
+- **Mobile Atlas side-panel overlap** (~390px viewport) — reconfirmed by
+  two prior runs but misdiagnosed as a single-cause bug. The actual root
+  cause was two independent rules: (1) `.st-key-atlas_side_panel` in
+  `modules/theme.py` was `position: fixed; width: 328px` unconditionally,
+  and (2) `app.py` separately reserved `padding-right: 352px !important`
+  on `.block-container` to make room for it — also unconditional. On a
+  ~390px phone, (2) alone left ~22px for all main content regardless of
+  (1). Both are now scoped to a `min-width: 769px` / `max-width: 768px`
+  media-query pair: under 768px the panel stacks below main content
+  instead of overlapping it, and the reserved padding drops to 0. Verified
+  via layout-inspection screenshots, not just visual spot-check — see
+  `.prism/audit_2026-08-10-run4.md`.
+
 ## 2026-08-10
 
 ### Added

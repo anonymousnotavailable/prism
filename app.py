@@ -132,6 +132,7 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "anomaly_methods_summary": None,  # per-method flagged counts from the last ensemble "Find Anomalies" run, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -196,6 +197,7 @@ for key, default_value in _DEFAULTS.items():
 
 theme.apply_custom_theme(st.session_state.theme_mode)
 theme.apply_plotly_theme(st.session_state.theme_mode)
+theme.sync_native_theme(st.session_state.theme_mode)
 
 UNDO_STACK_CAP = 10
 
@@ -312,6 +314,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
     st.session_state.anomaly_narration_fingerprint = None
+    st.session_state.anomaly_methods_summary = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -1427,8 +1430,19 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
         if sent and panel_text:
             _atlas_utterance = panel_text
 
+    # Reserve room for the fixed-position Atlas side panel (328px wide, see
+    # .st-key-atlas_side_panel in modules/theme.py) so main content doesn't
+    # render underneath it. Scoped to the same >768px breakpoint the panel's
+    # own CSS uses to switch from "fixed right rail" to "stacks below main
+    # content" — this rule used to apply unconditionally (`!important`, no
+    # media query), which meant on a ~390px phone viewport it reserved 352px
+    # of a 390px-wide screen for a panel that, even after being fixed to
+    # stack inline, was still being squeezed into the ~22px left over. Found
+    # via layout inspection while re-verifying the mobile Atlas-panel fix
+    # this run — the panel's own CSS was only half the bug.
     st.markdown(
-        '<style>.block-container{padding-right:352px !important;}</style>', unsafe_allow_html=True
+        '<style>@media (min-width: 769px) { .block-container{padding-right:352px !important;} }</style>',
+        unsafe_allow_html=True,
     )
 
 # Every keyed widget for whichever branch above just ran (segmented_control,
@@ -1733,20 +1747,46 @@ elif st.session_state.active_section == "Overview":
         if not anomaly.is_available():
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
+            ensemble_mode = st.checkbox(
+                "Ensemble mode — cross-check with LOF + DBSCAN",
+                key="anomaly_ensemble_mode",
+                help=(
+                    "Instead of trusting one model, run Isolation Forest (global isolation), "
+                    "LOF (local density), and DBSCAN (density-based clustering) and show how much "
+                    "they agree. Needs at least 2 numeric columns and 20 rows."
+                ),
+            )
             if st.button("Find Anomalies", key="find_anomalies_btn"):
                 with st.spinner(ui.get_loading_message()):
-                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                    if ensemble_mode:
+                        flagged, methods_summary, anomaly_err = anomaly.find_anomalies_ensemble(df, column_types)
+                        st.session_state.anomaly_methods_summary = methods_summary
+                    else:
+                        flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                        st.session_state.anomaly_methods_summary = None
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None
+                st.session_state.anomaly_narration_fingerprint = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
             elif st.session_state.anomaly_result_df is not None:
                 flagged = st.session_state.anomaly_result_df
+                methods_summary = st.session_state.get("anomaly_methods_summary")
                 if flagged.empty:
                     st.info("No anomalies detected.")
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
+                    if methods_summary:
+                        summary_cols = st.columns(len(methods_summary))
+                        for col, (method, stats) in zip(summary_cols, methods_summary.items()):
+                            col.metric(method.replace("_", " ").title(), f"{stats['flagged_count']}", f"{stats['pct']}%")
+                        full_agreement = int((flagged["consensus_count"] == len(anomaly.ENSEMBLE_METHODS)).sum())
+                        st.caption(
+                            f"🔗 {full_agreement} of {len(flagged)} row(s) flagged by **all 3 methods** — "
+                            "the strongest-consensus anomalies. Table below is sorted by agreement."
+                        )
                     st.dataframe(flagged, use_container_width=True)
 
                     # AI narration — cached per fingerprint of this exact flagged
@@ -1766,7 +1806,10 @@ elif st.session_state.active_section == "Overview":
                     ):
                         model = ai_analyst.get_model()
                         with st.spinner("Gemini is reviewing the flagged rows…"):
-                            narration, narr_error = anomaly.narrate_anomalies(model, flagged)
+                            if methods_summary:
+                                narration, narr_error = anomaly.narrate_ensemble_disagreement(model, flagged, methods_summary)
+                            else:
+                                narration, narr_error = anomaly.narrate_anomalies(model, flagged)
                         if narr_error:
                             st.warning(narr_error)
                         else:
@@ -1780,7 +1823,7 @@ elif st.session_state.active_section == "Overview":
                         st.session_state.working_df = new_df
                         st.session_state.column_types = data_engine.detect_column_types(new_df)
                         log_step(
-                            f"Excluded {len(flagged)} anomalous row(s) (IsolationForest)",
+                            f"Excluded {len(flagged)} anomalous row(s) ({'ensemble' if methods_summary else 'IsolationForest'})",
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
