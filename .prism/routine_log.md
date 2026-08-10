@@ -285,3 +285,12 @@ at `.prism/runs/2026-08-10/diagnose_mobile_width_bug.py` — **next run
 should make this the #1 priority**, starting from the reproduction steps
 listed in the audit file. This is a bigger interview-credibility risk than
 any single missing feature: a "PWA" that's unreadable on an actual phone.
+
+**TL;DR (5 lines):** Shipped Anomaly Narration (Gemini explains flagged
+rows, agentic-theme pick, PII-safe, fingerprint-cached) and Data Quality
+Scorecard (exportable A-F quality artifact), plus a mobile Atlas-panel CSS
+fix and a `cffi` dev-dependency pin. 127/127 tests green (45 pytest + 82
+eval), merged and pushed clean, fresh-clone boot verified. Discovered but
+did NOT fix a much more severe pre-existing mobile layout bug (main
+content collapses to ~22px wide below 768px) — documented in detail as
+next run's top priority. `RUN_REPORT_2026-08-10.md` has full details.
