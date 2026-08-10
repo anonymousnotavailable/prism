@@ -146,6 +146,8 @@ _DEFAULTS = {
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
+    "mllab_selection_result": None,  # last mllab.select_features() ranking ("Rank Feature Relevance" button)
+    "mllab_selection_target": None,  # target column the result above was computed for, to detect staleness
     "drift_result": None,  # last "Run Drift Comparison" report from the Combine tab's Compare mode
     "dashboard_spec": None,  # last "Build My Dashboard" spec (kpis + charts), editable via Remove/Swap
     "auto_report_content": None,  # last "Generate Report" content dict (for PDF/HTML export)
@@ -289,6 +291,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
+    st.session_state.mllab_selection_result = None
+    st.session_state.mllab_selection_target = None
     st.session_state.drift_result = None
     st.session_state.dashboard_spec = None
     st.session_state.auto_report_content = None
@@ -3909,10 +3913,59 @@ elif st.session_state.active_section == "ML Lab":
                         st.toast(f"{description}. 🛠️")
                         st.rerun()
 
+        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+
+        st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks candidate features by relevance to the target using three independent methods — "
+            "mutual information, L1-regularized coefficients, and Recursive Feature Elimination — "
+            "so the feature set below is a data-driven choice, not a guess."
+        )
+        mllab_selectable_choices = [c for c in mllab_feature_choices if column_types.get(c) in ("numeric", "categorical")]
+
+        if len(mllab_selectable_choices) < 2:
+            st.info("Need at least 2 numeric/categorical columns to rank feature relevance.")
+        else:
+            if st.button("Rank Feature Relevance", use_container_width=True, key="run_feature_selection"):
+                st.session_state.mllab_selection_result = mllab.select_features(
+                    df, column_types, mllab_selectable_choices, mllab_target_col, mllab_task_type
+                )
+                st.session_state.mllab_selection_target = mllab_target_col
+
+            selection_result = st.session_state.get("mllab_selection_result")
+            # Drop a stale result computed for a different target column rather
+            # than showing a ranking that no longer matches what's selected above.
+            if selection_result and st.session_state.get("mllab_selection_target") != mllab_target_col:
+                selection_result = None
+
+            if selection_result:
+                if selection_result["error"]:
+                    st.warning(selection_result["error"])
+                else:
+                    ranking = selection_result["ranking"]
+                    display_ranking = ranking[
+                        ["feature", "mutual_info", "l1_coefficient", "rfe_score", "consensus_rank", "votes"]
+                    ].rename(
+                        columns={
+                            "mutual_info": "Mutual Info", "l1_coefficient": "L1 Coef", "rfe_score": "RFE Score",
+                            "consensus_rank": "Consensus Rank", "votes": "Votes (of 3)",
+                        }
+                    )
+                    st.dataframe(display_ranking, use_container_width=True, hide_index=True)
+                    st.caption(
+                        "🎯 **Recommended** (≥2 of 3 methods agree): "
+                        + ", ".join(f"`{f}`" for f in selection_result["recommended"])
+                    )
+                    if st.button("Apply recommended features below", use_container_width=True, key="apply_recommended_features"):
+                        st.session_state.mllab_feature_cols = [
+                            c for c in mllab_feature_choices if c in selection_result["recommended"]
+                        ]
+                        st.rerun()
+
         st.divider()
         st.markdown("#### Baseline Model Runner")
 
-        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
         mllab_selected_features = st.multiselect(
             "Feature columns", mllab_feature_choices,
             default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
