@@ -177,3 +177,83 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this file in full plus both 2026-08-07 audits before
+doing anything. No run happened between 08-07 and 08-10 — this is the next
+run in sequence, not a concurrent one. Confirmed via `git log` that nothing
+shipped since the last entry above.
+
+**Regression check:** `pytest` 27/27 green, plus all three `eval/*.py`
+harnesses (auto_insights 23/23, regression_diagnostics 33/33,
+stl_decomposition 26/26) — 109/109 total, no bit-rot in prior features.
+Sandbox needed `pip install --force-reinstall cffi` to unblock a
+`_cffi_backend` import panic in the `google-generativeai` dependency chain
+before tests would even collect — not a Prism bug, but pinned
+`cffi>=1.16` in `requirements-dev.txt` as a small fix so it doesn't repeat.
+
+**Audit:** `.prism/audit_2026-08-10.md`. Re-confirmed both carried-forward
+findings from 08-07 are still open (mobile Atlas panel has zero responsive
+breakpoints; `google-generativeai` deprecation warning). Also documented
+that `eval/*.py` (82 checks) never run under plain `pytest` — deliberate
+split, not a bug, but flagged for a future run to consider consolidating.
+
+**Research:** `.prism/research_2026-08-10.md`. Web research across all
+four source classes confirmed: (1) the 2026 agentic-analytics consensus
+shape is deterministic-detect -> LLM-narrate, which Prism's Auto-Insight
+Engine already does but `anomaly.py` still doesn't; (2) no surveyed
+competitor (Hex, Deepnote, Julius, ChatGPT ADA) ships a standalone
+exportable data-quality-scorecard artifact, and Prism already has the
+underlying weighted health-score math (`get_health_breakdown`) sitting
+unexported; (3) no new ecosystem dependency justified this cycle.
+
+**Selected features (2, this run):**
+1. **Anomaly Narration** (`modules/anomaly.py` — `narrate_anomalies()`,
+   `anomaly_fingerprint()`) — this run's agentic-theme pick. Extends the
+   existing IsolationForest flagging with a Gemini narration pass over the
+   *aggregated reason set* (never raw row values — PII-safe by
+   construction, since `_reason_for_row()` only ever emits
+   "`column` is `Nx` above/below median" strings). Result is cached in
+   `st.session_state` keyed by a fingerprint of (dataset shape, flagged
+   count, reason multiset) so re-opening the Anomaly Detection expander on
+   unchanged data never re-calls Gemini — directly satisfies the routine's
+   "design for rate-limit handling and caching" guardrail. Closes the
+   backlog item both 08-07 runs left open ("Anomaly narration").
+2. **Data Quality Scorecard** (`modules/quality_scorecard.py`) —
+   deterministic (no Gemini call at all). Turns the existing weighted
+   Data Health Score (`data_engine.get_health_breakdown`) into a
+   standalone, letter-graded (A-F) per-column scorecard with prioritized
+   remediation bullets, downloadable as self-contained HTML or Markdown —
+   the missing "exportable" half of the 08-07 Run 2 backlog item
+   ("Data Quality Score with Exportable Scorecard"). Distinct from the
+   existing `report.py` Auto-EDA report (that's a kitchen-sink dump of
+   quality + stats + charts; this is a focused, single-purpose,
+   portfolio-shareable deliverable — the two intentionally don't merge).
+
+**Atlas copilot track:** not used this run (no copilot-track feature
+selected) — consistent with the guardrail that it's optional per run, not
+mandatory.
+
+**Bundled small fixes (audit-sourced, not counted against the 2-3 feature
+budget):** mobile Atlas panel responsive CSS (theme.py — the confirmed
+still-open bug from both prior runs); `cffi>=1.16` pin in
+requirements-dev.txt.
+
+**Not built (backlog, carried forward + refined):**
+- Feature Selection Engine (mutual info/RFE/L1) for ML Lab — still open,
+  medium risk (touches ML Lab's model-fit flow), good next-run candidate.
+- Advanced outlier detection (LOF, DBSCAN) beyond IQR/IsolationForest.
+- `google-generativeai` -> `google-genai` migration — still flagged as
+  needing its own dedicated run with full regression coverage across
+  `ai_analyst.py`, `auto_analyst.py`, `atlas.py`, `auto_insights.py`, and
+  now also the new `anomaly.py` narration call site.
+- polars/DuckDB large-file path — still architecture-adjacent, still open.
+- Consolidate `eval/*.py` into `pytest`-discoverable tests (or add a
+  documented `make test` / README target that runs both) so `pytest` alone
+  isn't silently under-reporting coverage.
+- Atlas full JARVIS voice HUD — still untouched; next run is a reasonable
+  candidate to spend its one copilot-track slot here if 2-3 solid
+  non-copilot features aren't found first.
