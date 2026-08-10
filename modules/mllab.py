@@ -436,3 +436,183 @@ def shap_for_display(shap_values):
         class_idx = int(np.abs(values).mean(axis=(0, 1)).argmax())
         return shap_values[:, :, class_idx]
     return shap_values
+
+
+# ==========================================================================
+# 13. Feature Selection Engine
+# ==========================================================================
+
+# Same self-verifying-ensemble pattern already used for anomaly detection
+# (see `modules.anomaly.find_anomalies_ensemble`) applied to feature
+# selection: cross-check three methods built on different assumptions
+# instead of trusting any single one's ranking.
+FEATURE_SELECTION_MIN_FEATURES = 2
+
+
+def run_feature_selection(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    target_col: str,
+    task_type: str,
+    top_k: Optional[int] = None,
+) -> dict:
+    """Cross-check three independent feature-selection methods over the same
+    preprocessed feature matrix:
+
+    - **Mutual Information** — a nonlinear, model-free measure of
+      dependency between each feature and the target (catches
+      relationships a linear method would miss).
+    - **L1-regularized linear model** (Lasso for regression,
+      L1-penalized Logistic Regression for classification) — sparsity-
+      inducing coefficients that zero out weak features outright.
+    - **Recursive Feature Elimination** with a Random Forest estimator —
+      a wrapper method that accounts for feature interactions a filter
+      method can't see.
+
+    Each method ranks every (preprocessed) feature; a feature's
+    `consensus_votes` (0-3) counts how many methods place it in their own
+    top `top_k`, and `consensus_rank` is the mean of the three individual
+    ranks — so a feature no single method rates highly still gets a fair
+    composite score if the others agree on it.
+
+    Returns {
+      "task_type", "top_k", "n_features",
+      "ranking": DataFrame indexed by preprocessed feature name (one-hot
+        columns are expanded, same as `run_baseline_models`'
+        `feature_importances`) with columns [mutual_info,
+        mutual_info_rank, l1_coef_abs, l1_rank, rfe_selected, rfe_rank,
+        consensus_votes, consensus_rank], sorted by consensus_votes desc
+        then consensus_rank asc,
+      "recommended_features": list[str],  # top_k feature names by that sort
+    }
+    or {"error": ...} if there aren't enough usable features.
+    """
+    if len(feature_cols) < FEATURE_SELECTION_MIN_FEATURES:
+        return {"error": f"Feature Selection needs at least {FEATURE_SELECTION_MIN_FEATURES} feature columns."}
+
+    from scipy import sparse
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.feature_selection import RFE, mutual_info_classif, mutual_info_regression
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import Lasso, LassoCV, LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    data = df[feature_cols + [target_col]].dropna(subset=[target_col])
+    X = data[feature_cols]
+    y = data[target_col]
+
+    categorical_features = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+    numeric_features = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]), numeric_features),
+            (
+                "cat",
+                Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("encode", OneHotEncoder(handle_unknown="ignore"))]),
+                categorical_features,
+            ),
+        ],
+        remainder="drop",
+    )
+    X_transformed = preprocessor.fit_transform(X)
+    # Mutual info / Lasso / RFE all need a dense matrix for consistent
+    # behavior across sklearn versions — same reasoning as SHAP's
+    # densify-before-explaining step above; these feature sets are small
+    # (Feature Selection is run over a hand-picked subset, not the raw
+    # dataset), so the memory cost is negligible.
+    if sparse.issparse(X_transformed):
+        X_transformed = X_transformed.toarray()
+    feature_names = [name.split("__", 1)[-1] for name in preprocessor.get_feature_names_out()]
+    n_features = len(feature_names)
+
+    if n_features < FEATURE_SELECTION_MIN_FEATURES:
+        return {"error": "Fewer than 2 usable features after preprocessing (check for all-null columns)."}
+
+    k = top_k if top_k is not None else max(1, n_features // 2)
+    k = min(k, n_features)
+
+    y_values = y.to_numpy()
+    n_samples = X_transformed.shape[0]
+
+    # --- Mutual Information -------------------------------------------
+    mi_func = mutual_info_classif if task_type == "classification" else mutual_info_regression
+    try:
+        mi_scores = mi_func(X_transformed, y_values, random_state=42)
+    except ValueError:
+        mi_scores = np.zeros(n_features)
+    mi_series = pd.Series(mi_scores, index=feature_names)
+    mi_rank = mi_series.rank(ascending=False, method="min")
+
+    # --- L1-regularized linear model -----------------------------------
+    if task_type == "classification":
+        l1_model = LogisticRegression(penalty="l1", solver="liblinear", C=1.0, max_iter=2000)
+        l1_model.fit(X_transformed, y_values)
+        coefs = np.abs(l1_model.coef_)
+        l1_scores = coefs.max(axis=0) if coefs.ndim > 1 else coefs
+    else:
+        cv_folds = min(5, max(2, n_samples // 5))
+        try:
+            l1_model = LassoCV(cv=cv_folds, random_state=42, max_iter=10000)
+            l1_model.fit(X_transformed, y_values)
+        except ValueError:
+            # too few samples for the requested CV split — fall back to a
+            # single fixed-alpha fit rather than failing the whole run
+            l1_model = Lasso(alpha=0.01, max_iter=10000)
+            l1_model.fit(X_transformed, y_values)
+        l1_scores = np.abs(l1_model.coef_)
+    l1_series = pd.Series(l1_scores, index=feature_names)
+    l1_rank = l1_series.rank(ascending=False, method="min")
+
+    # --- Recursive Feature Elimination (Random Forest) ------------------
+    rf_estimator = (
+        RandomForestClassifier(n_estimators=100, random_state=42)
+        if task_type == "classification"
+        else RandomForestRegressor(n_estimators=100, random_state=42)
+    )
+    rfe = RFE(estimator=rf_estimator, n_features_to_select=k)
+    rfe.fit(X_transformed, y_values)
+    rfe_selected = pd.Series(rfe.support_, index=feature_names)
+    rfe_rank = pd.Series(rfe.ranking_, index=feature_names)
+
+    ranking = pd.DataFrame(
+        {
+            "mutual_info": mi_series,
+            "mutual_info_rank": mi_rank,
+            "l1_coef_abs": l1_series,
+            "l1_rank": l1_rank,
+            "rfe_selected": rfe_selected,
+            "rfe_rank": rfe_rank,
+        }
+    )
+    ranking["consensus_votes"] = (
+        (ranking["mutual_info_rank"] <= k).astype(int)
+        + (ranking["l1_rank"] <= k).astype(int)
+        + ranking["rfe_selected"].astype(int)
+    )
+    ranking["consensus_rank"] = ranking[["mutual_info_rank", "l1_rank", "rfe_rank"]].mean(axis=1)
+    ranking = ranking.sort_values(["consensus_votes", "consensus_rank"], ascending=[False, True])
+
+    return {
+        "task_type": task_type,
+        "top_k": k,
+        "n_features": n_features,
+        "ranking": ranking,
+        "recommended_features": ranking.head(k).index.tolist(),
+    }
+
+
+def build_feature_selection_chart(ranking: pd.DataFrame, top_n: int = 15) -> go.Figure:
+    """Horizontal bar chart of consensus votes (0-3) for the top-ranked features."""
+    top = ranking.sort_values("consensus_rank", ascending=True).head(top_n)
+    top = top.sort_values("consensus_votes", ascending=True)
+    fig = px.bar(
+        x=top["consensus_votes"], y=top.index, orientation="h",
+        labels={"x": "Methods agreeing (of 3)", "y": "Feature"},
+        title="Feature Selection Consensus (Mutual Info + L1 + RFE)",
+        range_x=[0, 3],
+    )
+    fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+    return fig

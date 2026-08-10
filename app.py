@@ -27,9 +27,12 @@ from modules import (
     anomaly,
     atlas,
     auto_analyst,
+    auto_insights,
     autocleaner,
+    causal_inference,
     cleaning,
     clustering,
+    confounder_detection,
     dashboard_builder,
     data_dictionary,
     data_engine,
@@ -41,12 +44,15 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_sweep,
     india,
+    insight_verifier,
     join_engine,
     mllab,
     pii_detector,
     profiling,
     recipes,
+    regression_diagnostics,
     report,
     report_writer,
     session_io,
@@ -84,6 +90,14 @@ _DEFAULTS = {
     "chat_history": [],  # AI Analyst chat transcript
     "key_insights": [],  # last "Generate Key Insights" output — list of up to 5 bullet strings
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
+    "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
+    "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
+    "confounder_scan": None,  # confounder_detection.auto_scan_for_confounding() result (run on upload)
+    "confounder_narrations": {},  # (x, y, confounder) -> cached Gemini narration text, avoids re-spending a call per rerun
+    "causal_result": None,  # last causal_inference.estimate_causal_effect() result dict (kept across reruns so the panel doesn't collapse)
+    "causal_narration": None,  # cached Gemini narration of causal_result, avoids re-spending a call per rerun
+    "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
+    "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -123,13 +137,23 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
+    "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "anomaly_methods_summary": None,  # per-method flagged counts from the last ensemble "Find Anomalies" run, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
+    "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
+    "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
+    "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
+    "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
+    "stl_decomp_error": None,  # error from the last decomposition attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -167,7 +191,9 @@ _DEFAULTS = {
     "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
     "pii_strict_mode": False,  # Indian PII Vault: withhold flagged columns' sample values from every LLM call
     "india_mode": True,  # sidebar toggle — FY labels, Indian number formatting, day-first dates, festival markers
-    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
+    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking" | "alert"
+    "atlas_alert_count": 0,  # how many high-severity Auto-Insights triggered the current "alert" orb state
+    "atlas_alert_fresh": False,  # one-run grace flag — see atlas.clear_alert()'s docstring
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
     "atlas_greeted": False,  # plays the on-load greeting exactly once per session
     "story_mode_active": False,  # True while the Story Mode overlay is showing (Atlas-narrated)
@@ -182,6 +208,7 @@ for key, default_value in _DEFAULTS.items():
 
 theme.apply_custom_theme(st.session_state.theme_mode)
 theme.apply_plotly_theme(st.session_state.theme_mode)
+theme.sync_native_theme(st.session_state.theme_mode)
 
 UNDO_STACK_CAP = 10
 
@@ -266,8 +293,14 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
     st.session_state.stats_lab_result = None
+    st.session_state.hypothesis_sweep_result = None
+    st.session_state.hypothesis_sweep_narration = None
+    st.session_state.hypothesis_sweep_narration_fingerprint = None
+    st.session_state.mllab_feature_selection_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
+    st.session_state.stl_decomp_result = None
+    st.session_state.stl_decomp_error = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -285,9 +318,22 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.regression_diag_result = None
+    st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
+    st.session_state.auto_insights = auto_insights.generate_insights(working_df, st.session_state.column_types)
+    st.session_state.auto_insights_narration = None
+    st.session_state.confounder_scan = confounder_detection.auto_scan_for_confounding(working_df, st.session_state.column_types)
+    st.session_state.confounder_narrations = {}
+    st.session_state.causal_result = None
+    st.session_state.causal_narration = None
+    st.session_state.anomaly_result_df = None
+    st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
+    st.session_state.anomaly_narration_fingerprint = None
+    st.session_state.anomaly_methods_summary = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -421,6 +467,9 @@ def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tupl
 
     with st.spinner(ui.get_loading_message()):
         findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
+
+    verification = insight_verifier.verify_findings(df_, column_types_, findings) if findings else []
+    st.session_state.auto_analyst_verification = verification
 
     return step_outcomes, findings, findings_error
 
@@ -596,6 +645,13 @@ def announce_ambient_insights(df, quality: dict) -> None:
             "or just tell me what you want to know."
         )
     atlas.say_only(summary)
+
+    # JARVIS-copilot proactive alert: light the orb up unprompted if the
+    # Auto-Insight scan (already computed by set_active_dataset(), no extra
+    # Gemini call here) found anything high-severity. Runs after say_only()
+    # above so it's the state the orb actually renders in this rerun.
+    n_high = sum(1 for ins in (st.session_state.auto_insights or []) if ins["severity"] == "high")
+    atlas.raise_alert(n_high)
 
 
 def _run_auto_clean(target=None) -> None:
@@ -1337,6 +1393,7 @@ else:
 # --------------------------------------------------------------------------
 if not st.session_state.demo_mode_running and not st.session_state.story_mode_active:
     with st.container(key="atlas_side_panel"):
+        atlas.inject_orb_css()
         st.markdown(
             f'<div class="atlas-panel-hd">'
             f'<div class="atlas-orb-sm atlas-orb {st.session_state.get("atlas_orb_state", "idle")}"></div>'
@@ -1392,8 +1449,19 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
         if sent and panel_text:
             _atlas_utterance = panel_text
 
+    # Reserve room for the fixed-position Atlas side panel (328px wide, see
+    # .st-key-atlas_side_panel in modules/theme.py) so main content doesn't
+    # render underneath it. Scoped to the same >768px breakpoint the panel's
+    # own CSS uses to switch from "fixed right rail" to "stacks below main
+    # content" — this rule used to apply unconditionally (`!important`, no
+    # media query), which meant on a ~390px phone viewport it reserved 352px
+    # of a 390px-wide screen for a panel that, even after being fixed to
+    # stack inline, was still being squeezed into the ~22px left over. Found
+    # via layout inspection while re-verifying the mobile Atlas-panel fix
+    # this run — the panel's own CSS was only half the bug.
     st.markdown(
-        '<style>.block-container{padding-right:352px !important;}</style>', unsafe_allow_html=True
+        '<style>@media (min-width: 769px) { .block-container{padding-right:352px !important;} }</style>',
+        unsafe_allow_html=True,
     )
 
 # Every keyed widget for whichever branch above just ran (segmented_control,
@@ -1430,6 +1498,173 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    # ------------------------------------------------------------------
+    # Auto-Insight Engine — proactive insights surfaced on upload
+    # ------------------------------------------------------------------
+    # The user has now actually seen the findings that may have triggered
+    # Atlas's proactive alert HUD (announce_ambient_insights() -> raise_alert())
+    # — clear it so the orb doesn't keep pulsing for something already read.
+    atlas.clear_alert()
+    if st.session_state.auto_insights:
+        insights_list = st.session_state.auto_insights
+        n_high = sum(1 for i in insights_list if i["severity"] == "high")
+        n_med = sum(1 for i in insights_list if i["severity"] == "medium")
+        n_low = sum(1 for i in insights_list if i["severity"] == "low")
+        severity_summary = ", ".join(
+            f"{c} {l}" for c, l in [(n_high, "critical"), (n_med, "notable"), (n_low, "minor")] if c
+        )
+        with st.container(border=True):
+            st.markdown(f"#### 🔍 Auto-Insights  •  {len(insights_list)} finding{'s' if len(insights_list) != 1 else ''}  ({severity_summary})")
+            if st.session_state.auto_insights_narration:
+                st.info(st.session_state.auto_insights_narration)
+            elif st.button("✨ Generate Executive Summary", key="auto_insights_narrate", help="Ask Gemini to narrate these findings"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is summarizing the findings…"):
+                    narration, narr_error = auto_insights.narrate_insights(model, insights_list)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.auto_insights_narration = narration
+                    st.rerun()
+            for ins in insights_list:
+                icon = auto_insights.severity_icon(ins["severity"])
+                cat = auto_insights.category_label(ins["category"])
+                st.markdown(f"{icon} **{cat}** — {ins['message']}")
+
+    # ------------------------------------------------------------------
+    # Confounder Check — the agentic follow-up to a strong correlation:
+    # "...but does it hold up once you control for a third variable?" Runs
+    # automatically alongside Auto-Insights (deterministic, no Gemini call
+    # for detection itself — see modules/confounder_detection.py), only
+    # renders when it actually found something worth a second look.
+    # ------------------------------------------------------------------
+    if st.session_state.confounder_scan:
+        with st.container(border=True):
+            n_pairs = len(st.session_state.confounder_scan)
+            st.markdown(f"#### 🧭 Confounder Check  •  {n_pairs} correlation{'s' if n_pairs != 1 else ''} worth a second look")
+            st.caption("A strong correlation can flip sign or vanish once you control for a third variable (Simpson's Paradox). These held up worse than they looked at first glance.")
+            for scan in st.session_state.confounder_scan:
+                x_col, y_col = scan["x"], scan["y"]
+                for finding in scan["findings"]:
+                    verdict = finding["verdict"]
+                    badge = "🔴 Paradox" if verdict == "paradox" else "🟡 Confounded"
+                    label = (
+                        f"{badge} — **{x_col}** vs **{y_col}**, controlling for **{finding['confounder']}**"
+                    )
+                    with st.expander(label, expanded=False):
+                        st.caption(
+                            f"Pooled correlation: r = {finding['overall_r']:.2f}  •  "
+                            f"Adjusted: r = {finding['adjusted_r']:.2f}"
+                        )
+                        if finding["type"] == "categorical":
+                            group_df = pd.DataFrame(finding["detail"])[["group", "r", "n"]]
+                            group_df.columns = [finding["confounder"], "r within group", "n"]
+                            st.dataframe(group_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.caption(f"n = {finding['detail']['n']}")
+                        cache_key = (x_col, y_col, finding["confounder"])
+                        cached = st.session_state.confounder_narrations.get(cache_key)
+                        if cached:
+                            st.info(cached)
+                        elif st.button("✨ Explain this", key=f"confounder_narrate_{x_col}_{y_col}_{finding['confounder']}"):
+                            model = ai_analyst.get_model()
+                            with st.spinner("Gemini is interpreting this…"):
+                                narration, narr_error = confounder_detection.narrate_confounder_finding(
+                                    model, x_col, y_col, finding
+                                )
+                            if narr_error:
+                                st.warning(narr_error)
+                            else:
+                                st.session_state.confounder_narrations[cache_key] = narration
+                                st.rerun()
+
+    # ------------------------------------------------------------------
+    # Causal Effect Estimator — the next agentic step after Confounder
+    # Check: that panel diagnoses "this correlation might be confounded";
+    # this one treats it, via propensity score matching (see
+    # modules/causal_inference.py). Only rendered when the dataset has at
+    # least one binary column to treat as "treatment" and enough numeric
+    # columns to serve as an outcome plus covariates — otherwise there's
+    # nothing meaningful to offer, same "stay silent rather than force it"
+    # convention as Confounder Check and Auto-Insights.
+    # ------------------------------------------------------------------
+    _causal_binary_cols = [
+        c for c, t in st.session_state.column_types.items()
+        if t in ("categorical", "text", "boolean") and c in working_df.columns and working_df[c].nunique(dropna=True) == 2
+    ]
+    _causal_numeric_cols = [c for c, t in st.session_state.column_types.items() if t == "numeric" and c in working_df.columns]
+    if _causal_binary_cols and len(_causal_numeric_cols) >= 2:
+        with st.container(border=True):
+            st.markdown("#### 🔬 Causal Effect Estimator")
+            st.caption(
+                "A correlation says two things move together. This estimates what actually happens to the "
+                "outcome *because of* the treatment — matching each treated row to its most similar untreated "
+                "row (propensity score matching) before comparing outcomes, so the estimate isn't just picking "
+                "up a confound."
+            )
+            c1, c2, c3 = st.columns(3)
+            treatment_col = c1.selectbox("Treatment column", _causal_binary_cols, key="causal_treatment_col")
+            treated_options = sorted(working_df[treatment_col].dropna().unique().tolist(), key=str)
+            treated_value = c2.selectbox("Treated = ", treated_options, key="causal_treated_value")
+            outcome_options = [c for c in _causal_numeric_cols if c != treatment_col]
+            outcome_col = c3.selectbox("Outcome column", outcome_options, key="causal_outcome_col")
+            default_covariates = [c for c in outcome_options if c != outcome_col]
+            covariates = st.multiselect(
+                "Adjust for (covariates)", default_covariates, default=default_covariates, key="causal_covariates"
+            )
+
+            if st.button("Estimate causal effect", key="causal_estimate_btn"):
+                if not covariates:
+                    st.session_state.causal_result = {"ok": False, "error": "Pick at least one covariate to adjust for."}
+                else:
+                    with st.spinner("Matching treated and control units…"):
+                        st.session_state.causal_result = causal_inference.estimate_causal_effect(
+                            working_df, treatment_col, treated_value, outcome_col, covariates=covariates
+                        )
+                st.session_state.causal_narration = None
+
+            result = st.session_state.causal_result
+            if result is not None:
+                if not result["ok"]:
+                    st.warning(result["error"])
+                else:
+                    m1, m2 = st.columns(2)
+                    m1.metric(
+                        f"ATT on {result['outcome_col']}",
+                        f"{result['att']:.3g}",
+                        help="Average Treatment effect on the Treated — the mean outcome difference within matched pairs.",
+                    )
+                    m2.metric("Match rate", f"{result['match_rate']:.0%}")
+                    st.caption(
+                        f"95% CI: [{result['ci_low']:.3g}, {result['ci_high']:.3g}]  •  "
+                        f"Matched pairs: {result['n_matched']} of {result['n_treated']} treated units"
+                    )
+
+                    for w in result["warnings"]:
+                        st.warning(w)
+
+                    balance_df = pd.DataFrame(
+                        {
+                            "covariate": [b["covariate"] for b in result["balance_before"]],
+                            "SMD before matching": [b["smd"] for b in result["balance_before"]],
+                            "SMD after matching": [b["smd"] for b in result["balance_after"]],
+                        }
+                    )
+                    st.caption("Covariate balance — |SMD| under 0.1 is conventionally considered well-matched.")
+                    st.dataframe(balance_df, use_container_width=True, hide_index=True)
+
+                    if st.session_state.causal_narration:
+                        st.info(st.session_state.causal_narration)
+                    elif st.button("✨ Explain this", key="causal_narrate_btn"):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is interpreting this…"):
+                            narration, narr_error = causal_inference.narrate_causal_effect(model, result)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.causal_narration = narration
+                            st.rerun()
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
@@ -1665,28 +1900,83 @@ elif st.session_state.active_section == "Overview":
         if not anomaly.is_available():
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
+            ensemble_mode = st.checkbox(
+                "Ensemble mode — cross-check with LOF + DBSCAN",
+                key="anomaly_ensemble_mode",
+                help=(
+                    "Instead of trusting one model, run Isolation Forest (global isolation), "
+                    "LOF (local density), and DBSCAN (density-based clustering) and show how much "
+                    "they agree. Needs at least 2 numeric columns and 20 rows."
+                ),
+            )
             if st.button("Find Anomalies", key="find_anomalies_btn"):
                 with st.spinner(ui.get_loading_message()):
-                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                    if ensemble_mode:
+                        flagged, methods_summary, anomaly_err = anomaly.find_anomalies_ensemble(df, column_types)
+                        st.session_state.anomaly_methods_summary = methods_summary
+                    else:
+                        flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
+                        st.session_state.anomaly_methods_summary = None
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None
+                st.session_state.anomaly_narration_fingerprint = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
             elif st.session_state.anomaly_result_df is not None:
                 flagged = st.session_state.anomaly_result_df
+                methods_summary = st.session_state.get("anomaly_methods_summary")
                 if flagged.empty:
                     st.info("No anomalies detected.")
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
+                    if methods_summary:
+                        summary_cols = st.columns(len(methods_summary))
+                        for col, (method, stats) in zip(summary_cols, methods_summary.items()):
+                            col.metric(method.replace("_", " ").title(), f"{stats['flagged_count']}", f"{stats['pct']}%")
+                        full_agreement = int((flagged["consensus_count"] == len(anomaly.ENSEMBLE_METHODS)).sum())
+                        st.caption(
+                            f"🔗 {full_agreement} of {len(flagged)} row(s) flagged by **all 3 methods** — "
+                            "the strongest-consensus anomalies. Table below is sorted by agreement."
+                        )
                     st.dataframe(flagged, use_container_width=True)
+
+                    # AI narration — cached per fingerprint of this exact flagged
+                    # set so re-viewing it (tab switch, etc.) doesn't re-spend a
+                    # Gemini call; only a genuinely different detection result
+                    # invalidates the cache.
+                    current_fp = anomaly.fingerprint_flagged(flagged)
+                    if (
+                        st.session_state.anomaly_narration
+                        and st.session_state.anomaly_narration_fingerprint == current_fp
+                    ):
+                        st.info(f"🤖 {st.session_state.anomaly_narration}")
+                    elif st.button(
+                        "✨ Explain these anomalies with AI",
+                        key="narrate_anomalies_btn",
+                        help="Ask Gemini to explain the pattern and suggest a next action",
+                    ):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is reviewing the flagged rows…"):
+                            if methods_summary:
+                                narration, narr_error = anomaly.narrate_ensemble_disagreement(model, flagged, methods_summary)
+                            else:
+                                narration, narr_error = anomaly.narrate_anomalies(model, flagged)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.anomaly_narration = narration
+                            st.session_state.anomaly_narration_fingerprint = current_fp
+                            st.rerun()
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
                         st.session_state.working_df = new_df
                         st.session_state.column_types = data_engine.detect_column_types(new_df)
                         log_step(
-                            f"Excluded {len(flagged)} anomalous row(s) (IsolationForest)",
+                            f"Excluded {len(flagged)} anomalous row(s) ({'ensemble' if methods_summary else 'IsolationForest'})",
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
@@ -3064,12 +3354,40 @@ elif st.session_state.active_section == "Auto Analyst":
             if st.session_state.auto_analyst_findings_error:
                 st.error(st.session_state.auto_analyst_findings_error)
             elif st.session_state.auto_analyst_findings:
+                verification = st.session_state.auto_analyst_verification
+                confirmed_count = sum(1 for v in verification if v.get("status") == "confirmed")
+                flagged_count = sum(1 for v in verification if v.get("status") == "flagged")
+                if confirmed_count or flagged_count:
+                    st.caption(
+                        f"🔎 Fact-checked against the data: {confirmed_count} finding(s) with confirmed "
+                        f"figures" + (f", {flagged_count} with an unconfirmed number — verify before citing."
+                                      if flagged_count else ".")
+                    )
+
+                _BADGE = {
+                    "confirmed": '<span class="prism-badge b-pass" title="Every number in this finding matches a value recomputed directly from the data.">✓ verified</span>',
+                    "flagged": '<span class="prism-badge b-fail" title="At least one number here could not be matched to a recomputed value — double-check before citing.">⚠ unconfirmed</span>',
+                    "unverifiable": "",
+                }
                 cards_html = "".join(
-                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d} '
+                    f'{_BADGE.get(verification[i]["status"], "") if i < len(verification) else ""}</div>'
                     f'<div class="insight-text">{finding}</div></div>'
                     for i, finding in enumerate(st.session_state.auto_analyst_findings)
                 )
                 st.markdown(cards_html, unsafe_allow_html=True)
+
+                hypothesis = auto_analyst.suggest_followup_hypothesis(df, column_types)
+                if hypothesis:
+                    st.info(f"🔬 **Suggested next step:** {hypothesis['reason']}")
+                    if st.button(
+                        f"Test '{hypothesis['col_a']}' vs '{hypothesis['col_b']}' in Stats Lab",
+                        use_container_width=True, key="jump_to_stats_lab_hypothesis",
+                    ):
+                        st.session_state.stats_col_a = hypothesis["col_a"]
+                        st.session_state.stats_col_b = hypothesis["col_b"]
+                        st.session_state.pending_active_section = "Stats Lab"
+                        st.rerun()
 
                 if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
                     # Story Mode (modules/story_mode.py) narrates
@@ -3184,6 +3502,86 @@ elif st.session_state.active_section == "Stats Lab":
                     for warning_msg in stats_lab.normality_warnings(result):
                         st.warning(warning_msg)
 
+        st.divider()
+        st.markdown("#### 🔎 Hypothesis Sweep — automated multi-test scan")
+        st.caption(
+            "Runs every viable pairwise test across the dataset automatically (instead of one "
+            "pair at a time) and corrects for the multiple-comparisons problem with "
+            "Benjamini-Hochberg false-discovery-rate correction, so the findings that survive "
+            "are statistically defensible, not noise."
+        )
+
+        if st.button("Run Hypothesis Sweep", key="run_hypothesis_sweep_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.hypothesis_sweep_result = hypothesis_sweep.sweep_hypotheses(df, column_types)
+            st.session_state.hypothesis_sweep_narration = None
+            st.session_state.hypothesis_sweep_narration_fingerprint = None
+
+        sweep_result = st.session_state.hypothesis_sweep_result
+        if sweep_result is None:
+            ui.render_empty_state(
+                "🔎", "No sweep run yet",
+                'Click "Run Hypothesis Sweep" to automatically test every column pair.',
+            )
+        elif not sweep_result["tested"]:
+            st.info("No column pairs were viable to test in this dataset.")
+        else:
+            sw1, sw2, sw3 = st.columns(3)
+            sw1.metric("Tests run", sweep_result["n_tests_run"])
+            sw2.metric("Significant after FDR correction", sweep_result["n_significant"])
+            sw3.metric("Pairs skipped", sweep_result["n_pairs_skipped"])
+
+            significant_rows = [r for r in sweep_result["tested"] if r["significant"]]
+            if not significant_rows:
+                st.info(
+                    f"None of the {sweep_result['n_tests_run']} test(s) run stayed significant "
+                    "after false-discovery-rate correction — no reliable relationships found."
+                )
+            else:
+                sweep_df = pd.DataFrame(
+                    [
+                        {
+                            "Column A": r["col_a"],
+                            "Column B": r["col_b"],
+                            "Test": r["test_label"],
+                            "Effect size": f"{r['effect_size']:.3f} ({r['effect_size_label']})",
+                            "p (raw)": f"{r['p_value']:.4g}",
+                            "p (FDR-adjusted)": f"{r['p_adj']:.4g}",
+                            "n": r["n"],
+                        }
+                        for r in significant_rows
+                    ]
+                )
+                st.dataframe(sweep_df, use_container_width=True, hide_index=True)
+
+                sweep_chart = hypothesis_sweep.build_sweep_chart(sweep_result)
+                if sweep_chart is not None:
+                    st.plotly_chart(sweep_chart, use_container_width=True)
+
+                # AI narration — cached per fingerprint of this exact sweep result,
+                # same pattern as anomaly narration: only a genuinely different
+                # sweep result invalidates the cache.
+                current_sweep_fp = hypothesis_sweep.fingerprint_sweep(sweep_result)
+                if (
+                    st.session_state.hypothesis_sweep_narration
+                    and st.session_state.hypothesis_sweep_narration_fingerprint == current_sweep_fp
+                ):
+                    st.info(f"🤖 {st.session_state.hypothesis_sweep_narration}")
+                elif st.button(
+                    "✨ Explain these findings with AI",
+                    key="narrate_hypothesis_sweep_btn",
+                    help="Ask Gemini to interpret the significant relationships and suggest a next step",
+                ):
+                    sweep_model = ai_analyst.get_model()
+                    with st.spinner("Gemini is reviewing the sweep results…"):
+                        narration, narr_error = hypothesis_sweep.narrate_sweep(sweep_model, sweep_result)
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.hypothesis_sweep_narration = narration
+                        st.session_state.hypothesis_sweep_narration_fingerprint = current_sweep_fp
+                        st.rerun()
+
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.
 # Pick a datetime + numeric column, get a statsmodels forecast (Exponential
@@ -3260,6 +3658,44 @@ elif st.session_state.active_section == "Forecasting":
                 mime="text/csv",
                 use_container_width=True,
             )
+
+        st.divider()
+        st.markdown("#### Time Series Decomposition (STL)")
+        st.caption(
+            "Splits the series into trend, seasonal, and residual components — useful for "
+            "understanding *why* a series moves the way it does before (or instead of) forecasting it."
+        )
+        if st.button("Run Decomposition", key="stl_decompose_btn", use_container_width=True):
+            decomp_series, decomp_freq, decomp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if decomp_prep_error:
+                st.session_state.stl_decomp_result = None
+                st.session_state.stl_decomp_error = decomp_prep_error
+            else:
+                ok, reason = forecasting.can_decompose(decomp_series, decomp_freq)
+                if not ok:
+                    st.session_state.stl_decomp_result = None
+                    st.session_state.stl_decomp_error = reason
+                else:
+                    with st.spinner(ui.get_loading_message()):
+                        decomp_outcome = forecasting.decompose_series(decomp_series, decomp_freq)
+                    if decomp_outcome.get("error"):
+                        st.session_state.stl_decomp_result = None
+                        st.session_state.stl_decomp_error = decomp_outcome["error"]
+                    else:
+                        st.session_state.stl_decomp_result = decomp_outcome
+                        st.session_state.stl_decomp_error = None
+
+        if st.session_state.stl_decomp_error:
+            st.error(st.session_state.stl_decomp_error)
+        elif st.session_state.stl_decomp_result is None:
+            ui.render_empty_state(
+                "📈", "No decomposition yet", 'Click "Run Decomposition" to break the series into trend/seasonal/residual.'
+            )
+        else:
+            decomp_result = st.session_state.stl_decomp_result
+            st.markdown(forecasting.decomposition_verdict(decomp_result))
+            decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
+            st.plotly_chart(decomp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
 # Clustering tab — KMeans on standardized numeric columns with an
@@ -3724,6 +4160,52 @@ elif st.session_state.active_section == "ML Lab":
                 mllab_use_smote = st.checkbox("Apply SMOTE resampling to the training set", key="mllab_use_smote")
                 st.caption(mllab.SMOTE_TEST_SET_NOTE)
 
+        st.divider()
+        st.markdown("#### 🧭 Feature Selection Engine")
+        st.caption(
+            "Cross-checks Mutual Information, an L1-regularized linear model, and Recursive "
+            "Feature Elimination (Random Forest) against each other — the same self-verifying-"
+            "ensemble pattern used for anomaly detection, applied here to picking features. A "
+            "feature's consensus score is how many of the 3 methods agree it matters."
+        )
+        if len(mllab_selected_features) < mllab.FEATURE_SELECTION_MIN_FEATURES:
+            st.info(f"Pick at least {mllab.FEATURE_SELECTION_MIN_FEATURES} feature columns above to run selection.")
+        elif st.button("Run Feature Selection", key="run_feature_selection_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.mllab_feature_selection_result = mllab.run_feature_selection(
+                    df, mllab_selected_features, mllab_target_col, mllab_task_type
+                )
+
+        fs_result = st.session_state.mllab_feature_selection_result
+        if fs_result is None:
+            ui.render_empty_state(
+                "🧭", "No selection run yet",
+                'Click "Run Feature Selection" to rank the chosen feature columns.',
+            )
+        elif fs_result.get("error"):
+            st.error(fs_result["error"])
+        else:
+            st.caption(
+                f"{fs_result['n_features']} preprocessed feature(s) ranked "
+                f"(categorical columns are one-hot expanded). Top {fs_result['top_k']} recommended below."
+            )
+            st.success(f"**Recommended features:** {', '.join(fs_result['recommended_features'])}")
+
+            display_ranking = fs_result["ranking"].copy()
+            display_ranking.index.name = "Feature"
+            display_ranking = display_ranking.rename(
+                columns={
+                    "mutual_info": "Mutual Info",
+                    "l1_coef_abs": "|L1 coef|",
+                    "rfe_selected": "RFE selected",
+                    "consensus_votes": "Consensus (/3)",
+                    "consensus_rank": "Avg. rank",
+                }
+            )[["Mutual Info", "|L1 coef|", "RFE selected", "Consensus (/3)", "Avg. rank"]].round(4)
+            st.dataframe(display_ranking, use_container_width=True)
+
+            st.plotly_chart(mllab.build_feature_selection_chart(fs_result["ranking"]), use_container_width=True)
+
         if not mllab_selected_features:
             st.info("Pick at least one feature column.")
         elif st.button("Run Baseline Models", type="primary", use_container_width=True):
@@ -3826,5 +4308,67 @@ elif st.session_state.active_section == "ML Lab":
                 shap.plots.waterfall(display_values[0], max_display=mllab.SHAP_MAX_DISPLAY, show=False)
                 st.pyplot(fig_waterfall, use_container_width=True)
                 plt.close(fig_waterfall)
+
+            if baseline_result["task_type"] == "regression":
+                st.divider()
+                st.markdown("#### Regression Diagnostics")
+                st.caption(
+                    "Fits its own OLS model (statsmodels, not the Random Forest above) on the same "
+                    "features/target so the inferential statistics diagnostics need — standard errors, "
+                    "residuals, VIF — are available. Categorical and zero-variance columns are excluded "
+                    "automatically."
+                )
+                if st.button("Run Regression Diagnostics", key="regression_diag_btn", use_container_width=True):
+                    with st.spinner("Fitting OLS and running the diagnostic battery…"):
+                        diag_fit = regression_diagnostics.fit_ols(df, mllab_selected_features, mllab_target_col)
+                        if "error" in diag_fit:
+                            st.session_state.regression_diag_result = None
+                            st.session_state.regression_diag_error = diag_fit["error"]
+                        else:
+                            st.session_state.regression_diag_result = diag_fit
+                            st.session_state.regression_diag_error = None
+
+                if st.session_state.regression_diag_error:
+                    st.error(st.session_state.regression_diag_error)
+                elif st.session_state.regression_diag_result is not None:
+                    diag_fit = st.session_state.regression_diag_result
+
+                    if diag_fit.get("dropped_categorical"):
+                        st.caption(f"Excluded categorical column(s) (encode first for these to count): {', '.join(diag_fit['dropped_categorical'])}")
+                    if diag_fit.get("dropped_zero_variance"):
+                        st.caption(f"Excluded zero-variance column(s): {', '.join(diag_fit['dropped_zero_variance'])}")
+
+                    fit_summary = regression_diagnostics.summarize_fit(diag_fit)
+                    diag_metric_cols = st.columns(4)
+                    diag_metric_cols[0].metric("R²", f"{fit_summary['r_squared']:.3f}")
+                    diag_metric_cols[1].metric("Adj. R²", f"{fit_summary['adj_r_squared']:.3f}")
+                    diag_metric_cols[2].metric("F-stat p-value", f"{fit_summary['f_pvalue']:.4g}")
+                    diag_metric_cols[3].metric("N observations", fit_summary["n_obs"])
+
+                    with st.expander("Coefficient Table", expanded=False):
+                        st.dataframe(regression_diagnostics.coefficient_table(diag_fit), use_container_width=True)
+
+                    diagnostics_run = regression_diagnostics.run_diagnostics(diag_fit)
+                    vif_table = regression_diagnostics.compute_vif(diag_fit)
+
+                    st.markdown("**Diagnostic Verdict**")
+                    for verdict_line in regression_diagnostics.diagnostics_verdict(diagnostics_run, vif_table):
+                        st.markdown(f"- {verdict_line}")
+
+                    diag_plot_col1, diag_plot_col2 = st.columns(2)
+                    with diag_plot_col1:
+                        st.plotly_chart(regression_diagnostics.plot_residuals_vs_fitted(diagnostics_run), use_container_width=True)
+                    with diag_plot_col2:
+                        st.plotly_chart(regression_diagnostics.plot_qq(diagnostics_run), use_container_width=True)
+
+                    diag_plot_col3, diag_plot_col4 = st.columns(2)
+                    with diag_plot_col3:
+                        st.plotly_chart(regression_diagnostics.plot_scale_location(diagnostics_run), use_container_width=True)
+                    with diag_plot_col4:
+                        vif_fig = regression_diagnostics.plot_vif_chart(vif_table)
+                        if vif_fig is not None:
+                            st.plotly_chart(vif_fig, use_container_width=True)
+                        else:
+                            ui.render_empty_state("📊", "VIF needs 2+ features", "Multicollinearity can't be assessed with a single feature.")
 
 ui.render_footer()
