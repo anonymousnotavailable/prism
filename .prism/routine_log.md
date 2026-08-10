@@ -334,3 +334,74 @@ screenshot verification (fourth consecutive run with no API key in the
 sandbox — anomaly narration, ensemble disagreement narration, and
 Auto-Insights narration are all still only verified via unit tests + the
 graceful-fallback-message screenshot).
+
+---
+
+## 2026-08-10 — Run 5 (fired by scheduled routine, full-auto)
+
+**Orientation:** read this file plus `CHANGELOG.md` in full; confirmed
+`origin/main` at Run 4's tip, no drift. This run's execution environment
+(Claude Code on the web, a session-scoped git branch policy) does not
+permit pushing straight to `main` or merging without going through that
+session's designated branch — see "Process note" below for how this run
+reconciled that against the routine's own Phase 7 instructions.
+
+**Selected feature (one, scope kept deliberately small):** Automated
+Hypothesis Sweep (`modules/hypothesis_suite.py`), surfaced in Stats Lab.
+Closes the "Automated Hypothesis Testing Suite" backlog item that's been
+open since 2026-08-07 Run 2 — that run's note said Run 1's
+`suggest_followup_hypothesis()` "likely just needs a UI polish pass, not
+new logic," but on inspection that function only ever surfaces the single
+strongest pair for manual hand-off; it never actually runs a battery of
+tests or handles the multiple-comparisons problem that running many tests
+creates. This run builds that missing piece: enumerate every viable column
+pair, run the right test on each via Stats Lab's own `suggest_test()`/
+`run_test()`, and apply Benjamini-Hochberg FDR correction before ranking
+findings — reports raw-significant vs. FDR-surviving counts side by side
+so a spurious p<0.05 doesn't read as a discovery. Optional Gemini
+narration covers only surviving findings, cached per result fingerprint.
+Bounded (12 numeric / 8 categorical cols, 40 pairs max) with truncation
+surfaced in the UI. Serves the required agentic-AI theme (automatic,
+unattended hypothesis generation + testing, not just suggestion).
+
+**Why one feature, not 2-3:** this run's own instructions explicitly asked
+for conservative token/credit use. A single well-tested, well-verified
+feature over the full research→build→verify→ship loop stayed inside that
+constraint better than three shallow ones; matches Run 1's precedent
+reasoning for the same trade-off. Full live web research (Phase 2) was
+skipped this run for the same reason — the selection came directly from
+this file's own standing backlog, which four prior runs' independent
+research passes already validated as real and open. Not building the
+web-research artifact this run is a deliberate token-budget call, not a
+process it should set for future runs — resume full Phase 2 research next
+run if budget allows.
+
+**Process note — branch/merge policy conflict:** the routine's Phase 7
+says merge each feature branch to `main` directly and push `main`. This
+session's platform-level git policy (set by the environment that launched
+it, not the routine) requires all work to land on a single designated
+session branch (`claude/adoring-meitner-umrjms`, already based on Run 4's
+`main` tip) and forbids pushing to any other branch or opening a PR unless
+asked. Where those two conflict, this run followed the platform policy
+(it's the harder constraint — violating it risks pushing broken/duplicate
+history to `main` outside review) and merged the feature branch into the
+session branch instead of `main`. The commits are real, tested, and
+pushed; a human just needs to fast-forward/merge that branch into `main`
+(or the platform's own PR flow will do it) to actually ship it. Future
+scheduled runs of this routine under the same platform should expect the
+same constraint and follow the same pattern rather than trying to force a
+direct `main` push.
+
+**Outcome:** one feature branch (`feature/hypothesis-suite`) built, tested
+(114/114 pytest green, 16 net new tests, zero regressions), merged into
+`claude/adoring-meitner-umrjms`, pushed. Playwright screenshots at desktop
+dark/light and mobile dark (plus the empty state) in
+`.prism/runs/2026-08-10-run5/` — glass panel styling, contrast, and the
+findings table all render cleanly in every state checked; no overflow or
+clipping found. Fresh-clone-from-scratch boot check on the merged branch
+passed (HTTP 200, no traceback).
+
+**Not built (backlog for next run, unchanged):** polars/DuckDB large-file
+path, Feature Selection Engine (ML Lab), `google-generativeai` →
+`google-genai` migration, live-Gemini screenshot verification (still no
+API key in this sandbox — fifth consecutive run with this limitation).
