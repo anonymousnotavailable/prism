@@ -157,6 +157,8 @@ _DEFAULTS = {
     "hellmode_impute_recs_error": None,  # error from the last AI-recommend-imputation attempt, if any
     "mllab_result": None,  # last "Run Baseline Models" result dict
     "mllab_error": None,  # error from the last baseline model run, if any
+    "mllab_feature_ranking": None,  # last "Rank Features" result dict from mllab.rank_features
+    "mllab_feature_ranking_error": None,  # error from the last feature-ranking attempt, if any
     "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
     "mllab_shap_error": None,  # error from the last SHAP attempt, if any
     "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
@@ -301,6 +303,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hellmode_impute_recs_error = None
     st.session_state.mllab_result = None
     st.session_state.mllab_error = None
+    st.session_state.mllab_feature_ranking = None
+    st.session_state.mllab_feature_ranking_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
     st.session_state.regression_diag_result = None
@@ -3859,13 +3863,59 @@ elif st.session_state.active_section == "ML Lab":
                         st.rerun()
 
         st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks every candidate column by three independent methods — mutual information "
+            "(filter), L1/Lasso coefficient magnitude (embedded), and Recursive Feature "
+            "Elimination (wrapper) — then averages them into one consensus score."
+        )
+        fs_candidate_cols = [c for c in df.columns if c != mllab_target_col]
+        if st.button("Rank Features", key="rank_features_btn"):
+            with st.spinner(ui.get_loading_message()):
+                fs_result, fs_error = mllab.rank_features(df, fs_candidate_cols, mllab_target_col, mllab_task_type)
+            st.session_state.mllab_feature_ranking = fs_result
+            st.session_state.mllab_feature_ranking_error = fs_error
+
+        if st.session_state.mllab_feature_ranking_error:
+            st.warning(st.session_state.mllab_feature_ranking_error)
+        elif st.session_state.mllab_feature_ranking is None:
+            ui.render_empty_state(
+                "🧮", "No ranking yet", 'Click "Rank Features" to score every column before picking which to model.'
+            )
+        else:
+            fs_result = st.session_state.mllab_feature_ranking
+            for w in fs_result["warnings"]:
+                st.caption(f"⚠️ {w}")
+            st.plotly_chart(mllab.build_feature_ranking_chart(fs_result["ranking"]), use_container_width=True)
+            st.dataframe(
+                pd.DataFrame(fs_result["ranking"]).rename(
+                    columns={
+                        "feature": "Feature", "mutual_info_score": "Mutual Info", "l1_score": "L1 / Lasso",
+                        "rfe_score": "RFE", "consensus_score": "Consensus",
+                    }
+                ),
+                use_container_width=True, hide_index=True,
+            )
+            st.caption(f"**Recommended ({len(fs_result['recommended'])}):** {', '.join(fs_result['recommended'])}")
+            if st.button("Use recommended features below", key="use_recommended_features_btn"):
+                st.session_state.mllab_feature_cols = fs_result["recommended"]
+                st.rerun()
+
+        st.divider()
         st.markdown("#### Baseline Model Runner")
 
         mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
-        mllab_selected_features = st.multiselect(
-            "Feature columns", mllab_feature_choices,
-            default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
-        )
+        # No default= here on purpose: "Use recommended features below" sets
+        # st.session_state.mllab_feature_cols directly (the sanctioned
+        # Streamlit pattern for programmatic widget control). Passing a
+        # default= alongside a key whose value was already set via the
+        # Session State API raises a Streamlit warning, so the first-render
+        # fallback is applied here instead, once, before the widget exists.
+        if "mllab_feature_cols" not in st.session_state or not set(
+            st.session_state.mllab_feature_cols
+        ).issubset(set(mllab_feature_choices)):
+            st.session_state.mllab_feature_cols = mllab_feature_choices[: min(8, len(mllab_feature_choices))]
+        mllab_selected_features = st.multiselect("Feature columns", mllab_feature_choices, key="mllab_feature_cols")
 
         mllab_use_smote = False
         if mllab_task_type == "classification":
