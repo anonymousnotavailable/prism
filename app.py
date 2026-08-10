@@ -128,8 +128,9 @@ _DEFAULTS = {
     "theme_mode": theme.DEFAULT_THEME,  # one of theme.THEMES — sidebar selector
     "onboarding_dismissed": False,  # first-visit step-by-step intro, dismissible once per session
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
-    "anomaly_result_df": None,  # last "Find Anomalies" result
-    "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_ensemble_result": None,  # last ensemble (IsolationForest+LOF+DBSCAN) scan result
+    "anomaly_ensemble_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini's plain-English summary of the last ensemble result
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -269,8 +270,9 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.manual_chart_fig = None
     st.session_state.manual_chart_error = None
     st.session_state.undo_stack = []
-    st.session_state.anomaly_result_df = None
-    st.session_state.anomaly_error = None
+    st.session_state.anomaly_ensemble_result = None
+    st.session_state.anomaly_ensemble_error = None
+    st.session_state.anomaly_narration = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1709,36 +1711,72 @@ elif st.session_state.active_section == "Overview":
         st.write("**Descriptive stats**")
         st.dataframe(df[[drill_col]].describe(include="all").transpose(), use_container_width=True)
 
-    with st.expander("Anomaly Detection", expanded=False):
+    with st.expander("Anomaly Detection (Ensemble)", expanded=False):
         if not anomaly.is_available():
             st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
         else:
-            if st.button("Find Anomalies", key="find_anomalies_btn"):
+            st.caption(
+                "Runs three independent detectors — IsolationForest, Local Outlier Factor, and "
+                "DBSCAN — and ranks flagged rows by how many agree. A row every method flags is a "
+                "much stronger signal than any single detector's raw output."
+            )
+            if st.button("🔎 Run Ensemble Anomaly Scan", key="find_anomalies_btn"):
                 with st.spinner(ui.get_loading_message()):
-                    flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
-                st.session_state.anomaly_result_df = flagged
-                st.session_state.anomaly_error = anomaly_err
+                    result, anomaly_err = anomaly.run_ensemble_detection(df, column_types)
+                st.session_state.anomaly_ensemble_result = result
+                st.session_state.anomaly_ensemble_error = anomaly_err
+                st.session_state.anomaly_narration = None
 
-            if st.session_state.anomaly_error:
-                st.error(st.session_state.anomaly_error)
-            elif st.session_state.anomaly_result_df is not None:
-                flagged = st.session_state.anomaly_result_df
-                if flagged.empty:
-                    st.info("No anomalies detected.")
+            if st.session_state.anomaly_ensemble_error:
+                st.error(st.session_state.anomaly_ensemble_error)
+            elif st.session_state.anomaly_ensemble_result is not None:
+                result = st.session_state.anomaly_ensemble_result
+                if result.empty:
+                    st.info("No anomalies detected by any method.")
                 else:
-                    st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
-                    st.dataframe(flagged, use_container_width=True)
-                    if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
+                    high_confidence = result[result["agreement_count"] >= 2]
+                    a1, a2, a3, a4 = st.columns(4)
+                    a1.metric("IsolationForest", int(result["isolation_forest"].sum()))
+                    a2.metric("Local Outlier Factor", int(result["lof"].sum()))
+                    a3.metric("DBSCAN", int(result["dbscan"].sum()))
+                    a4.metric("High-Confidence", len(high_confidence), help="Flagged by 2 of the 3 methods or more")
+
+                    st.write(f"**{len(result)} row(s) flagged by at least one method, ranked by agreement:**")
+                    st.dataframe(result, use_container_width=True)
+
+                    if st.session_state.anomaly_narration:
+                        st.info(st.session_state.anomaly_narration)
+                    elif st.button(
+                        "✨ Narrate Anomalies", key="narrate_anomalies_btn",
+                        help="Ask Gemini to explain the pattern behind these flagged rows",
+                    ):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is analyzing the flagged rows…"):
+                            narration, narr_error = anomaly.narrate_anomalies(model, result)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.anomaly_narration = narration
+                            st.rerun()
+
+                    exclude_target = high_confidence if not high_confidence.empty else result
+                    exclude_label = (
+                        f"Exclude {len(high_confidence)} high-confidence row(s) from active dataset"
+                        if not high_confidence.empty
+                        else f"Exclude all {len(result)} flagged row(s) from active dataset"
+                    )
+                    if st.button(exclude_label, key="exclude_anomalies_btn"):
                         push_undo_snapshot()
-                        new_df = df.drop(index=flagged.index)
+                        new_df = df.drop(index=exclude_target.index)
                         st.session_state.working_df = new_df
                         st.session_state.column_types = data_engine.detect_column_types(new_df)
                         log_step(
-                            f"Excluded {len(flagged)} anomalous row(s) (IsolationForest)",
-                            cleaning.anomaly_exclude_code(len(flagged)),
+                            f"Excluded {len(exclude_target)} anomalous row(s) (ensemble: IsolationForest+LOF+DBSCAN)",
+                            cleaning.anomaly_exclude_code(len(exclude_target)),
                         )
-                        st.session_state.anomaly_result_df = None
-                        st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
+                        st.session_state.anomaly_ensemble_result = None
+                        st.session_state.anomaly_narration = None
+                        st.toast(f"Excluded {len(exclude_target)} anomalous row(s). 🚨")
                         st.rerun()
 
 # --------------------------------------------------------------------------
