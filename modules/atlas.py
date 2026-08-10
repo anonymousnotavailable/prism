@@ -39,12 +39,7 @@ from typing import Callable, Optional
 
 import streamlit as st
 
-from modules.ai_analyst import MODEL_NAME, call_gemini, get_api_key
-
-try:
-    import google.generativeai as genai
-except ImportError:  # pragma: no cover - the app should still load without it
-    genai = None
+from modules.ai_analyst import MODEL_NAME, build_model, call_gemini
 
 try:
     import edge_tts
@@ -147,11 +142,7 @@ _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 # INTENT ROUTER (the core)
 # ═══════════════════════════════════════════════════════════════════════
 def _client():
-    key = get_api_key()
-    if not key or genai is None:
-        return None
-    genai.configure(api_key=key)
-    return genai.GenerativeModel(MODEL_NAME, system_instruction=ROUTER_SYSTEM_PROMPT)
+    return build_model(MODEL_NAME, system_instruction=ROUTER_SYSTEM_PROMPT)
 
 
 def _parse_intent_json(text: str) -> Optional[dict]:
