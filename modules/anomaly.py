@@ -84,3 +84,75 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+# ── Gemini narration ─────────────────────────────────────────────────────
+#
+# find_anomalies() above already gives each flagged row a templated
+# `anomaly_reason` string ("X is 3.2x above the median") — useful, but it
+# reads like a debug log, not an analyst's judgment call. narrate_anomalies()
+# turns the flagged set into a short plain-English paragraph plus one
+# concrete suggested next action, the same "raw findings -> Gemini
+# synthesis" shape as modules.auto_insights.narrate_insights. Deliberately
+# a single bounded call per flagged set (the caller in app.py only invokes
+# this on an explicit button click and caches the result in session_state
+# until the next "Find Anomalies" run or dataset swap resets it) — this
+# is what keeps it inside Gemini's free-tier rate limits.
+
+MAX_REASONS_IN_PROMPT = 20  # cap prompt size on a large flagged set
+
+_NARRATION_PROMPT = (
+    "You are a senior data analyst reviewing rows an anomaly-detection model "
+    "(IsolationForest, unsupervised) flagged as statistical outliers. Below is a "
+    "summary of what was flagged and why. Write a 2-4 sentence plain-English "
+    "narration for a non-technical stakeholder: describe what stands out about "
+    "the flagged rows, then end with exactly ONE concrete suggested next action "
+    "(e.g. verify against the source system, exclude before modeling, or "
+    "investigate a specific column). Do not list every row individually — "
+    "synthesize the pattern.\n\n{summary}"
+)
+
+
+def format_anomalies_text(flagged: Optional[pd.DataFrame], max_rows: int = MAX_REASONS_IN_PROMPT) -> str:
+    """Compact text summary of a flagged-anomaly set, for use as Gemini
+    narration input. Deliberately caps at max_rows distinct reasons so a
+    large flagged set doesn't blow up the prompt's token count — mirrors
+    modules.auto_insights.format_insights_text.
+    """
+    if flagged is None or flagged.empty:
+        return "No anomalies were flagged."
+
+    total = len(flagged)
+    lines = [f"{total} row(s) flagged as anomalies out of the dataset."]
+    if "anomaly_reason" in flagged.columns:
+        reason_counts = flagged["anomaly_reason"].value_counts().head(max_rows)
+        if not reason_counts.empty:
+            lines.append("Most common reasons:")
+            for reason, count in reason_counts.items():
+                lines.append(f"- {reason} ({count} row(s))")
+    return "\n".join(lines)
+
+
+def narrate_anomalies(model, flagged: Optional[pd.DataFrame]) -> tuple[str, Optional[str]]:
+    """Ask Gemini to narrate a flagged-anomaly set in plain English with one
+    suggested next action.
+
+    Returns (narration, error) — same shape and same non-blocking failure
+    mode as auto_insights.narrate_insights: a missing model or a Gemini
+    error never raises, it just surfaces as `error` for the caller to show
+    alongside the (still fully usable) flagged-rows table. An empty flagged
+    set short-circuits before ever calling Gemini — nothing to narrate, and
+    no reason to spend a free-tier request on it.
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+    if flagged is None or flagged.empty:
+        return "No anomalies were flagged in this pass — nothing to narrate.", None
+
+    from modules.ai_analyst import call_gemini
+
+    prompt = _NARRATION_PROMPT.format(summary=format_anomalies_text(flagged))
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
