@@ -414,6 +414,26 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"] {
     overflow: hidden;
 }
 
+/* Themed HTML table (ui.render_themed_table) — for small summary tables
+   that must track the in-app light/dark toggle. Streamlit's native
+   st.dataframe grid is a separate component that reads its palette from
+   .streamlit/config.toml once at initial page load and never re-themes,
+   so it stays dark even after switching to a light theme (found during
+   2026-08-10 audit screenshot review, e.g. Overview's "Missing Values by
+   Column" table). This table is plain HTML styled with the same
+   --prism-* tokens as the rest of the chrome, so it always matches. */
+.prism-themed-table-wrap { border: 1px solid $border; border-radius: var(--prism-radius); overflow: hidden; }
+.prism-themed-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.prism-themed-table th, .prism-themed-table td { padding: 7px 12px; text-align: left; }
+.prism-themed-table thead th {
+    background: $surface_hover; color: $text_muted; font-weight: 600;
+    font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+    border-bottom: 1px solid $border;
+}
+.prism-themed-table tbody td { color: $text; border-bottom: 1px solid $border; }
+.prism-themed-table tbody tr:last-child td { border-bottom: none; }
+.prism-themed-table tbody tr:hover td { background: rgba($accent_rgb, 0.06); }
+
 /* ── Alerts ──────────────────────────────────────────────────────── */
 .stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
 
@@ -667,6 +687,22 @@ h1, h2, h3, h4, .prism-heading {
     position: fixed; top: 56px; right: 0; bottom: 0; width: 328px; z-index: 998;
     background: var(--prism-surface); border-left: 1px solid var(--prism-border);
     backdrop-filter: blur(10px); overflow-y: auto; padding: 14px 16px 8px;
+}
+/* Mobile/PWA-width fix: the fixed 328px overlay above eats most of the
+   viewport below ~640px and squishes the rest of the page into an
+   unreadable strip (found during 2026-08-10 audit screenshot review).
+   Below that width it drops out of fixed-overlay mode entirely and
+   becomes a normal, capped-height, scrollable card at the top of the
+   page flow instead — no JS, no new toggle state, just stops overlaying. */
+@media (max-width: 640px) {
+    .st-key-atlas_side_panel {
+        position: static;
+        top: auto; right: auto; bottom: auto;
+        width: 100%; max-height: 280px; z-index: auto;
+        border-left: none; border-bottom: 1px solid var(--prism-border);
+        border-radius: var(--prism-radius);
+        margin-bottom: 12px;
+    }
 }
 .atlas-panel-hd { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--prism-border); margin-bottom: 10px; }
 .atlas-orb-sm.atlas-orb { width: 26px; height: 26px; animation-duration: 2.2s; flex-shrink: 0; }
