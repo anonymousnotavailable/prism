@@ -27,6 +27,7 @@ from modules import (
     anomaly,
     atlas,
     auto_analyst,
+    auto_insights,
     autocleaner,
     cleaning,
     clustering,
@@ -42,11 +43,13 @@ from modules import (
     geo,
     hellmode,
     india,
+    insight_verifier,
     join_engine,
     mllab,
     pii_detector,
     profiling,
     recipes,
+    regression_diagnostics,
     report,
     report_writer,
     session_io,
@@ -84,6 +87,10 @@ _DEFAULTS = {
     "chat_history": [],  # AI Analyst chat transcript
     "key_insights": [],  # last "Generate Key Insights" output — list of up to 5 bullet strings
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
+    "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
+    "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
+    "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
+    "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -123,13 +130,18 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
+    "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
+    "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
+    "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
+    "stl_decomp_error": None,  # error from the last decomposition attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -268,6 +280,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.stats_lab_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
+    st.session_state.stl_decomp_result = None
+    st.session_state.stl_decomp_error = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -285,9 +299,17 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.regression_diag_result = None
+    st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
+    st.session_state.auto_insights = auto_insights.generate_insights(working_df, st.session_state.column_types)
+    st.session_state.auto_insights_narration = None
+    st.session_state.anomaly_result_df = None
+    st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
+    st.session_state.anomaly_narration_fingerprint = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -421,6 +443,9 @@ def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tupl
 
     with st.spinner(ui.get_loading_message()):
         findings, findings_error = auto_analyst.synthesize_findings(model, step_outcomes)
+
+    verification = insight_verifier.verify_findings(df_, column_types_, findings) if findings else []
+    st.session_state.auto_analyst_verification = verification
 
     return step_outcomes, findings, findings_error
 
@@ -1432,6 +1457,35 @@ elif st.session_state.active_section == "Overview":
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
 
     # ------------------------------------------------------------------
+    # Auto-Insight Engine — proactive insights surfaced on upload
+    # ------------------------------------------------------------------
+    if st.session_state.auto_insights:
+        insights_list = st.session_state.auto_insights
+        n_high = sum(1 for i in insights_list if i["severity"] == "high")
+        n_med = sum(1 for i in insights_list if i["severity"] == "medium")
+        n_low = sum(1 for i in insights_list if i["severity"] == "low")
+        severity_summary = ", ".join(
+            f"{c} {l}" for c, l in [(n_high, "critical"), (n_med, "notable"), (n_low, "minor")] if c
+        )
+        with st.container(border=True):
+            st.markdown(f"#### 🔍 Auto-Insights  •  {len(insights_list)} finding{'s' if len(insights_list) != 1 else ''}  ({severity_summary})")
+            if st.session_state.auto_insights_narration:
+                st.info(st.session_state.auto_insights_narration)
+            elif st.button("✨ Generate Executive Summary", key="auto_insights_narrate", help="Ask Gemini to narrate these findings"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is summarizing the findings…"):
+                    narration, narr_error = auto_insights.narrate_insights(model, insights_list)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.auto_insights_narration = narration
+                    st.rerun()
+            for ins in insights_list:
+                icon = auto_insights.severity_icon(ins["severity"])
+                cat = auto_insights.category_label(ins["category"])
+                st.markdown(f"{icon} **{cat}** — {ins['message']}")
+
+    # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
     # -> approve/reject REVIEW cards -> a before/after report. See
     # modules/autocleaner.py for the scan/plan/execute pipeline and
@@ -1680,6 +1734,32 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     st.dataframe(flagged, use_container_width=True)
+
+                    # AI narration — cached per fingerprint of this exact flagged
+                    # set so re-viewing it (tab switch, etc.) doesn't re-spend a
+                    # Gemini call; only a genuinely different detection result
+                    # invalidates the cache.
+                    current_fp = anomaly.fingerprint_flagged(flagged)
+                    if (
+                        st.session_state.anomaly_narration
+                        and st.session_state.anomaly_narration_fingerprint == current_fp
+                    ):
+                        st.info(f"🤖 {st.session_state.anomaly_narration}")
+                    elif st.button(
+                        "✨ Explain these anomalies with AI",
+                        key="narrate_anomalies_btn",
+                        help="Ask Gemini to explain the pattern and suggest a next action",
+                    ):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is reviewing the flagged rows…"):
+                            narration, narr_error = anomaly.narrate_anomalies(model, flagged)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.anomaly_narration = narration
+                            st.session_state.anomaly_narration_fingerprint = current_fp
+                            st.rerun()
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
@@ -3064,12 +3144,40 @@ elif st.session_state.active_section == "Auto Analyst":
             if st.session_state.auto_analyst_findings_error:
                 st.error(st.session_state.auto_analyst_findings_error)
             elif st.session_state.auto_analyst_findings:
+                verification = st.session_state.auto_analyst_verification
+                confirmed_count = sum(1 for v in verification if v.get("status") == "confirmed")
+                flagged_count = sum(1 for v in verification if v.get("status") == "flagged")
+                if confirmed_count or flagged_count:
+                    st.caption(
+                        f"🔎 Fact-checked against the data: {confirmed_count} finding(s) with confirmed "
+                        f"figures" + (f", {flagged_count} with an unconfirmed number — verify before citing."
+                                      if flagged_count else ".")
+                    )
+
+                _BADGE = {
+                    "confirmed": '<span class="prism-badge b-pass" title="Every number in this finding matches a value recomputed directly from the data.">✓ verified</span>',
+                    "flagged": '<span class="prism-badge b-fail" title="At least one number here could not be matched to a recomputed value — double-check before citing.">⚠ unconfirmed</span>',
+                    "unverifiable": "",
+                }
                 cards_html = "".join(
-                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
+                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d} '
+                    f'{_BADGE.get(verification[i]["status"], "") if i < len(verification) else ""}</div>'
                     f'<div class="insight-text">{finding}</div></div>'
                     for i, finding in enumerate(st.session_state.auto_analyst_findings)
                 )
                 st.markdown(cards_html, unsafe_allow_html=True)
+
+                hypothesis = auto_analyst.suggest_followup_hypothesis(df, column_types)
+                if hypothesis:
+                    st.info(f"🔬 **Suggested next step:** {hypothesis['reason']}")
+                    if st.button(
+                        f"Test '{hypothesis['col_a']}' vs '{hypothesis['col_b']}' in Stats Lab",
+                        use_container_width=True, key="jump_to_stats_lab_hypothesis",
+                    ):
+                        st.session_state.stats_col_a = hypothesis["col_a"]
+                        st.session_state.stats_col_b = hypothesis["col_b"]
+                        st.session_state.pending_active_section = "Stats Lab"
+                        st.rerun()
 
                 if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
                     # Story Mode (modules/story_mode.py) narrates
@@ -3260,6 +3368,44 @@ elif st.session_state.active_section == "Forecasting":
                 mime="text/csv",
                 use_container_width=True,
             )
+
+        st.divider()
+        st.markdown("#### Time Series Decomposition (STL)")
+        st.caption(
+            "Splits the series into trend, seasonal, and residual components — useful for "
+            "understanding *why* a series moves the way it does before (or instead of) forecasting it."
+        )
+        if st.button("Run Decomposition", key="stl_decompose_btn", use_container_width=True):
+            decomp_series, decomp_freq, decomp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if decomp_prep_error:
+                st.session_state.stl_decomp_result = None
+                st.session_state.stl_decomp_error = decomp_prep_error
+            else:
+                ok, reason = forecasting.can_decompose(decomp_series, decomp_freq)
+                if not ok:
+                    st.session_state.stl_decomp_result = None
+                    st.session_state.stl_decomp_error = reason
+                else:
+                    with st.spinner(ui.get_loading_message()):
+                        decomp_outcome = forecasting.decompose_series(decomp_series, decomp_freq)
+                    if decomp_outcome.get("error"):
+                        st.session_state.stl_decomp_result = None
+                        st.session_state.stl_decomp_error = decomp_outcome["error"]
+                    else:
+                        st.session_state.stl_decomp_result = decomp_outcome
+                        st.session_state.stl_decomp_error = None
+
+        if st.session_state.stl_decomp_error:
+            st.error(st.session_state.stl_decomp_error)
+        elif st.session_state.stl_decomp_result is None:
+            ui.render_empty_state(
+                "📈", "No decomposition yet", 'Click "Run Decomposition" to break the series into trend/seasonal/residual.'
+            )
+        else:
+            decomp_result = st.session_state.stl_decomp_result
+            st.markdown(forecasting.decomposition_verdict(decomp_result))
+            decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
+            st.plotly_chart(decomp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
 # Clustering tab — KMeans on standardized numeric columns with an
@@ -3826,5 +3972,67 @@ elif st.session_state.active_section == "ML Lab":
                 shap.plots.waterfall(display_values[0], max_display=mllab.SHAP_MAX_DISPLAY, show=False)
                 st.pyplot(fig_waterfall, use_container_width=True)
                 plt.close(fig_waterfall)
+
+            if baseline_result["task_type"] == "regression":
+                st.divider()
+                st.markdown("#### Regression Diagnostics")
+                st.caption(
+                    "Fits its own OLS model (statsmodels, not the Random Forest above) on the same "
+                    "features/target so the inferential statistics diagnostics need — standard errors, "
+                    "residuals, VIF — are available. Categorical and zero-variance columns are excluded "
+                    "automatically."
+                )
+                if st.button("Run Regression Diagnostics", key="regression_diag_btn", use_container_width=True):
+                    with st.spinner("Fitting OLS and running the diagnostic battery…"):
+                        diag_fit = regression_diagnostics.fit_ols(df, mllab_selected_features, mllab_target_col)
+                        if "error" in diag_fit:
+                            st.session_state.regression_diag_result = None
+                            st.session_state.regression_diag_error = diag_fit["error"]
+                        else:
+                            st.session_state.regression_diag_result = diag_fit
+                            st.session_state.regression_diag_error = None
+
+                if st.session_state.regression_diag_error:
+                    st.error(st.session_state.regression_diag_error)
+                elif st.session_state.regression_diag_result is not None:
+                    diag_fit = st.session_state.regression_diag_result
+
+                    if diag_fit.get("dropped_categorical"):
+                        st.caption(f"Excluded categorical column(s) (encode first for these to count): {', '.join(diag_fit['dropped_categorical'])}")
+                    if diag_fit.get("dropped_zero_variance"):
+                        st.caption(f"Excluded zero-variance column(s): {', '.join(diag_fit['dropped_zero_variance'])}")
+
+                    fit_summary = regression_diagnostics.summarize_fit(diag_fit)
+                    diag_metric_cols = st.columns(4)
+                    diag_metric_cols[0].metric("R²", f"{fit_summary['r_squared']:.3f}")
+                    diag_metric_cols[1].metric("Adj. R²", f"{fit_summary['adj_r_squared']:.3f}")
+                    diag_metric_cols[2].metric("F-stat p-value", f"{fit_summary['f_pvalue']:.4g}")
+                    diag_metric_cols[3].metric("N observations", fit_summary["n_obs"])
+
+                    with st.expander("Coefficient Table", expanded=False):
+                        st.dataframe(regression_diagnostics.coefficient_table(diag_fit), use_container_width=True)
+
+                    diagnostics_run = regression_diagnostics.run_diagnostics(diag_fit)
+                    vif_table = regression_diagnostics.compute_vif(diag_fit)
+
+                    st.markdown("**Diagnostic Verdict**")
+                    for verdict_line in regression_diagnostics.diagnostics_verdict(diagnostics_run, vif_table):
+                        st.markdown(f"- {verdict_line}")
+
+                    diag_plot_col1, diag_plot_col2 = st.columns(2)
+                    with diag_plot_col1:
+                        st.plotly_chart(regression_diagnostics.plot_residuals_vs_fitted(diagnostics_run), use_container_width=True)
+                    with diag_plot_col2:
+                        st.plotly_chart(regression_diagnostics.plot_qq(diagnostics_run), use_container_width=True)
+
+                    diag_plot_col3, diag_plot_col4 = st.columns(2)
+                    with diag_plot_col3:
+                        st.plotly_chart(regression_diagnostics.plot_scale_location(diagnostics_run), use_container_width=True)
+                    with diag_plot_col4:
+                        vif_fig = regression_diagnostics.plot_vif_chart(vif_table)
+                        if vif_fig is not None:
+                            st.plotly_chart(vif_fig, use_container_width=True)
+                        else:
+                            ui.render_empty_state("📊", "VIF needs 2+ features", "Multicollinearity can't be assessed with a single feature.")
 
 ui.render_footer()
