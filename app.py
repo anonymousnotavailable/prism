@@ -3271,10 +3271,10 @@ elif st.session_state.active_section == "Auto Analyst":
                             vc2.metric("p-value", f"{result['p_value']:.4g}")
                             vc3.metric(result["effect_size_name"], f"{result['effect_size']:.4f}")
 
-                            if st.session_state.auto_verify_narration is None and gemini_model is not None:
+                            if st.session_state.auto_verify_narration is None and auto_model is not None:
                                 with st.spinner("Asking Gemini to explain what this means..."):
                                     text, error = auto_analyst.narrate_hypothesis_verdict(
-                                        gemini_model, hypothesis, outcome["verdict"]
+                                        auto_model, hypothesis, outcome["verdict"]
                                     )
                                     st.session_state.auto_verify_narration = text
                                     st.session_state.auto_verify_narration_error = error
