@@ -225,4 +225,47 @@ still flagged for a dedicated run), `google-generativeai` → `google-genai`
 migration (still flagged for a dedicated run), mobile Atlas panel overlap
 at ~390px (still open, still needs a focused CSS-reflow pass).
 
-*(Build/verify/ship outcome appended below once complete.)*
+**Bug found and fixed during Phase 5 verification (not in the original
+selection, but blocking the alert feature from actually being visible):**
+the Atlas side panel's small header orb had no background/animation CSS —
+those rules were only injected by `render_orb()`, which is skipped once a
+dataset is active. The orb has been invisible in its most common context
+for every state (idle/listening/speaking), not just the new `alert` state
+— pre-existing, just never caught before because nothing before this run
+looked closely at that specific element. Fixed by extracting
+`inject_orb_css()` and calling it from both render paths. Also fixed a
+same-run self-clear bug in the alert logic itself (Overview being the
+default tab meant `raise_alert()` and `clear_alert()` could both run in
+one script pass). Screenshots in `.prism/runs/2026-08-10/` confirm the
+amber double-ring pulse now renders correctly on desktop dark/light and
+mobile.
+
+**New finding, not fixed this run (backlog):** the "Missing Values by
+Column" / "Outliers (IQR method)" dataframe tables on the Overview tab
+keep dark row styling even when the Arctic (Light) theme is active (see
+`.prism/runs/2026-08-10/05_anomaly_narrate_button_desktop_light.png`) —
+likely a `st.dataframe` styling call with hardcoded colors instead of
+theme tokens. Out of scope for this run's selected features; flagged for
+a future small-fix pass.
+
+**Outcome:** two feature branches (`feature/anomaly-narration`,
+`feature/atlas-proactive-alert`) plus one bug-fix branch
+(`fix/orphaned-test-coverage`) built, tested (82/82 pytest green, 55 new
+tests across the run), merged to `main` in sequence, pushed. One
+additional direct-to-main fix commit for the CSS/self-clear bugs found
+during Phase 5 (see above) — also tested and verified before pushing.
+Playwright screenshots captured at desktop (dark/light) and mobile (dark)
+viewports for both UI changes; live Gemini narration output not visually
+captured (no API key in this sandbox — same documented limitation as both
+2026-08-07 runs), verified via unit tests and code-path review instead.
+Fresh-clone-from-scratch boot check on `main` passed (HTTP 200, no
+traceback). Commits: `243faf3` (anomaly narration), `de05e7f` (Atlas
+alert), `5910fcb` (orphaned test coverage), `9f6a632` (CSS/self-clear fix).
+
+**Not built (backlog for next run):** Data Quality Score scorecard,
+Advanced outlier detection (LOF/DBSCAN), Feature Selection Engine,
+polars/DuckDB large-file path (architecture-adjacent, still needs a
+dedicated run), `google-generativeai` → `google-genai` migration (still
+needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
+reconfirmed present in this run's own mobile screenshot), light-theme
+dataframe styling on Overview (new finding above).

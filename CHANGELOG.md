@@ -2,6 +2,48 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly narration** (`modules/anomaly.py`) — Gemini explains the
+  pattern behind IsolationForest-flagged rows in plain English (data-entry
+  errors vs. genuine rare events) with one suggested next action, from an
+  "✨ Explain these anomalies with AI" button in the Anomaly Detection
+  expander. Narration is cached per a fingerprint of the flagged set
+  (row count + index/reason hash) so re-viewing the same result doesn't
+  re-spend a Gemini call. Serves this cycle's agentic-AI priority theme —
+  closes a backlog item both 2026-08-07 runs flagged and left open. 6 new
+  tests.
+- **Atlas proactive alert HUD** (`modules/atlas.py`) — an incremental
+  JARVIS-copilot slice. The orb gains an `alert` visual state (amber
+  double-ring pulse + "⚠ N new insight(s)" label) that lights up
+  unprompted whenever a fresh dataset load surfaces a high-severity
+  Auto-Insight finding — zero extra Gemini calls, reuses the
+  already-computed `auto_insights.generate_insights()` list. Clears
+  itself the next time Overview renders after the user has seen it.
+  Closes the "Atlas Proactive Insights" backlog item both 2026-08-07 runs
+  flagged but neither built. 7 new tests.
+- Baseline pytest coverage for `auto_insights`, `regression_diagnostics`,
+  and STL decomposition (`forecasting.decompose_series`) — 42 tests. The
+  2026-08-07 run report claimed 82 tests for these three modules, but
+  `git log -- tests/` showed none were ever actually committed; discovered
+  during this run's audit and backfilled as a small fix.
+
+### Fixed
+- The Atlas side panel's small header orb (`.atlas-orb-sm`) had its size
+  set in `modules/theme.py` but no background/gradient/animation — those
+  rules lived only in `atlas.py`'s CSS block, injected solely by
+  `render_orb()`, which is skipped whenever a dataset is active (the side
+  panel replaces the floating orb). The header orb was effectively
+  invisible for every state, not just the new `alert` one — pre-existing,
+  just never visually exercised before this run's Phase 5 screenshot
+  check caught it. Fixed by injecting the CSS from both call sites.
+- `atlas.raise_alert()` and `atlas.clear_alert()` could run in the same
+  Streamlit script pass (Overview is the default active tab, so a fresh
+  upload while already on it hits both in one execution) — clearing would
+  erase the alert before the browser ever painted it. Added a one-run
+  grace flag so a newly raised alert survives to be seen first.
+
 ## 2026-08-07
 
 ### Added
