@@ -130,6 +130,8 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini-narrated plain-English summary of the flagged anomalies
+    "anomaly_narration_error": None,  # error from the last narration attempt, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -271,6 +273,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
+    st.session_state.anomaly_narration_error = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1718,6 +1722,9 @@ elif st.session_state.active_section == "Overview":
                     flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                # a fresh detection pass invalidates any narration of the old flagged set
+                st.session_state.anomaly_narration = None
+                st.session_state.anomaly_narration_error = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1728,6 +1735,28 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     st.dataframe(flagged, use_container_width=True)
+
+                    if st.session_state.anomaly_narration:
+                        st.info(f"🧠 {st.session_state.anomaly_narration}")
+                    else:
+                        if st.session_state.anomaly_narration_error:
+                            st.warning(st.session_state.anomaly_narration_error)
+                        if st.button(
+                            "🧠 Narrate Anomalies",
+                            key="narrate_anomalies_btn",
+                            help="Ask Gemini to explain what's unusual about these rows and suggest a next step",
+                        ):
+                            narr_model = ai_analyst.get_model()
+                            with st.spinner("Gemini is reviewing the flagged rows…"):
+                                narration, narr_error = anomaly.narrate_anomalies(narr_model, flagged)
+                            if narr_error:
+                                st.session_state.anomaly_narration_error = narr_error
+                                st.rerun()
+                            else:
+                                st.session_state.anomaly_narration = narration
+                                st.session_state.anomaly_narration_error = None
+                                st.rerun()
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
@@ -1738,6 +1767,8 @@ elif st.session_state.active_section == "Overview":
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
+                        st.session_state.anomaly_narration = None
+                        st.session_state.anomaly_narration_error = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 

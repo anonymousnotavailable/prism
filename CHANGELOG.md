@@ -2,6 +2,26 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** (`modules/anomaly.py`) — a "🧠 Narrate Anomalies"
+  button on the Overview tab's Anomaly Detection panel. After IsolationForest
+  flags outlier rows, Gemini synthesizes the flagged set (count + most common
+  templated reasons, capped at 20 distinct reasons to bound prompt size) into
+  a 2-4 sentence plain-English narration ending in one concrete suggested
+  next action (verify against source, exclude before modeling, investigate a
+  specific column). Mirrors the Auto-Insight Engine's existing
+  raw-findings-to-Gemini-synthesis shape (`auto_insights.narrate_insights`).
+  Single bounded call per flagged set — cached in session state until the
+  next "Find Anomalies" run, dataset swap, or row exclusion invalidates it —
+  so it stays well inside Gemini free-tier limits. Fails gracefully (a
+  dismissable warning + retry button) when no API key is configured or the
+  request errors, verified via Playwright screenshots at desktop/mobile ×
+  dark/light. Closes the "Anomaly narration" backlog item from the
+  2026-08-07 runs. This cycle's agentic-AI-analysis pick — 12 new tests
+  (32 total).
+
 ## 2026-08-07
 
 ### Added
