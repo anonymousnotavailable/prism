@@ -1623,7 +1623,7 @@ elif st.session_state.active_section == "Overview":
         missing_df = pd.DataFrame(
             {"Column": quality["missing_by_column"].keys(), "Missing %": quality["missing_by_column"].values()}
         ).sort_values("Missing %", ascending=False)
-        st.dataframe(missing_df, use_container_width=True, hide_index=True)
+        ui.render_themed_table(missing_df, value_formats={"Missing %": lambda v: f"{v}%"})
 
     with col_right:
         st.markdown("**Outliers (IQR method)**")
@@ -1631,7 +1631,7 @@ elif st.session_state.active_section == "Overview":
             outlier_df = pd.DataFrame(
                 [{"Column": c, "Outliers": v["count"], "Outlier %": v["pct"]} for c, v in quality["outliers"].items()]
             ).sort_values("Outliers", ascending=False)
-            st.dataframe(outlier_df, use_container_width=True, hide_index=True)
+            ui.render_themed_table(outlier_df, value_formats={"Outlier %": lambda v: f"{v}%"})
         else:
             st.info("No numeric columns to check for outliers.")
 

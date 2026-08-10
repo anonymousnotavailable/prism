@@ -11,6 +11,7 @@ template); this module owns page *content* built out of that styling.
 
 from __future__ import annotations
 
+import html
 import random
 from pathlib import Path
 from typing import Optional
@@ -354,6 +355,44 @@ def render_section_label(text: str) -> None:
     Atlas Insight Feed, ...) — breaks a long tab into scannable zones.
     """
     st.markdown(f'<div class="prism-sec">{text}</div>', unsafe_allow_html=True)
+
+
+def render_themed_table(df: pd.DataFrame, value_formats: Optional[dict] = None) -> None:
+    """Render a small DataFrame as a themed HTML table (Prism's --prism-*
+    CSS custom properties, see theme.py's .prism-themed-table rules)
+    instead of Streamlit's native st.dataframe grid.
+
+    Use this for small summary tables where the surrounding chrome's
+    light/dark toggle must be respected — st.dataframe is a separate
+    component that reads its colors from .streamlit/config.toml once at
+    page load and never re-themes, so it stays dark under the light theme
+    (found during the 2026-08-10 audit). Not a general st.dataframe
+    replacement: no sorting/resizing/scrolling virtualization, so keep it
+    to a handful of rows (e.g. Overview's missing-values/outliers tables).
+
+    `value_formats`: optional {column_name: callable(value) -> str} for
+    columns that need custom formatting (e.g. a percent sign); columns
+    without an entry are rendered with plain str().
+    """
+    if df.empty:
+        st.info("No data to display.")
+        return
+    value_formats = value_formats or {}
+    headers = "".join(f"<th>{html.escape(str(c))}</th>" for c in df.columns)
+    body_rows = []
+    for _, row in df.iterrows():
+        cells = []
+        for col in df.columns:
+            fmt = value_formats.get(col)
+            text = fmt(row[col]) if fmt else str(row[col])
+            cells.append(f"<td>{html.escape(text)}</td>")
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
+    st.markdown(
+        f'<div class="prism-themed-table-wrap"><table class="prism-themed-table">'
+        f"<thead><tr>{headers}</tr></thead><tbody>{''.join(body_rows)}</tbody>"
+        f"</table></div>",
+        unsafe_allow_html=True,
+    )
 
 
 def render_health_ring(score: int) -> None:
