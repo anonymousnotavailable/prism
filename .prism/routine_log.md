@@ -269,3 +269,111 @@ dedicated run), `google-generativeai` → `google-genai` migration (still
 needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
 reconfirmed present in this run's own mobile screenshot), light-theme
 dataframe styling on Overview (new finding above).
+
+---
+
+## 2026-08-10 — Run 4 (same-day fourth run)
+
+**Orientation:** read this file, `CHANGELOG.md`, and `git log` in full.
+Confirmed origin/main already carried all of Runs 1-3's work (fully merged
+and pushed) — this session started a fresh designated branch off that tip,
+so no conflicting/half-done state to reconcile. Environment note: the
+sandbox's system `cryptography` package was missing its `_cffi_backend`
+native module (blocked pytest collection via an unrelated import chain);
+fixed once with `pip install --ignore-installed cffi cryptography`, not a
+repo issue.
+
+**Audit:** `.prism/audit_2026-08-10-run4.md` — targeted re-check, not a
+full re-audit (Runs 1-3 already covered that ground twice this week).
+Confirmed the standing backlog is still accurate. New finding: verifying
+this run's Atlas-panel mobile fix surfaced a **second, deeper, pre-existing
+mobile content-squish bug** independent of the panel — confirmed present
+on `main` before this run too (same broken layout at 390px reproduced on
+b125903), so not introduced here, but also not fixed by this run's
+CSS-only patch. See caveat below.
+
+**Research:** `.prism/research_2026-08-10-run4.md` — live web pass across
+all four source classes (industry practice, competitor tools, ecosystem
+tech, agentic-EDA research). Key findings: 2026 interview-prep content
+flags data validation/quality as a growing senior-analyst focus (supports
+the Scorecard pick); an ensemble-outlier-detection survey (arXiv
+2606.20079) reports ensembles "substantially outperforming" single
+methods (supports the ensemble-detection pick); the polars/DuckDB backlog
+item is reconfirmed relevant (2026 consensus: pandas+Polars+DuckDB hybrid
+stack) but stays deferred per the architecture-rewrite guardrail; a
+DataSage-style multi-agent "debate" verification pass (arXiv 2511.14299)
+is a promising future agentic-theme candidate, logged for a future run
+rather than attempted here (too large for one run's slice).
+
+**Selected features (2) + bundled small fixes:**
+1. **Ensemble Outlier Detection** (`modules/anomaly.py`) —
+   IsolationForest + Local Outlier Factor + DBSCAN vote independently;
+   rows get a `consensus_count` (1-3) and `methods_flagged` list instead
+   of one algorithm's single binary flag, with DBSCAN's `eps` auto-picked
+   via the k-distance elbow heuristic so it needs no per-dataset tuning.
+   Serves this cycle's required agentic-AI theme; closes the "Advanced
+   outlier detection (LOF/DBSCAN)" backlog item open since 2026-08-07
+   Run 2.
+2. **Data Quality Scorecard** (`modules/scorecard.py`) — synthesizes the
+   existing 0-100 Data Health Score into a letter grade, ranked weak
+   components, rule-based recommendations, optional Gemini executive
+   summary, and Markdown/JSON export. Deliberately does not recompute any
+   quality signal — pure synthesis/export layer on `data_engine`'s
+   existing scoring, so it can never disagree with what Overview already
+   shows. Closes the "Data Quality Score with Exportable Scorecard"
+   backlog item open since 2026-08-07 Run 2.
+3. **Bundled small fixes** (`fix/mobile-atlas-and-light-dataframe`):
+   (a) the Atlas side panel no longer renders as a fixed 328px overlay
+   below 640px viewport width — see caveat below; (b) added
+   `ui.render_themed_table()` and swapped Overview's "Missing Values by
+   Column" / "Outliers (IQR method)" tables onto it, fixing the light-theme
+   dark-table-styling bug both flagged but left unfixed by Run 3.
+
+**Caveat — mobile fix is partial, do not assume it's solved:** the Atlas
+panel CSS fix genuinely stops the panel from overlaying as a fixed-position
+sheet (verified via Playwright screenshot comparison against `main`, where
+the panel visibly ate ~85% of a 390px screen). But verifying it surfaced a
+second, separate, pre-existing bug: main content at 390px still renders
+compressed into narrow vertical strips even with the panel fix applied —
+reproduced identically on `main` before this run, so it's not new, but it
+also means "mobile Atlas panel overlap" is **not fully closed** as a
+backlog item. Next run: investigate the general column/content layout at
+<640px (not the Atlas panel specifically) as its own focused pass —
+`.prism/audit_2026-08-10-run4.md` has the debugging notes
+(`getBoundingClientRect()` findings) to start from instead of
+rediscovering from scratch.
+
+**Branch/push note:** this session's harness-level instructions pin all
+commits to a single designated branch
+(`claude/adoring-meitner-2ucahf`) and explicitly forbid pushing to a
+different branch without explicit permission — which conflicts with this
+routine's Phase 7 ("merge to `main` yourself, push `main`"). Followed the
+harness-level constraint (the actual operating rule for this session) over
+the routine's default instruction: all three branches
+(`feature/ensemble-outlier-detection`, `feature/data-quality-scorecard`,
+`fix/mobile-atlas-and-light-dataframe`) were merged locally and pushed to
+the designated branch, not to `main`. `main` is unchanged by this run and
+will need a human (or a future run with main-push permission) to merge
+`claude/adoring-meitner-2ucahf` in. Flagging this clearly rather than
+silently deviating from either instruction set.
+
+**Outcome:** two feature branches + one fix branch, tested (100/100
+pytest green, no regressions — up from the 82 baseline this run started
+with), boot-checked after every merge (HTTP 200, no traceback), Playwright
+screenshots at desktop dark/light + mobile dark
+(`.prism/runs/2026-08-10-run4/`) confirmed the scorecard/ensemble UI and
+the light-theme table fix render correctly; the mobile screenshots
+document the partial nature of the Atlas-panel fix per the caveat above.
+Live Gemini narration/summary output not visually captured — no API key
+in this sandbox, same standing limitation as every prior run — verified
+via unit tests (mocked Gemini calls) instead. All three branches merged
+into the designated session branch and pushed.
+
+**Not built (backlog for next run):** general mobile responsive layout
+audit at <640px (new, see caveat above — higher priority than before
+since it's now confirmed to outlive the Atlas-panel-specific fix),
+DataSage-style multi-agent debate verification pass, Feature Selection
+Engine (mutual info/RFE/L1) for ML Lab, polars/DuckDB large-file path
+(architecture-adjacent, still needs a dedicated run),
+`google-generativeai` → `google-genai` migration (still needs a dedicated
+run).

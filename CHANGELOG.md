@@ -2,6 +2,49 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 4)
+
+### Added
+- **Ensemble Outlier Detection** (`modules/anomaly.py`) — a second
+  detection mode alongside the existing single-model IsolationForest flow.
+  Runs IsolationForest, Local Outlier Factor, and DBSCAN (eps auto-selected
+  via the k-distance elbow heuristic, no manual tuning needed) independently
+  over the same numeric columns and reports a per-row consensus count
+  (1-3) plus which methods flagged it. Rows flagged by 2+ methods are
+  ranked as high-confidence; a lone flag from one method is distinguishable
+  from genuine multi-method agreement. New "🔬 Run Ensemble Detection"
+  button in the Anomaly Detection expander, with per-method flag counts,
+  a high-confidence filter, and an exclude-flagged-rows action. Serves this
+  cycle's agentic-AI priority theme. 7 new tests.
+- **Data Quality Scorecard** (`modules/scorecard.py`) — an exportable
+  report built on top of the existing 0-100 Data Health Score
+  (`data_engine.get_health_breakdown()`, unchanged): a letter grade (A-F),
+  a ranked list of components scoring below 70% of their weight, a
+  rule-based recommendation per weak component pointing at the specific
+  Prism tool that fixes it, and an optional Gemini executive summary
+  (cached per scorecard fingerprint). Exports as Markdown or JSON via new
+  download buttons in Overview's "📋 Data Quality Scorecard (export)"
+  expander. Closes the "Data Quality Score with Exportable Scorecard"
+  backlog item flagged by every run since 2026-08-07. 11 new tests.
+
+### Fixed
+- Atlas side panel (`.st-key-atlas_side_panel`) no longer renders as a
+  fixed 328px overlay below 640px viewport width — it was eating most of
+  the screen at mobile-PWA widths (~390px) and squishing the rest of the
+  page into an unreadable strip (flagged, not fixed, by the 2026-08-10
+  Run 3 audit). Below 640px it now sits in the normal page flow as a
+  height-capped, scrollable card instead. **Caveat** (see
+  `.prism/audit_2026-08-10-run4.md`): this fixes the panel-overlay
+  symptom specifically; a separate, deeper, pre-existing mobile
+  content-squish bug remains open and needs its own dedicated pass.
+- Overview's "Missing Values by Column" and "Outliers (IQR method)" tables
+  stayed dark-themed under the Arctic (Light) theme — they're rendered by
+  Streamlit's native `st.dataframe` grid, a separate component that reads
+  its palette from `.streamlit/config.toml` once at page load and never
+  re-themes. Added `ui.render_themed_table()` (plain HTML styled with
+  Prism's own `--prism-*` CSS tokens, so it always tracks the live theme)
+  and swapped these two tables onto it.
+
 ## 2026-08-10
 
 ### Added

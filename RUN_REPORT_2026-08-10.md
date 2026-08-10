@@ -180,3 +180,227 @@ highest depth first:
 4. Consider the polars/DuckDB large-file backend as a **dedicated**
    run (not squeezed alongside feature work) given its architecture-wide
    blast radius — it's the highest-depth item still on the backlog.
+
+---
+
+# Run 4 (same day, fourth run)
+
+Full-auto run per `.prism/routine_log.md`'s standing instructions,
+continuing directly from Run 3 above (origin/main already carried all of
+Runs 1-3 when this session started — see orientation note in the routine
+log). Two features shipped plus one bundled fix branch covering two
+small, audit-sourced bugs. All branches merged and pushed to this
+session's designated branch (see **Branch note** below — this run did
+**not** push to `main`, unlike Runs 1-3, due to a harness-level
+constraint pinning this session to a single non-`main` branch).
+
+## 1. What shipped
+
+### Ensemble Outlier Detection (agentic-AI theme — required this cycle)
+
+**What it does:** A second detection mode next to the existing single-model
+IsolationForest flow. `anomaly.find_anomalies_ensemble()` runs
+IsolationForest, Local Outlier Factor, and DBSCAN independently over the
+same numeric columns (DBSCAN's `eps` is auto-picked via the k-distance
+elbow heuristic — no per-dataset manual tuning needed) and reports a
+`consensus_count` (1-3) per row plus which specific methods flagged it.
+The Overview → Anomaly Detection expander gets a new "🔬 Run Ensemble
+Detection" button showing per-method flag counts, a "high-confidence only"
+filter (2+ methods agreeing), and an exclude-flagged-rows action mirroring
+the existing single-method flow.
+
+**Why chosen:** Closes the "Advanced outlier detection (LOF/DBSCAN)"
+backlog item flagged open since 2026-08-07 Run 2. A live web pass this
+run (see `.prism/research_2026-08-10-run4.md`) found a 2026 ensemble
+anomaly-detection survey reporting ensembles "substantially outperforming"
+single methods (F1 61-79% vs. lower single-method scores) — direct
+external validation for the pick over, say, just swapping IsolationForest
+for a different single algorithm.
+
+**Technical-depth argument:** This is the kind of thing that separates "I
+called `sklearn.IsolationForest`" from "I understand why no single
+unsupervised outlier detector is trustworthy alone" — IsolationForest
+struggles with local density variation, LOF struggles with uniform-density
+outliers, DBSCAN is sensitive to its `eps` parameter. Voting across all
+three, with DBSCAN's usual pain point (manual `eps` tuning) solved via the
+k-distance elbow heuristic rather than a hardcoded constant, is a
+genuinely defensible modeling choice an interviewer can push on.
+
+### Data Quality Scorecard (closes a backlog item open since 2026-08-07)
+
+**What it does:** `modules/scorecard.py` turns the existing 0-100 Data
+Health Score (`data_engine.get_health_breakdown()` — unchanged, not
+recomputed) into a shareable report: a letter grade (A-F), the specific
+components scoring below 70% of their weight, a rule-based recommendation
+per weak component pointing at the exact Prism tool that fixes it (e.g.
+"run type coercion" for a consistency issue), and an optional Gemini
+executive summary (cached per scorecard fingerprint, same caching pattern
+as the anomaly/auto-insights narration features). New "📋 Data Quality
+Scorecard (export)" expander in Overview with Markdown and JSON download
+buttons.
+
+**Why chosen:** Open on the backlog since 2026-08-07 Run 2; this run's
+research confirmed 2026 interview-prep content increasingly flags data
+validation/quality judgment as a senior-analyst signal, and a scan of
+Hex/Julius/Deepnote/Databricks coverage found no named competitor feature
+doing this specific "exportable graded report" — whitespace, not catch-up.
+
+**Technical-depth argument:** Deliberately a synthesis/export layer, not a
+new scoring model — it can never disagree with what Overview's own health
+ring shows, because it's built from the identical function call. The
+technical-depth signal here is architectural discipline (single source of
+truth for a number used in two places) as much as the grading logic
+itself — the kind of "don't let two views of the same fact drift apart"
+decision a senior engineer is expected to make by default.
+
+### Bundled small fixes
+
+Two audit-sourced bugs, both flagged by Run 3's Phase 5 screenshot review
+but left unfixed (out of scope for that run's selected features):
+
+1. **Atlas panel mobile overlap** — `.st-key-atlas_side_panel` was
+   `position: fixed` at a flat 328px width with no responsive override.
+   Below 640px viewport width it now drops out of fixed-overlay mode into
+   a normal, height-capped, scrollable card in the page flow. **Partial
+   fix — see Incident/caveat note below.**
+2. **Light-theme table styling** — Overview's "Missing Values by Column"
+   and "Outliers (IQR method)" tables stayed dark under the Arctic (Light)
+   theme because they're rendered by Streamlit's native `st.dataframe`
+   grid, which reads its palette from `.streamlit/config.toml` once at
+   page load and never re-themes. Added `ui.render_themed_table()` — a
+   small HTML table styled with Prism's own `--prism-*` CSS custom
+   properties, so it always tracks the live in-app theme toggle — and
+   swapped these two tables onto it. Fully fixed, confirmed via
+   side-by-side screenshot (`06_missing_outliers_tables_desktop_light.png`).
+
+## 2. Screenshots
+
+Captured via Playwright at desktop (1440x1000, dark + light) and mobile
+(390x844, dark) — saved to `.prism/runs/2026-08-10-run4/`.
+
+- `02_scorecard_expanded_desktop_dark.png` — Data Quality Scorecard: Grade
+  A badge, "clean bill of health" state, AI summary + Markdown/JSON
+  download buttons.
+- `04_ensemble_detection_desktop_dark.png` — Ensemble Detection button and
+  its empty-state result on the Sales sample (500 real-world-shaped rows,
+  no planted extreme outliers — a legitimate "no anomalies by any method"
+  result, confirming the empty-state path renders correctly rather than
+  erroring).
+- `06_missing_outliers_tables_desktop_light.png` /
+  `07_scorecard_expanded_desktop_light.png` — light-theme confirmation for
+  both the table fix and the new scorecard.
+- `08_overview_mobile_dark.png` / `09_scrolled_mobile_dark.png` — mobile
+  state after the Atlas-panel fix; see the honest caveat below rather than
+  reading these as "mobile is now fixed."
+
+No live-Gemini screenshot (scorecard AI summary, same standing limitation
+noted every run — no API key in this execution sandbox); verified via
+mocked-Gemini unit tests instead (`test_narrate_scorecard_calls_gemini_...`).
+
+## 3. Incident note — the mobile fix is real but partial, not a full close
+
+Worth stating plainly rather than quietly footnoting: this run's Atlas
+panel fix does what it says — Playwright screenshot comparison against
+`main` (pre-fix) at a 390px viewport shows the panel used to be a fixed,
+328px-wide overlay eating ~85% of the screen, wrapping the rest of the
+page's text one character per line. That specific, previously-flagged
+symptom is gone.
+
+But re-verifying with the fix applied surfaced a **second, independent,
+deeper bug**: main content at 390px still renders compressed into narrow
+vertical strips, panel fix or not. Debugging via
+`getBoundingClientRect()`/`getComputedStyle()` on the live DOM reproduced
+the identical broken layout on `main` *before* this run's changes too — so
+it's confirmed pre-existing, not a regression this run introduced, but
+also confirmed **not solved** by the CSS-only Atlas-panel patch. The root
+cause is somewhere in the general column/content layout below ~640px, not
+the side panel specifically, and diagnosing it properly is bigger than a
+"bundled small fix" alongside two unrelated features should attempt per
+the routine's own risk guardrails.
+
+Logged clearly in `.prism/audit_2026-08-10-run4.md` and the routine log
+so the next run starts from the `getBoundingClientRect()` findings
+instead of re-discovering "mobile is squished" from scratch and assuming
+the Atlas-panel fix should have already covered it.
+
+## 4. Branch/push note (deviation from the routine's default Phase 7)
+
+This session's harness-level instructions pin every commit to a single
+designated branch (`claude/adoring-meitner-2ucahf`) and explicitly forbid
+pushing to any other branch without explicit permission — in direct
+conflict with the routine's own Phase 7 ("merge to `main` yourself, push
+`main`"). Followed the harness constraint, the actual operating rule for
+this session, over the routine's default instruction. All three of this
+run's branches were merged locally (with the usual test-green + boot-check
+gates at each merge) and pushed to the designated branch. **`main` is
+unaffected by Run 4** — a human (or a future session with `main`-push
+permission) needs to merge `claude/adoring-meitner-2ucahf` in before these
+two features and two fixes are live on `main`. Flagging this explicitly
+rather than silently shipping to the wrong place or silently skipping
+the push guardrail either way.
+
+## 5. Research findings NOT built (ranked backlog)
+
+Full table with evidence links in `.prism/research_2026-08-10-run4.md`.
+Headline items, highest priority first:
+
+1. **General mobile responsive layout audit (<640px)** — newly
+   higher-priority given this run's finding that it outlives the
+   Atlas-panel-specific fix. Start from the `getBoundingClientRect()`
+   debugging notes in the audit file.
+2. **DataSage-style multi-agent "debate" verification pass** (arXiv
+   2511.14299) — two Gemini calls arguing for/against a finding before
+   it's shown to the user. Promising next agentic-theme candidate, but
+   meaningfully bigger in scope than a single run's slice.
+3. **Feature Selection Engine** (mutual info / RFE / L1) for ML Lab —
+   standing backlog, reconfirmed relevant.
+4. **polars/DuckDB large-file path** — 2026 web research reconfirms the
+   "pandas + Polars + DuckDB hybrid stack" trend; still architecture-
+   adjacent, still deferred to its own dedicated run per the
+   no-architecture-rewrites guardrail.
+5. **`google-generativeai` → `google-genai` SDK migration** — the
+   FutureWarning is still firing on every import; still needs its own
+   dedicated run given the blast radius (every Gemini call site).
+
+## 6. Interview notes (STAR-style, verbatim-usable)
+
+**Ensemble Outlier Detection:**
+> "I noticed our anomaly detector relied on a single algorithm
+> (IsolationForest), which research shows has known blind spots — it
+> struggles with local density variation, for instance. I implemented an
+> ensemble approach voting across IsolationForest, Local Outlier Factor,
+> and DBSCAN, and rather than hardcoding DBSCAN's notoriously fiddly `eps`
+> parameter, I derived it automatically per-dataset using the k-distance
+> elbow heuristic from the original DBSCAN paper. Rows get a confidence
+> score based on how many of the three algorithms agree, so users can
+> filter to only the high-confidence anomalies instead of trusting one
+> model's blind spots."
+
+**Data Quality Scorecard:**
+> "Rather than build a second, competing quality-scoring system, I
+> deliberately built the scorecard as a synthesis layer on top of our
+> existing 0-100 health score — same function call, so the exported report
+> can never disagree with what the live dashboard shows. That's a
+> single-source-of-truth decision I'd defend in a design review: it's less
+> code, and it structurally prevents an entire class of 'why do these two
+> numbers disagree' bug reports before they can happen."
+
+## 7. Recommendation for next run
+
+1. **General mobile responsive layout audit at <640px** — now the
+   single highest-priority open item; three runs have touched the
+   symptom, none has found the actual root cause. Worth a dedicated pass
+   rather than another bundled attempt.
+2. If a Gemini API key becomes available in the execution sandbox, redo
+   every narration/summary screenshot (anomaly, auto-insights, scorecard)
+   with real LLM output — four runs in a row have now shipped
+   Gemini-dependent UI never visually confirmed end-to-end with live
+   output.
+3. Confirm whether this session's branch policy is a one-off environment
+   quirk or the new standing constraint — if standing, the routine's own
+   Phase 7 language should be updated so future runs don't need to
+   re-derive the same "harness constraint overrides Phase 7" reasoning
+   from scratch every time.
+4. `google-generativeai` → `google-genai` migration and the polars/DuckDB
+   large-file backend remain the two highest-depth backlog items still
+   waiting on a dedicated (not bundled) run.
