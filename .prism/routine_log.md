@@ -397,3 +397,93 @@ runs agree it needs a dedicated regression-tested session), live-Gemini
 screenshot verification (fifth consecutive run with no API key in the
 sandbox), PyGWalker-style drag-and-drop chart builder (new candidate from
 this run's research, competitor-parity with Hex/Deepnote, effort L).
+
+---
+
+## 2026-08-10 — Run 6 (fourth independent session, same day)
+
+**Orientation:** `origin/main` at Run 5's tip (`3ecb652`), no drift. Full
+audit in `.prism/audit_2026-08-10-run6.md`, research in
+`.prism/research_2026-08-10-run6.md`. Baseline: 132/132 pytest green
+(same `cffi`/`cryptography` reinstall quirk as Run 5), but with a live
+`FutureWarning` confirming the standing SDK-migration backlog item was
+still real.
+
+**Selected work (2 items):**
+1. **`google-generativeai` → `google-genai` SDK migration** — the item
+   four consecutive prior runs (2026-08-07 ×2, Run 3, Run 4) flagged as
+   "needs a dedicated regression-tested session" but kept deferring.
+   Traced the actual call graph before writing anything: `call_gemini
+   (model, contents)` was already the sole choke point every caller uses
+   (chat, Auto Analyst, Atlas, anomaly/insight narration, ...) — only two
+   files build `genai.GenerativeModel` instances directly
+   (`ai_analyst.get_model`/`get_sql_model`, `atlas._client`). Built a
+   `_GeminiModel` adapter over the new `google.genai.Client` API so every
+   downstream call site's `model.generate_content(contents) ->
+   response.text` interface stayed identical — contained the migration to
+   those two files instead of a full rewrite. Also fixed two real
+   behavior differences the new SDK has vs. the old one: conversational
+   `contents` need `{"text": ...}` Part dicts, not bare strings (verified
+   empirically against the SDK's own transformer, which raises a
+   `pydantic.ValidationError` on the old shape); and `response.text`
+   returns `None` for a safety-filtered/empty response instead of raising
+   an exception, so `call_gemini`'s guard changed from try/except to a
+   value check. 16 new tests
+   (`tests/test_gemini_client.py`). No more `FutureWarning` on import;
+   confirmed zero remaining `google.generativeai` references in app code.
+2. **Confounder / Simpson's Paradox Detector**
+   (`modules/confounder_detection.py`) — this cycle's required agentic-AI-
+   analysis pick. Runs automatically on every dataset load
+   (`auto_scan_for_confounding()`, no Gemini call needed for detection),
+   stress-testing the dataset's strongest correlations against every
+   other column: stratified per-group Pearson correlation for categorical
+   confounders (with an n-weighted pooled average and a heterogeneity
+   check for subgroups that simply disagree with each other), closed-form
+   partial correlation for numeric ones. Flags true sign-reversal
+   paradoxes and material attenuation, ranked worst-first. New "Confounder
+   Check" panel in Overview, directly below Auto-Insights, only rendering
+   when it found something — the healthy/common case is silence, by
+   design (same "don't manufacture noise" precedent as the anomaly/
+   insight detectors before it). Optional Gemini narration via the
+   existing `call_gemini()` plumbing, same cached/graceful-fallback
+   convention as every other narrate_* helper. 16 new tests
+   (`tests/test_confounder_detection.py`), including a textbook synthetic
+   Simpson's Paradox fixture (r flips from +0.49 pooled to -1.00 within
+   each group) verified end-to-end in a live Playwright-driven Streamlit
+   run, not just unit-tested in isolation.
+
+**Bundling decision:** both shipped on one branch
+(`feature/genai-migration-and-confounder-check`, two separate commits) —
+same rationale as Run 5's precedent: the SDK migration touches
+`ai_analyst.py`/`atlas.py` broadly enough that a second branch built from
+the same starting point would just be manual patch surgery for no real
+safety benefit, since both were built, tested, and verified together in
+one sitting with two independently revertable commits.
+
+**New finding, not fixed this run (backlog):** a light-theme Playwright
+screenshot taken via a live in-session theme switch still showed dark
+canvas-row styling on the Overview "Missing Values"/"Outliers" tables
+(`.prism/runs/2026-08-10-run6/03_confounder_desktop_light.png`), despite
+Run 4's `sync_native_theme()` fix. Not chased down this run — unclear yet
+whether this is a genuine regression or a same-session repaint lag (a
+fresh page load on light theme wasn't tested). Flagged for the next run.
+
+**Outcome:** one feature branch
+(`feature/genai-migration-and-confounder-check`), tested (164/164 pytest
+green, 32 new tests), merged to `main` (`--no-ff`), pushed. Playwright
+screenshots at desktop dark (collapsed + expanded), desktop light, mobile
+dark, and the no-API-key graceful-fallback state — see
+`.prism/runs/2026-08-10-run6/`. Fresh-clone-from-scratch install + test +
+boot check on `main` passed (164/164 pytest, HTTP 200, no traceback).
+Pushed both `main` and this session's designated branch
+(`claude/adoring-meitner-2h6bkk`, fast-forwarded to match) per this
+session's repo-access setup.
+
+**Not built (backlog for next run):** polars/DuckDB large-file path
+(architecture-adjacent, six consecutive runs now), PyGWalker-style
+drag-and-drop chart builder (effort L, competitor-parity), causal-
+inference correction tooling as a follow-on to this run's confounder
+*detection* (propensity-score matching / diff-in-diff — new candidate
+from this run's research, effort L, depth 5), light-theme dataframe
+canvas-styling re-check (new finding above), live-Gemini screenshot
+verification (sixth consecutive run with no API key in the sandbox).
