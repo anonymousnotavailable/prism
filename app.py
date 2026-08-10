@@ -42,6 +42,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_sweep,
     india,
     insight_verifier,
     join_engine,
@@ -139,6 +140,10 @@ _DEFAULTS = {
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
+    "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
+    "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
+    "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
     "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
@@ -282,6 +287,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
     st.session_state.stats_lab_result = None
+    st.session_state.hypothesis_sweep_result = None
+    st.session_state.hypothesis_sweep_narration = None
+    st.session_state.hypothesis_sweep_narration_fingerprint = None
+    st.session_state.mllab_feature_selection_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
     st.session_state.stl_decomp_result = None
@@ -3349,6 +3358,86 @@ elif st.session_state.active_section == "Stats Lab":
                     for warning_msg in stats_lab.normality_warnings(result):
                         st.warning(warning_msg)
 
+        st.divider()
+        st.markdown("#### 🔎 Hypothesis Sweep — automated multi-test scan")
+        st.caption(
+            "Runs every viable pairwise test across the dataset automatically (instead of one "
+            "pair at a time) and corrects for the multiple-comparisons problem with "
+            "Benjamini-Hochberg false-discovery-rate correction, so the findings that survive "
+            "are statistically defensible, not noise."
+        )
+
+        if st.button("Run Hypothesis Sweep", key="run_hypothesis_sweep_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.hypothesis_sweep_result = hypothesis_sweep.sweep_hypotheses(df, column_types)
+            st.session_state.hypothesis_sweep_narration = None
+            st.session_state.hypothesis_sweep_narration_fingerprint = None
+
+        sweep_result = st.session_state.hypothesis_sweep_result
+        if sweep_result is None:
+            ui.render_empty_state(
+                "🔎", "No sweep run yet",
+                'Click "Run Hypothesis Sweep" to automatically test every column pair.',
+            )
+        elif not sweep_result["tested"]:
+            st.info("No column pairs were viable to test in this dataset.")
+        else:
+            sw1, sw2, sw3 = st.columns(3)
+            sw1.metric("Tests run", sweep_result["n_tests_run"])
+            sw2.metric("Significant after FDR correction", sweep_result["n_significant"])
+            sw3.metric("Pairs skipped", sweep_result["n_pairs_skipped"])
+
+            significant_rows = [r for r in sweep_result["tested"] if r["significant"]]
+            if not significant_rows:
+                st.info(
+                    f"None of the {sweep_result['n_tests_run']} test(s) run stayed significant "
+                    "after false-discovery-rate correction — no reliable relationships found."
+                )
+            else:
+                sweep_df = pd.DataFrame(
+                    [
+                        {
+                            "Column A": r["col_a"],
+                            "Column B": r["col_b"],
+                            "Test": r["test_label"],
+                            "Effect size": f"{r['effect_size']:.3f} ({r['effect_size_label']})",
+                            "p (raw)": f"{r['p_value']:.4g}",
+                            "p (FDR-adjusted)": f"{r['p_adj']:.4g}",
+                            "n": r["n"],
+                        }
+                        for r in significant_rows
+                    ]
+                )
+                st.dataframe(sweep_df, use_container_width=True, hide_index=True)
+
+                sweep_chart = hypothesis_sweep.build_sweep_chart(sweep_result)
+                if sweep_chart is not None:
+                    st.plotly_chart(sweep_chart, use_container_width=True)
+
+                # AI narration — cached per fingerprint of this exact sweep result,
+                # same pattern as anomaly narration: only a genuinely different
+                # sweep result invalidates the cache.
+                current_sweep_fp = hypothesis_sweep.fingerprint_sweep(sweep_result)
+                if (
+                    st.session_state.hypothesis_sweep_narration
+                    and st.session_state.hypothesis_sweep_narration_fingerprint == current_sweep_fp
+                ):
+                    st.info(f"🤖 {st.session_state.hypothesis_sweep_narration}")
+                elif st.button(
+                    "✨ Explain these findings with AI",
+                    key="narrate_hypothesis_sweep_btn",
+                    help="Ask Gemini to interpret the significant relationships and suggest a next step",
+                ):
+                    sweep_model = ai_analyst.get_model()
+                    with st.spinner("Gemini is reviewing the sweep results…"):
+                        narration, narr_error = hypothesis_sweep.narrate_sweep(sweep_model, sweep_result)
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.hypothesis_sweep_narration = narration
+                        st.session_state.hypothesis_sweep_narration_fingerprint = current_sweep_fp
+                        st.rerun()
+
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.
 # Pick a datetime + numeric column, get a statsmodels forecast (Exponential
@@ -3926,6 +4015,52 @@ elif st.session_state.active_section == "ML Lab":
                 st.warning(mllab.imbalance_explanation(imbalance_info))
                 mllab_use_smote = st.checkbox("Apply SMOTE resampling to the training set", key="mllab_use_smote")
                 st.caption(mllab.SMOTE_TEST_SET_NOTE)
+
+        st.divider()
+        st.markdown("#### 🧭 Feature Selection Engine")
+        st.caption(
+            "Cross-checks Mutual Information, an L1-regularized linear model, and Recursive "
+            "Feature Elimination (Random Forest) against each other — the same self-verifying-"
+            "ensemble pattern used for anomaly detection, applied here to picking features. A "
+            "feature's consensus score is how many of the 3 methods agree it matters."
+        )
+        if len(mllab_selected_features) < mllab.FEATURE_SELECTION_MIN_FEATURES:
+            st.info(f"Pick at least {mllab.FEATURE_SELECTION_MIN_FEATURES} feature columns above to run selection.")
+        elif st.button("Run Feature Selection", key="run_feature_selection_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.mllab_feature_selection_result = mllab.run_feature_selection(
+                    df, mllab_selected_features, mllab_target_col, mllab_task_type
+                )
+
+        fs_result = st.session_state.mllab_feature_selection_result
+        if fs_result is None:
+            ui.render_empty_state(
+                "🧭", "No selection run yet",
+                'Click "Run Feature Selection" to rank the chosen feature columns.',
+            )
+        elif fs_result.get("error"):
+            st.error(fs_result["error"])
+        else:
+            st.caption(
+                f"{fs_result['n_features']} preprocessed feature(s) ranked "
+                f"(categorical columns are one-hot expanded). Top {fs_result['top_k']} recommended below."
+            )
+            st.success(f"**Recommended features:** {', '.join(fs_result['recommended_features'])}")
+
+            display_ranking = fs_result["ranking"].copy()
+            display_ranking.index.name = "Feature"
+            display_ranking = display_ranking.rename(
+                columns={
+                    "mutual_info": "Mutual Info",
+                    "l1_coef_abs": "|L1 coef|",
+                    "rfe_selected": "RFE selected",
+                    "consensus_votes": "Consensus (/3)",
+                    "consensus_rank": "Avg. rank",
+                }
+            )[["Mutual Info", "|L1 coef|", "RFE selected", "Consensus (/3)", "Avg. rank"]].round(4)
+            st.dataframe(display_ranking, use_container_width=True)
+
+            st.plotly_chart(mllab.build_feature_selection_chart(fs_result["ranking"]), use_container_width=True)
 
         if not mllab_selected_features:
             st.info("Pick at least one feature column.")
