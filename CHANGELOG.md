@@ -2,6 +2,36 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 5)
+
+### Added
+- **Feature Selection Engine** (`modules/mllab.py`) — ML Lab gets a new
+  "Feature Selection Engine" section between the Feature Engineering
+  Assistant and Baseline Model Runner. Cross-checks three feature-
+  selection methods with different assumptions over the same candidate
+  columns: Mutual Information (model-free, non-linear relationships), an
+  L1-penalized model (Lasso / L1-LogisticRegression — zeroes out a
+  coefficient entirely when a feature adds nothing beyond the others),
+  and Recursive Feature Elimination (repeatedly refits and drops the
+  weakest feature, catching interactions the other two — which score
+  each feature independently — miss). Every method scores at the
+  *original column* level (categoricals ordinal-encoded rather than
+  one-hot expanded) so results map 1:1 to columns the user recognizes.
+  Each feature gets a 0-3 "votes" consensus score and a "🗳️ Recommended
+  (≥2 of 3 methods agree)" callout, with a "Use recommended features
+  below" shortcut that pre-fills the Baseline Model Runner's multiselect.
+  `narrate_feature_selection()` asks Gemini to explain which features are
+  genuine signal vs. noise — the same self-verifying-agent pattern as
+  anomaly.py's ensemble narration (deterministic sklearn methods do the
+  actual selection; Gemini's only job is interpretation), cached per a
+  fingerprint of the vote result so re-viewing doesn't re-spend a call,
+  with a graceful "No Gemini model available for narration" fallback when
+  no API key is configured. Closes the "Feature Selection Engine
+  (mutual info/RFE/L1)" backlog item open since 2026-08-07; serves this
+  cycle's required agentic-AI theme via the multi-method consensus +
+  narration pattern. 18 new tests — `modules/mllab.py` had zero prior
+  test coverage; this is its first test file.
+
 ## 2026-08-10 (Run 4)
 
 ### Added

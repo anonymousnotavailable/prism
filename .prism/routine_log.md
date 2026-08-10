@@ -334,3 +334,95 @@ screenshot verification (fourth consecutive run with no API key in the
 sandbox — anomaly narration, ensemble disagreement narration, and
 Auto-Insights narration are all still only verified via unit tests + the
 graceful-fallback-message screenshot).
+
+---
+
+## 2026-08-10 — Run 5
+
+**Orientation:** `claude/adoring-meitner-rewrhw` was already at Run 4's
+tip — no drift to reconcile. Confirmed the shipped-feature list in this
+session's brief against `CHANGELOG.md` and `modules/` directly rather
+than re-running a full audit (per this run's leaner scope): SQL Lab,
+SHAP, Titan Enrichment, Chaos Intensity, Atlas voice+HUD, Hell/India
+Mode, FastAPI service, and the LFI/SSRF sandbox hardening are all present
+and were left untouched, as instructed.
+
+**Research:** light pass only, per this run's reduced-research scope —
+confirmed the standing backlog is still accurately prioritized rather
+than repeating the full 4-source sweep prior runs already did.
+
+**Selected feature:** Feature Selection Engine (`modules/mllab.py`) —
+closes the backlog item open since 2026-08-07 Run 2 and satisfies this
+cycle's required agentic-AI theme in one move, per the brief's suggested
+pairing. Cross-checks three feature-selection methods with genuinely
+different assumptions — Mutual Information (model-free, non-linear),
+L1-penalized regression (zeroes out redundant coefficients), and
+Recursive Feature Elimination (catches interactions the other two score
+independently and miss) — the same ensemble-consensus pattern
+`anomaly.py`'s Run 4 detector established, applied to a different
+problem. Every feature gets a 0-3 vote count and a "Recommended (≥2 of 3
+agree)" callout that can pre-fill the Baseline Model Runner's feature
+list. `narrate_feature_selection()` asks Gemini to explain which features
+are real signal vs. noise, cached by a fingerprint of the vote result
+(same caching shape as `anomaly.fingerprint_flagged()`), with a graceful
+fallback message when no Gemini model is available — verified directly in
+this run's own screenshots (no API key in the sandbox, same standing
+limitation as every prior run).
+
+**Test coverage note:** `modules/mllab.py` (Feature Engineering
+Assistant, Baseline Model Runner, SHAP, class-imbalance detection — all
+pre-existing, general-development-era code, not this routine's own work)
+had **zero** prior tests — `tests/test_mllab.py` did not exist before
+this run. Not treated as a bug to backfill wholesale (out of this run's
+lean scope and not something this routine shipped), but flagged here so
+a future run doesn't assume mllab.py has the coverage its neighbors do.
+This run's 18 new tests cover only the new Feature Selection Engine
+functions, not the pre-existing ML Lab code.
+
+**Verification:** full pytest suite 116/116 green (98 before this run,
++18 net new, all in the new `tests/test_mllab.py`). One environment gap
+found and fixed before any test ran: the sandbox's `cryptography` package
+(a transitive dependency of `google-generativeai`) was missing its
+`_cffi_backend` native module, crashing *any* test that imports
+`modules.ai_analyst` (including pre-existing, previously-passing tests
+like `test_anomaly.py`'s narration tests) — not caused by this run's
+changes, fixed by `pip install cffi`. Playwright screenshots captured at
+desktop (1440px) and mobile (390px), dark and light theme, covering the
+empty state, a populated result (votes chart + per-feature table +
+recommended-features callout), and the graceful no-API-key narration
+fallback — 14 screenshots total in `.prism/runs/2026-08-10/fse_*.png`.
+Desktop got all 4 shots per theme; mobile got 3 of 4 (the narration
+button sits behind Streamlit's sticky mobile chat-input footer, which
+blocked Playwright's click on both mobile themes despite `force: true` —
+documented as this run's own instance of the standing "Streamlit
+Playwright automation can be flaky" issue rather than burning further
+time on it; the narration fallback itself was already confirmed working
+on desktop). Fresh boot check (`streamlit run app.py` + `curl
+localhost:8501`) returned HTTP 200 with no traceback.
+
+**Outcome:** one feature branch (`feature/feature-selection-engine`)
+built test-first, merged to `claude/adoring-meitner-rewrhw`, pushed.
+
+**Not built (backlog for next run):** polars/DuckDB large-file path
+(five consecutive runs now agree it needs a dedicated session — but see
+correction below), `google-generativeai` → `google-genai` migration (four
+consecutive runs agree it needs a dedicated regression-tested session —
+the deprecation `FutureWarning` now fires on every single test run,
+worth prioritizing soon), live-Gemini screenshot verification (fifth
+consecutive run with no API key in the sandbox), mobile feature-selection
+narration button behind the sticky chat footer (cosmetic Playwright-only
+finding above, not confirmed as a real user-facing click-blocking bug —
+worth a quick manual check next time a human has access to the live app).
+
+**Correction to the standing backlog:** "polars/DuckDB large-file path"
+should probably be re-scoped, not just re-flagged again. `modules/sql_lab.py`
+already runs on DuckDB (confirmed present, not rebuilt this run per the
+brief's instruction) — DuckDB itself already handles out-of-core /
+larger-than-memory query execution well. The real remaining gap is
+narrower than "add DuckDB": it's that the *rest* of the app (Overview,
+Clean, Visualize, ML Lab, etc.) still loads the full file into a pandas
+DataFrame via `data_engine` before SQL Lab or anything else ever runs, so
+a genuinely large file can fail at upload/parse time before DuckDB gets
+a chance to help. Next run should scope this as "pandas→polars/DuckDB
+for the *ingest* path specifically," not a general "add DuckDB" item —
+the query engine already exists.
