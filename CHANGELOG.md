@@ -4,7 +4,35 @@ All notable changes to Prism are logged here, newest first.
 
 ## 2026-08-10
 
-### Added
+### Added (Run 4)
+- **Feature Selection Engine** (`modules/feature_selection.py`) — ranks
+  candidate ML Lab feature columns by predictive value for the chosen
+  target using three complementary methods (Mutual Information, L1
+  Lasso/LogisticRegression coefficients, Recursive Feature Elimination),
+  synthesizes a consensus ranking, and flags likely-redundant or
+  ID-like columns. Sits between the Feature Engineering Assistant and
+  Baseline Model Runner in ML Lab, with a one-click "use recommended
+  features" handoff. 13 new tests.
+- **Data Quality Scorecard** (`modules/quality_scorecard.py`) — turns
+  the existing 0-100 Data Health Score into a per-column, letter-graded
+  (A-F) scorecard exportable as a one-page PDF (`report_writer.py`) or
+  JSON, for handing to someone who never opens Prism. New expander on
+  the Overview tab, right below the health-score breakdown. 17 new
+  tests.
+
+### Fixed (Run 4)
+- Recursive Feature Elimination's default `step=1` did one model fit
+  per one-hot column removed — fine for a handful of numeric features,
+  but a single high-cardinality ID-like categorical column (e.g. one
+  distinct value per row) one-hot expands into hundreds of columns,
+  turning that into hundreds of sequential fits (~10s on a 300-row
+  demo dataset). Caught during this run's own Phase 5 screenshot
+  verification. Bounded the step size so ranking degrades gracefully
+  regardless of one-hot width (~3s after the fix); the Feature
+  Selection Engine also now flags likely-ID candidate columns in its
+  narrative output.
+
+### Added (Run 3)
 - **Anomaly narration** (`modules/anomaly.py`) — Gemini explains the
   pattern behind IsolationForest-flagged rows in plain English (data-entry
   errors vs. genuine rare events) with one suggested next action, from an
@@ -29,7 +57,7 @@ All notable changes to Prism are logged here, newest first.
   `git log -- tests/` showed none were ever actually committed; discovered
   during this run's audit and backfilled as a small fix.
 
-### Fixed
+### Fixed (Run 3)
 - The Atlas side panel's small header orb (`.atlas-orb-sm`) had its size
   set in `modules/theme.py` but no background/gradient/animation — those
   rules lived only in `atlas.py`'s CSS block, injected solely by

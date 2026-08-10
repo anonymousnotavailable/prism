@@ -269,3 +269,119 @@ dedicated run), `google-generativeai` → `google-genai` migration (still
 needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
 reconfirmed present in this run's own mobile screenshot), light-theme
 dataframe styling on Overview (new finding above).
+
+---
+
+## 2026-08-10 — Run 4
+
+**Orientation:** read this file and `CHANGELOG.md` in full — this is the
+same day's second scheduled run (Run 3 above already shipped anomaly
+narration + the Atlas alert HUD earlier today). No overlap with Run 3's
+work; picked from the still-open backlog it left.
+
+**Branch note (process, not product):** this session's harness assigned a
+specific development branch (`claude/adoring-meitner-qjt1uj`) with an
+explicit instruction to never push elsewhere without live user approval.
+That conflicts with this routine's own Phase 7 ("merge to `main`, push
+`main`, no PR wait"), since a scheduled run has no live user to approve a
+branch change mid-run. Treated the harness-level branch constraint as
+authoritative (it's a safety guardrail, not a preference) — all of this
+run's commits landed on the assigned branch instead of `main`. **Next run:
+if the same constraint applies, do the same; if a live user is present,
+ask once whether to push straight to `main` as the routine describes.**
+
+**Selected features (2, both from the standing backlog):**
+1. **Feature Selection Engine** (`modules/feature_selection.py`) — Mutual
+   Information + L1 Lasso/LogisticRegression + RFE consensus ranking for
+   ML Lab, with a one-click "use recommended features" handoff into the
+   Baseline Model Runner. Pure ML technical-depth pick (this run's
+   agentic-theme feature is the scorecard below, via its automatic,
+   unprompted generation on every dataset load — no feature this run
+   advanced the Atlas copilot track, which is fine per the routine's own
+   "at most one per run" cap, not "at least one").
+2. **Data Quality Scorecard** (`modules/quality_scorecard.py` +
+   `report_writer.generate_quality_scorecard_pdf`) — turns the existing
+   0-100 Data Health Score into a per-column letter-graded, exportable
+   (PDF/JSON) scorecard. Closes the "Data Quality Score scorecard"
+   backlog item both prior 2026-08-07 runs and Run 3 left open.
+
+**Bug found and fixed during Phase 5 verification:** ranking a realistic
+HR dataset's `employee_id` column (one distinct value per row) took ~10s
+because RFE's default `step=1` did one model fit per one-hot column
+(hundreds of them). Bounded the step size — ~3s after the fix — and added
+a narrative flag for likely-ID candidate columns. See CHANGELOG.
+
+**Two fix attempts tried and reverted this run (both logged so the next
+run doesn't repeat them blind):**
+- **Mobile Atlas panel overlap** (open since 2026-08-07): tried making
+  `.st-key-atlas_side_panel` `position: static` at narrow viewports
+  instead of `fixed`. Made it *worse* — the panel's content collapsed
+  into a flex-squeeze with other page elements (characters wrapping
+  one-per-line, near-zero-width columns), not just the original
+  squished-but-visible strip. Reverted. Root cause is deeper than the
+  panel's own CSS: something upstream sizes siblings assuming the panel
+  is out-of-flow (fixed). Next run: inspect what actually constrains
+  `stMainBlockContainer`'s width when the panel is in-flow before trying
+  a static/relative approach again.
+- **Light-theme dark dataframe rows** (open since Run 3, confirmed again
+  on this run's own new scorecard table): tried swapping the affected
+  `st.dataframe` for `st.table` + `pandas.Styler`, since plain HTML
+  tables reliably inherit Prism's injected CSS while `st.dataframe`'s
+  canvas grid doesn't. Root cause confirmed: `st.dataframe` renders via
+  glide-data-grid, which reads `.streamlit/config.toml`'s `base="dark"`
+  directly rather than Prism's runtime light/dark CSS toggle — CSS
+  injection structurally cannot repaint it. The `st.table` swap avoided
+  that specific problem but introduced a worse one: pandas Styler's
+  default HTML came out with near-invisible text contrast and
+  unformatted floats (`75.000000` instead of `75`). Reverted rather than
+  ship a fix that looks worse than the bug. A real fix needs either
+  explicit Styler `.set_properties()`/`.format()` calls per table, or
+  giving up on `st.dataframe`'s native theming entirely for a custom HTML
+  table component — worth a dedicated pass, not a piecemeal patch.
+
+**Major new finding (not fixed, out of scope for this run — flagged for
+next run's audit):** every Plotly chart in the app — not just this run's
+new consensus-ranking chart, confirmed on the pre-existing, untouched
+"Class Distribution" (ML Lab) and "Auto-Generated Charts" (Visualize tab)
+too — stays dark-templated when the Arctic (Light) theme is active.
+`theme.apply_plotly_theme()` correctly rebuilds a light `go.layout.Template`
+and sets `pio.templates.default` on every script rerun (verified
+`_build_template("arctic")` directly returns white `paper_bgcolor`), so
+the bug isn't in template construction. Confirmed via an isolated,
+single-session Playwright test (no concurrent sessions racing on the
+shared global `pio.templates`) that the mismatch persists even on a
+freshly restarted server — so it's not simply a cross-session race on
+`pio.templates` either, though that global-mutable-state design is still
+worth eliminating on general principle (a genuinely concurrent multi-user
+deployment could still hit it). Root cause not isolated further this run
+(time-boxed out) — this is arguably a bigger interview-demo risk than the
+dataframe issue above, since it affects literally every chart, not two or
+three tables. **Next run: start here.** Good first step: add a debug
+`print(pio.templates.default)` right before a chart-building call in both
+themes to see whether the *default* itself is wrong at render time or
+whether individual `px.*` calls are somehow pinning an earlier template.
+
+**Verification:** 112/112 pytest green (30 new: 13 feature_selection + 17
+quality_scorecard, no regressions). Playwright screenshots at desktop
+dark/light for both features
+(`.prism/runs/2026-08-10-run2/01`-`04_*.png`) — clean, on-theme, readable.
+Mobile screenshot (`05_*.png`) documents the pre-existing Atlas-panel
+blocker rather than the features themselves (same limitation Run 2's
+2026-08-07 entry hit for anomaly narration; consistent with precedent).
+Fresh-clone boot check passed (HTTP 200, no traceback) after `pip install
+-r requirements.txt -r requirements-dev.txt`.
+
+**Outcome:** three commits on `claude/adoring-meitner-qjt1uj` (no
+separate feature branches this run — see branch note above): feature
+selection engine + tests, quality scorecard + PDF export + tests, UI
+wiring for both. Pushed to the assigned branch, not `main`.
+
+**Not built (backlog for next run):** Advanced outlier detection
+(LOF/DBSCAN), a standalone Feature Selection→Baseline Model auto-pipeline
+(beyond this run's one-click handoff), polars/DuckDB large-file path
+(architecture-adjacent, still needs a dedicated run), `google-generativeai`
+→ `google-genai` migration (still needs a dedicated run), mobile Atlas
+panel overlap (open, now with a documented failed approach to avoid
+repeating), light-theme dataframe styling (open, now with a documented
+failed approach and a more specific fix direction), **app-wide Plotly
+chart light-theme bug (new, high-priority — see finding above)**.
