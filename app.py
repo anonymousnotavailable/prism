@@ -48,6 +48,7 @@ from modules import (
     mllab,
     pii_detector,
     profiling,
+    quality_scorecard,
     recipes,
     regression_diagnostics,
     report,
@@ -1451,6 +1452,55 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    # ------------------------------------------------------------------
+    # Data Quality Scorecard — a standalone, letter-graded, shareable
+    # export of the health score above (per-column A-F grades +
+    # remediation), distinct from the full Auto-EDA report export.
+    # Fully deterministic, no Gemini call.
+    # ------------------------------------------------------------------
+    with st.expander("📋 Data Quality Scorecard", expanded=False):
+        scorecard = quality_scorecard.build_scorecard(df, quality, health_breakdown, column_types)
+        st.markdown(
+            f"### Overall grade: **{scorecard['overall_grade']}** ({scorecard['overall_score']} / 100)"
+        )
+        grades_df = pd.DataFrame(
+            [
+                {
+                    "Column": g["column"],
+                    "Grade": g["grade"],
+                    "Score": g["score"],
+                    "Type": g["type"],
+                    "Issues": "; ".join(g["issues"]) if g["issues"] else "—",
+                }
+                for g in scorecard["column_grades"]
+            ]
+        )
+        st.dataframe(grades_df, use_container_width=True, hide_index=True)
+        if scorecard["remediation"]:
+            st.write("**Remediation:**")
+            for item in scorecard["remediation"]:
+                st.markdown(f"- {item}")
+        else:
+            st.caption("No remediation items — every column scores at or above a 'D' threshold.")
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            st.download_button(
+                "⬇️ Download HTML scorecard",
+                data=quality_scorecard.render_scorecard_html(scorecard),
+                file_name="prism_data_quality_scorecard.html",
+                mime="text/html",
+                use_container_width=True,
+            )
+        with dl2:
+            st.download_button(
+                "⬇️ Download Markdown scorecard",
+                data=quality_scorecard.render_scorecard_markdown(scorecard),
+                file_name="prism_data_quality_scorecard.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
 
     # ------------------------------------------------------------------
     # Auto-Insight Engine — proactive insights surfaced on upload
