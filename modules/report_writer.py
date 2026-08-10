@@ -403,3 +403,86 @@ def generate_cleaning_certificate(
     )
 
     return bytes(pdf.output())
+
+
+# ==========================================================================
+# Data Quality Scorecard — a one-page, letter-graded PDF a data-governance
+# reviewer or manager can read without opening Prism at all. Same fpdf2
+# helpers as the certificate above; content comes from
+# modules/quality_scorecard.build_scorecard() (no new computation here).
+# ==========================================================================
+class _ScorecardPDF(FPDF):
+    def header(self) -> None:
+        self.set_fill_color(10, 14, 23)
+        self.rect(0, 0, self.w, 20, style="F")
+        self.set_text_color(0, 229, 255)
+        self.set_font("Helvetica", "B", 14)
+        self.set_xy(10, 5)
+        self.cell(0, 10, "PRISM - Data Quality Scorecard")
+        self.set_text_color(0, 0, 0)
+        self.ln(18)
+
+    def footer(self) -> None:
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(120, 130, 145)
+        self.cell(0, 10, f"Page {self.page_no()} - Prism v5", align="C")
+
+
+def generate_quality_scorecard_pdf(scorecard: dict, dataset_name: str, developer_name: str = "Prathmesh Katkade") -> bytes:
+    """Render a quality_scorecard.build_scorecard() dict as a downloadable
+    one-page PDF: overall letter grade, the 5 weighted component grades,
+    and the 5 worst-scoring columns (the ones worth looking at first)."""
+    pdf = _ScorecardPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 110, 125)
+    pdf.cell(0, 8, _sanitize_for_pdf(f"Dataset: {dataset_name}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, _sanitize_for_pdf(f"Generated: {generated_at}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0, 8,
+        _sanitize_for_pdf(f"Shape: {scorecard['n_rows']:,} rows x {scorecard['n_cols']} columns  ({scorecard['duplicate_rows']} duplicate rows)"),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.set_text_color(20, 20, 20)
+    pdf.ln(4)
+
+    _add_section_title(pdf, "Overall Grade")
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, _sanitize_for_pdf(f"{scorecard['overall_grade']}   ({scorecard['overall_score']} / 100)"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 10)
+    pdf.ln(4)
+
+    _add_section_title(pdf, "Component Grades")
+    for name, grade in scorecard["component_grades"].items():
+        score = scorecard["component_scores"][name]
+        weight = scorecard["component_weights"][name]
+        pdf.cell(0, 6, _sanitize_for_pdf(f"{name.replace('_', ' ').title()}: {grade}  ({score} / {weight})"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    _add_section_title(pdf, "Columns Needing Attention")
+    if scorecard["worst_columns"]:
+        for col in scorecard["worst_columns"]:
+            detail = f"missing {col['missing_pct']}%"
+            if col["outlier_pct"] is not None:
+                detail += f", outliers {col['outlier_pct']}%"
+            pdf.multi_cell(0, 6, _sanitize_for_pdf(f"{col['column']} ({col['type']}): {col['grade']} — {detail}"), new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.multi_cell(0, 6, "No columns flagged.", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(6)
+
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.set_text_color(100, 110, 125)
+    pdf.multi_cell(
+        0, 5,
+        _sanitize_for_pdf(
+            "This scorecard grades completeness, consistency, uniqueness, validity, and outlier burden "
+            f"for every column, weighted the same way as Prism's in-app Data Health Score. Prepared by {developer_name} using Prism v5."
+        ),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+
+    return bytes(pdf.output())
