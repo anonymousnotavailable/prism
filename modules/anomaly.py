@@ -84,3 +84,76 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+# ---------------------------------------------------------------------------
+# Anomaly narration — an agentic upgrade on top of the templated reasons
+# above: ask Gemini to explain the flagged set in plain English and suggest
+# a concrete next action. Deterministic and free when there's nothing to
+# narrate (no Gemini call for an empty result), and callers are expected to
+# cache the result per `anomaly_fingerprint()` so re-rendering the page
+# doesn't re-spend a free-tier request on an unchanged detection run.
+# ---------------------------------------------------------------------------
+
+_NARRATION_PROMPT = (
+    "You are a senior data analyst. Below is a summary of rows an anomaly-detection model "
+    "flagged as unusual. In 2-4 sentences, explain in plain English what these anomalies "
+    "likely mean for this dataset, and suggest ONE concrete next action (e.g. investigate a "
+    "specific column, exclude the rows, or treat them as a valid rare segment). Be specific "
+    "to the reasons given, not generic. Write in second person ('your data').\n\n{summary}"
+)
+
+
+def format_anomalies_text(flagged_df: Optional[pd.DataFrame], total_rows: int) -> str:
+    """Compact plain-text summary of flagged anomalies, for a Gemini prompt.
+
+    Also used directly by the UI as a fallback description when Gemini isn't
+    available.
+    """
+    if flagged_df is None or flagged_df.empty:
+        return "No anomalies were flagged."
+
+    pct = 100 * len(flagged_df) / total_rows if total_rows else 0.0
+    lines = [f"{len(flagged_df)} of {total_rows} rows ({pct:.1f}%) were flagged as anomalous by IsolationForest."]
+    if "anomaly_reason" in flagged_df.columns:
+        reason_counts = flagged_df["anomaly_reason"].value_counts().head(5)
+        lines.append("Most common reasons:")
+        for reason, count in reason_counts.items():
+            lines.append(f"- ({count}x) {reason}")
+    return "\n".join(lines)
+
+
+def narrate_anomalies(model, flagged_df: Optional[pd.DataFrame], total_rows: int) -> tuple[str, Optional[str]]:
+    """Ask Gemini to narrate the flagged anomalies in plain English with a
+    suggested next action.
+
+    Returns (narration, error). Short-circuits without a Gemini call when
+    there's no result yet or nothing was flagged.
+    """
+    if flagged_df is None:
+        return "", "No anomaly results to narrate yet — run detection first."
+    if flagged_df.empty:
+        return "No anomalies were flagged, so there's nothing to investigate.", None
+    if model is None:
+        return "", "No Gemini model available for narration."
+
+    from modules.ai_analyst import call_gemini
+
+    prompt = _NARRATION_PROMPT.format(summary=format_anomalies_text(flagged_df, total_rows))
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
+
+
+def anomaly_fingerprint(flagged_df: Optional[pd.DataFrame]) -> str:
+    """Stable fingerprint for a flagged-anomaly result set.
+
+    Callers cache narration keyed on this so switching tabs / Streamlit
+    reruns doesn't re-spend a Gemini call on an unchanged detection result —
+    only a fresh "Find Anomalies" click (which changes the flagged index or
+    empties it) invalidates the cache.
+    """
+    if flagged_df is None or flagged_df.empty:
+        return "empty"
+    return f"{len(flagged_df)}:{hash(tuple(flagged_df.index.tolist()))}"
