@@ -413,6 +413,23 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"] {
     border-radius: var(--prism-radius);
     overflow: hidden;
 }
+/* st.table renders a plain HTML <table>, but its cell text color comes
+   from Streamlit's own base stylesheet (sourced from config.toml's fixed
+   dark `textColor`, not from anything this module injects) rather than
+   inheriting `body`'s color the way most other elements do — so under a
+   light theme it painted light-on-light, unreadably faint (near-invisible
+   text, found while verifying the Overview "Missing Values"/"Outliers"
+   tables' light-theme fix this run — those two were switched from
+   st.dataframe to st.table specifically to dodge a *separate*,
+   canvas-painting-only theming bug; this rule closes the readability gap
+   that swap introduced). */
+div[data-testid="stTable"] table,
+div[data-testid="stTable"] th,
+div[data-testid="stTable"] td {
+    color: $text !important;
+    border-color: $border !important;
+}
+div[data-testid="stTable"] thead tr { background: $surface_hover !important; }
 
 /* ── Alerts ──────────────────────────────────────────────────────── */
 .stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
@@ -684,6 +701,28 @@ h1, h2, h3, h4, .prism-heading {
     font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
 }
 
+/* Mobile reflow (~768px and below — phone/PWA widths): a 328px fixed-right
+   panel eats nearly the entire viewport at phone widths and squeezes the
+   main tab content into an unreadable vertical sliver (flagged by two
+   prior routine runs, never fixed). Below the breakpoint the panel docks
+   to the bottom edge instead of the right edge, capped at 40% of the
+   viewport height, so the rest of the screen stays free for the actual
+   tab content. (An earlier attempt switched the panel to `position:
+   static` so it would sit in normal document flow above the main content
+   — reverted after Playwright screenshots showed Streamlit's flex column
+   layout collapsing it to ~32px wide and rendering it thousands of
+   pixels off-screen; `position: fixed` sidesteps that flex-flow
+   interaction entirely, same technique the desktop rule already uses.) */
+@media (max-width: 768px) {
+    .st-key-atlas_side_panel {
+        top: auto; left: 0; right: 0; bottom: 0;
+        width: 100%; max-height: 40vh;
+        border-left: none;
+        border-top: 1px solid var(--prism-border);
+        border-radius: var(--prism-radius) var(--prism-radius) 0 0;
+    }
+}
+
 /* Pipeline navigation — restyles st.segmented_control (app.py's step
    router) to read as HUD nav pills instead of generic Streamlit chips.
    The selected pill gets the beam as its underline, matching the sidebar
@@ -733,6 +772,35 @@ div[data-testid="stSegmentedControl"] label[aria-selected="true"] {
 </style>
 """
 )
+
+
+# Investigated for this run's light-theme dataframe fix, then abandoned —
+# left as a comment (not code) so the next run doesn't repeat the
+# investigation from scratch:
+#
+# `st.dataframe` renders onto a <canvas> via glide-data-grid. It exposes
+# `--gdg-*` CSS custom properties as inline styles on
+# `div.stDataFrameGlideDataEditor`, and a `!important` stylesheet rule
+# targeting that exact class DOES win the CSS cascade (confirmed live —
+# `getComputedStyle` reports the overridden value). But the canvas pixels
+# stayed dark anyway: canvas paint calls read colors from a JS theme
+# object computed once from Streamlit's own React theme context (sourced
+# from `config.toml`, independent of any CSS), not from a live
+# `getComputedStyle` read at paint time — so a CSS-only override can win
+# the cascade and still never reach the pixels. Forcing a widget remount
+# via a theme-suffixed `key=` didn't help either — the remounted instance
+# pulls the same stale value from the same unchanged React context.
+# `config.toml`'s `[theme] base` has no supported runtime-switch API.
+#
+# The two dataframe tables this was chasing (Overview's "Missing Values
+# by Column" / "Outliers (IQR method)") are fixed a different way instead:
+# swapped from `st.dataframe` to `st.table` in app.py, which renders a
+# plain HTML `<table>` that Prism's existing CSS already themes correctly
+# (same mechanism as every other themed element on the page). Any other
+# `st.dataframe`/`st.data_editor` call site in the app still has this
+# same canvas-cell-color bug under the Arctic (Light) theme — logged to
+# the routine backlog as needing either a genuine Streamlit theme-context
+# switch or a `st.table`/`st.data_editor` swap, evaluated per call site.
 
 
 def apply_custom_theme(theme_key: str = DEFAULT_THEME) -> None:

@@ -1623,7 +1623,23 @@ elif st.session_state.active_section == "Overview":
         missing_df = pd.DataFrame(
             {"Column": quality["missing_by_column"].keys(), "Missing %": quality["missing_by_column"].values()}
         ).sort_values("Missing %", ascending=False)
-        st.dataframe(missing_df, use_container_width=True, hide_index=True)
+        # st.table, not st.dataframe: these summary tables are always a
+        # handful of rows (one per column) with no need for the canvas
+        # grid's sort/scroll machinery, and st.table renders a plain HTML
+        # <table> that Prism's own CSS themes correctly. st.dataframe
+        # renders onto a <canvas> via glide-data-grid, which paints from a
+        # JS theme object sourced from Streamlit's own React theme context
+        # (derived from config.toml, not from anything this app injects) —
+        # kept rendering dark cells under the Arctic (Light) theme no
+        # matter what CSS was thrown at it (see the investigation note
+        # above `apply_custom_theme` in modules/theme.py). Fixes the
+        # dark-row-styling-under-light-theme bug flagged by the
+        # 2026-08-10 run's audit. `:g` formatting matches what
+        # st.dataframe used to render by default (trailing-zero-free —
+        # "3.8" and "0", not "3.8000") since st.table's plain HTML
+        # <table> doesn't get that formatting for free.
+        missing_df["Missing %"] = missing_df["Missing %"].map(lambda v: f"{v:g}")
+        st.table(missing_df.set_index("Column"))
 
     with col_right:
         st.markdown("**Outliers (IQR method)**")
@@ -1631,7 +1647,8 @@ elif st.session_state.active_section == "Overview":
             outlier_df = pd.DataFrame(
                 [{"Column": c, "Outliers": v["count"], "Outlier %": v["pct"]} for c, v in quality["outliers"].items()]
             ).sort_values("Outliers", ascending=False)
-            st.dataframe(outlier_df, use_container_width=True, hide_index=True)
+            outlier_df["Outlier %"] = outlier_df["Outlier %"].map(lambda v: f"{v:g}")
+            st.table(outlier_df.set_index("Column"))
         else:
             st.info("No numeric columns to check for outliers.")
 
@@ -2515,8 +2532,16 @@ elif st.session_state.active_section == "Visualize":
 
     quality_for_export = data_engine.get_data_quality_report(df, column_types)
     stats_df = visualization.get_overview_stats(df)
+    health_breakdown_for_export = data_engine.get_health_breakdown(
+        quality_for_export, column_types, st.session_state.pii_findings
+    )
     html_report = report.generate_html_report(
-        df, quality_for_export, stats_df, charts, [step["description"] for step in st.session_state.cleaning_log]
+        df,
+        quality_for_export,
+        stats_df,
+        charts,
+        [step["description"] for step in st.session_state.cleaning_log],
+        health_breakdown=health_breakdown_for_export,
     )
     st.download_button(
         "Download Full HTML Report",
