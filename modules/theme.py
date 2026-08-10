@@ -414,6 +414,27 @@ div[data-testid="stDataFrame"], div[data-testid="stTable"] {
     overflow: hidden;
 }
 
+/* ui.render_html_table() — a plain HTML table for small summary tables
+   that must actually re-theme on the light/dark toggle. st.dataframe()'s
+   canvas-based grid only reads .streamlit/config.toml's static theme, so
+   it can't; see ui.build_html_table()'s docstring for the full story. */
+.prism-html-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--prism-border);
+    border-radius: var(--prism-radius);
+}
+.prism-html-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.prism-html-table th, .prism-html-table td {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--prism-border);
+    color: var(--prism-text);
+    white-space: nowrap;
+}
+.prism-html-table thead th { background: var(--prism-surface-hover); font-weight: 600; }
+.prism-html-table tbody tr:last-child td { border-bottom: none; }
+.prism-html-table tbody tr:hover td { background: var(--prism-surface-hover); }
+
 /* ── Alerts ──────────────────────────────────────────────────────── */
 .stAlert { border-radius: 10px; animation: prismFadeInUp 0.3s $ease both; }
 

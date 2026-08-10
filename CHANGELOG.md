@@ -5,6 +5,33 @@ All notable changes to Prism are logged here, newest first.
 ## 2026-08-10
 
 ### Added
+- **ML Lab Feature Selection Engine** (`modules/feature_selection.py`) —
+  ranks every candidate feature against a chosen target by mutual
+  information (catches non-linear relevance a correlation check alone
+  would miss), flags near-duplicate feature pairs by pairwise correlation,
+  and flags multicollinearity via VIF (variance inflation factor) — the
+  standard diagnostic that catches a feature being a linear combination of
+  several others even when it isn't highly correlated with any single one.
+  Sits in ML Lab between the Feature Engineering Assistant and Baseline
+  Model Runner, with a one-click "Use recommended features" handoff and an
+  optional Gemini-narrated rationale (cached per ranking fingerprint, same
+  pattern as anomaly narration — no extra Gemini calls on re-view). 16 new
+  tests, including a regression test for an itertuples/column-name-with-
+  spaces bug caught during this run's own Phase 5 screenshot verification.
+
+### Fixed
+- Overview's "Missing Values by Column" and "Outliers (IQR method)" tables
+  (and the new Feature Selection ranking table) stayed dark-styled even
+  when Light theme was active. Root cause: `st.dataframe()` renders
+  through a canvas-based grid (glide-data-grid) that only reads
+  `.streamlit/config.toml`'s static `base = "dark"` — Prism's runtime
+  light/dark toggle just injects CSS on top of the DOM, which a canvas
+  grid never sees. Added `ui.build_html_table()` / `render_html_table()`,
+  a small themed HTML table using the app's own `--prism-*` CSS custom
+  properties, and swapped all three tables onto it. Flagged as a finding
+  in `.prism/audit_2026-08-10.md` by the previous run; fixed in this one.
+  4 new tests.
+
 - **Anomaly narration** (`modules/anomaly.py`) — Gemini explains the
   pattern behind IsolationForest-flagged rows in plain English (data-entry
   errors vs. genuine rare events) with one suggested next action, from an

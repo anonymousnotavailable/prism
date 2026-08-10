@@ -39,6 +39,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    feature_selection,
     forecasting,
     geo,
     hellmode,
@@ -132,6 +133,12 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "feature_selection_ranking": None,  # last ML Lab "Rank Features" result (DataFrame)
+    "feature_selection_error": None,  # error from the last feature-ranking attempt, if any
+    "feature_selection_narration": None,  # Gemini-narrated explanation of the last ranking
+    "feature_selection_narration_fingerprint": None,  # feature_selection.fingerprint_ranking() it covers
+    "feature_selection_ranking_target": None,  # target column the ranking above was computed against
+    "feature_selection_ranking_df_fp": None,  # (df.shape, columns) fingerprint the ranking above was computed against
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -301,6 +308,12 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.feature_selection_ranking = None
+    st.session_state.feature_selection_error = None
+    st.session_state.feature_selection_narration = None
+    st.session_state.feature_selection_narration_fingerprint = None
+    st.session_state.feature_selection_ranking_target = None
+    st.session_state.feature_selection_ranking_df_fp = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
@@ -1623,7 +1636,7 @@ elif st.session_state.active_section == "Overview":
         missing_df = pd.DataFrame(
             {"Column": quality["missing_by_column"].keys(), "Missing %": quality["missing_by_column"].values()}
         ).sort_values("Missing %", ascending=False)
-        st.dataframe(missing_df, use_container_width=True, hide_index=True)
+        ui.render_html_table(missing_df)
 
     with col_right:
         st.markdown("**Outliers (IQR method)**")
@@ -1631,7 +1644,7 @@ elif st.session_state.active_section == "Overview":
             outlier_df = pd.DataFrame(
                 [{"Column": c, "Outliers": v["count"], "Outlier %": v["pct"]} for c, v in quality["outliers"].items()]
             ).sort_values("Outliers", ascending=False)
-            st.dataframe(outlier_df, use_container_width=True, hide_index=True)
+            ui.render_html_table(outlier_df)
         else:
             st.info("No numeric columns to check for outliers.")
 
@@ -3867,13 +3880,97 @@ elif st.session_state.active_section == "ML Lab":
                         st.rerun()
 
         st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks every feature by mutual information with the target, flags near-duplicate "
+            "pairs by correlation, and flags multicollinearity via VIF — answers *which* features "
+            "are worth keeping, before the Feature Engineering Assistant above decides *how* to treat them."
+        )
+        if not feature_selection.is_available():
+            st.warning("scikit-learn and statsmodels are required. Run `pip install -r requirements.txt` and restart.")
+        else:
+            # A ranking computed against a previous target (or before a cleaning
+            # action changed the working dataset) is stale — displaying it under
+            # the new target would badge the wrong columns as recommended, and
+            # "Use recommended features" could even hand the newly-selected
+            # target back to itself as a feature. Cheap (df.shape, columns)
+            # fingerprint, not a full value hash — catches target changes and
+            # any column-adding/dropping cleaning action, which covers the
+            # actual leakage risk without hashing every cell on every rerun.
+            current_df_fp = (df.shape, tuple(df.columns))
+            ranking_is_stale = st.session_state.feature_selection_ranking is not None and (
+                st.session_state.feature_selection_ranking_target != mllab_target_col
+                or st.session_state.feature_selection_ranking_df_fp != current_df_fp
+            )
+            if ranking_is_stale:
+                st.session_state.feature_selection_ranking = None
+                st.session_state.feature_selection_error = None
+                st.session_state.feature_selection_narration = None
+                st.session_state.feature_selection_narration_fingerprint = None
+                st.session_state.feature_selection_ranking_target = None
+                st.session_state.feature_selection_ranking_df_fp = None
+
+            if st.button("Rank Features", key="rank_features_btn"):
+                with st.spinner(ui.get_loading_message()):
+                    ranking, fs_err = feature_selection.rank_features(df, column_types, mllab_target_col)
+                st.session_state.feature_selection_ranking = ranking
+                st.session_state.feature_selection_error = fs_err
+                st.session_state.feature_selection_narration = None
+                st.session_state.feature_selection_narration_fingerprint = None
+                st.session_state.feature_selection_ranking_target = mllab_target_col
+                st.session_state.feature_selection_ranking_df_fp = current_df_fp
+
+            if st.session_state.feature_selection_error:
+                st.error(st.session_state.feature_selection_error)
+            elif st.session_state.feature_selection_ranking is not None:
+                ranking = st.session_state.feature_selection_ranking
+                # HTML table, not st.dataframe — same light-theme fix as the Overview
+                # tables above (see ui.build_html_table's docstring).
+                ui.render_html_table(ranking)
+                flagged_count = (ranking["Recommendation"] != "Keep").sum()
+                if flagged_count:
+                    st.caption(f"⚠ {flagged_count} feature(s) flagged as redundant or highly collinear.")
+
+                if st.button(
+                    "Use recommended features in Baseline Model Runner below",
+                    key="apply_recommended_features_btn",
+                ):
+                    st.session_state.mllab_feature_cols = feature_selection.recommended_features(ranking)
+                    st.toast("Recommended features applied below. 🧬")
+                    st.rerun()
+
+                current_fp = feature_selection.fingerprint_ranking(ranking, mllab_target_col)
+                if (
+                    st.session_state.feature_selection_narration
+                    and st.session_state.feature_selection_narration_fingerprint == current_fp
+                ):
+                    st.info(f"🤖 {st.session_state.feature_selection_narration}")
+                elif st.button(
+                    "✨ Explain this ranking with AI",
+                    key="narrate_feature_selection_btn",
+                    help="Ask Gemini to explain which features matter and why",
+                ):
+                    model = ai_analyst.get_model()
+                    with st.spinner("Gemini is reviewing the ranking…"):
+                        narration, narr_error = feature_selection.narrate_selection(model, ranking, mllab_target_col)
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.feature_selection_narration = narration
+                        st.session_state.feature_selection_narration_fingerprint = current_fp
+                        st.rerun()
+
+        st.divider()
         st.markdown("#### Baseline Model Runner")
 
         mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
-        mllab_selected_features = st.multiselect(
-            "Feature columns", mllab_feature_choices,
-            default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
-        )
+        # No `default=` once the widget already has a session-state value (either from a
+        # prior run or the Feature Selection Engine's "Use recommended features" button
+        # above) — passing both trips Streamlit's default-vs-session-state warning banner.
+        mllab_multiselect_kwargs = {"key": "mllab_feature_cols"}
+        if "mllab_feature_cols" not in st.session_state:
+            mllab_multiselect_kwargs["default"] = mllab_feature_choices[: min(8, len(mllab_feature_choices))]
+        mllab_selected_features = st.multiselect("Feature columns", mllab_feature_choices, **mllab_multiselect_kwargs)
 
         mllab_use_smote = False
         if mllab_task_type == "classification":
