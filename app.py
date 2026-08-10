@@ -181,6 +181,7 @@ _DEFAULTS = {
     "india_mode": True,  # sidebar toggle — FY labels, Indian number formatting, day-first dates, festival markers
     "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking" | "alert"
     "atlas_alert_count": 0,  # how many high-severity Auto-Insights triggered the current "alert" orb state
+    "atlas_alert_fresh": False,  # one-run grace flag — see atlas.clear_alert()'s docstring
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
     "atlas_greeted": False,  # plays the on-load greeting exactly once per session
     "story_mode_active": False,  # True while the Story Mode overlay is showing (Atlas-narrated)
@@ -1370,6 +1371,7 @@ else:
 # --------------------------------------------------------------------------
 if not st.session_state.demo_mode_running and not st.session_state.story_mode_active:
     with st.container(key="atlas_side_panel"):
+        atlas.inject_orb_css()
         st.markdown(
             f'<div class="atlas-panel-hd">'
             f'<div class="atlas-orb-sm atlas-orb {st.session_state.get("atlas_orb_state", "idle")}"></div>'

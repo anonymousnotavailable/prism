@@ -441,16 +441,28 @@ def raise_alert(count: int) -> None:
     if count <= 0:
         return
     st.session_state.atlas_alert_count = count
+    st.session_state.atlas_alert_fresh = True  # see clear_alert()'s docstring
     set_state("alert")
 
 
 def clear_alert() -> None:
-    """Call once the user has actually seen the findings that triggered
-    raise_alert() (app.py does this when the Overview tab renders its
-    Auto-Insights panel). Always zeroes the count; only resets the orb's
-    visual state back to idle if it's still showing 'alert' — if something
-    more recent (e.g. a voice reply) already moved it on, that state wins.
+    """Call whenever the Overview tab renders its Auto-Insights panel — the
+    point at which the user has actually seen the findings that may have
+    triggered raise_alert().
+
+    raise_alert() and this both run within the *same* Streamlit script pass
+    when a fresh upload lands while Overview is already the active tab
+    (Overview is the default section), since the whole script runs top to
+    bottom in one pass. Clearing unconditionally here would erase the alert
+    before the browser ever painted it. `atlas_alert_fresh` is a one-run
+    grace flag: raise_alert() sets it, and the first time this function
+    sees it set it just consumes it (leaving the alert visible for that
+    render) instead of clearing — only the *next* time Overview renders
+    (a later, separate rerun) does the alert actually clear.
     """
+    if st.session_state.get("atlas_alert_fresh"):
+        st.session_state.atlas_alert_fresh = False
+        return
     st.session_state.atlas_alert_count = 0
     if st.session_state.get("atlas_orb_state") == "alert":
         set_state("idle")
@@ -685,9 +697,28 @@ def render_orb() -> None:
         label = f"&#9888; {count} new insight{'s' if count != 1 else ''}" if count else "Atlas &middot; alert"
     else:
         label = f"Atlas &middot; {state}"
-    st.markdown(_ORB_CSS, unsafe_allow_html=True)
+    inject_orb_css()
     st.markdown(
         f'<div class="atlas-orb-wrap"><div class="atlas-orb {state}"></div>'
         f'<div class="atlas-orb-label">{label}</div></div>',
         unsafe_allow_html=True,
     )
+
+
+def inject_orb_css() -> None:
+    """Injects _ORB_CSS (the gradient/animation rules every `.atlas-orb`
+    element needs, including the small `.atlas-orb-sm` variant in the side
+    panel's header) onto the page.
+
+    render_orb() calls this itself, but render_orb() is only invoked for
+    the floating standalone orb (landing page, Story/Demo Mode — see its
+    call site in app.py). Once a dataset is active, the side panel replaces
+    the floating orb with its own small orb in the header — that markup is
+    written directly in app.py, not through render_orb(), so without a
+    separate call to this function the side panel's orb was a sized-but-
+    unstyled div: correct dimensions, no gradient/background, invisible
+    against the dark panel. Idempotent (repeated st.markdown(<style>) calls
+    just add redundant identical rules), so it's safe to call once per
+    rerun from both places.
+    """
+    st.markdown(_ORB_CSS, unsafe_allow_html=True)

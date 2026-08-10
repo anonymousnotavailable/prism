@@ -19,6 +19,7 @@ def setup_function(_fn):
     # every test so cases can't leak into each other.
     st.session_state.atlas_orb_state = "idle"
     st.session_state.atlas_alert_count = 0
+    st.session_state.atlas_alert_fresh = False
 
 
 def test_raise_alert_sets_alert_state_and_count():
@@ -38,15 +39,28 @@ def test_raise_alert_with_negative_is_a_noop():
     assert st.session_state.atlas_orb_state == "idle"
 
 
-def test_clear_alert_resets_count_and_returns_state_to_idle():
-    raise_alert(2)
+def test_clear_alert_on_the_same_run_as_raise_alert_is_a_noop():
+    # Overview is the default active tab, so its Auto-Insights panel (which
+    # calls clear_alert()) can render in the very same script pass as the
+    # upload that called raise_alert() — clearing here must not erase an
+    # alert the browser hasn't painted yet.
+    raise_alert(3)
     clear_alert()
+    assert st.session_state.atlas_alert_count == 3
+    assert st.session_state.atlas_orb_state == "alert"
+
+
+def test_clear_alert_actually_clears_on_a_later_run():
+    raise_alert(3)
+    clear_alert()  # same-run grace period, consumed
+    clear_alert()  # a later rerun's Overview render — now it actually clears
     assert st.session_state.atlas_alert_count == 0
     assert st.session_state.atlas_orb_state == "idle"
 
 
 def test_clear_alert_does_not_clobber_a_non_alert_state():
     raise_alert(2)
+    clear_alert()  # consume the same-run grace period
     set_state("speaking")  # something else happened after the alert was raised
     clear_alert()
     # the count still resets (it's been "seen"/superseded), but clear_alert
