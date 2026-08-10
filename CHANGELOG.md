@@ -2,6 +2,38 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 5)
+
+### Added
+- **Hypothesis Sweep** (`modules/hypothesis_sweep.py`) — a new panel in
+  Stats Lab that automatically generates and runs every statistically
+  viable pairwise hypothesis test across the dataset (Pearson correlation
+  for numeric/numeric, Welch's t-test/one-way ANOVA for numeric/
+  categorical, chi-square for categorical/categorical — reusing Stats
+  Lab's own `suggest_test`/`run_test` dispatch), then applies
+  Benjamini-Hochberg false-discovery-rate correction across the whole
+  sweep before ranking what's left by effect size. Where Stats Lab tests
+  one manually-picked pair at a time, this is the automated version — and
+  the FDR correction is what makes running many simultaneous tests
+  statistically defensible instead of implicit p-hacking. Results table +
+  effect-size chart, with optional Gemini narration of the significant
+  findings (cached per result fingerprint, same pattern as anomaly
+  narration). 22 new tests.
+- **Feature Selection Engine** (`modules/mllab.py`) — a new panel in ML
+  Lab that cross-checks three independent feature-selection methods over
+  the same preprocessed feature matrix: Mutual Information (nonlinear,
+  model-free), an L1-regularized linear model's coefficients (Lasso for
+  regression, L1-penalized Logistic Regression for classification), and
+  Recursive Feature Elimination with a Random Forest estimator. Ranks
+  features by consensus — how many of the 3 methods agree a feature
+  matters — the same self-verifying-ensemble pattern already used for
+  anomaly detection (`find_anomalies_ensemble`), applied here to picking
+  features instead of flagging rows. Shows a recommended-features summary,
+  per-method ranking table, and a consensus-vote chart. Closes the
+  "Feature Selection Engine (mutual info/RFE/L1) for ML Lab" backlog item
+  open since Run 4. 12 new tests, including planted-signal recovery for
+  both classification and regression.
+
 ## 2026-08-10 (Run 4)
 
 ### Added
