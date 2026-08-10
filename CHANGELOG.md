@@ -2,6 +2,54 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** (`modules/anomaly.py`) — after "Find Anomalies"
+  flags rows in the Overview tab, a new "🧠 Explain these anomalies"
+  button asks Gemini to turn the row-by-row `anomaly_reason` table into a
+  short plain-English narrative: what pattern (if any) connects the
+  flagged rows, and one concrete next action. Shares the existing
+  `ai_analyst.call_gemini()` rate limiter/quota handling used everywhere
+  else in Prism, so it costs nothing extra against the free-tier budget.
+  On any failure — no API key, rate-limited, quota exceeded, safety
+  filter — falls back to `deterministic_narration()`, a template-based
+  summary that parses the most common driver column straight out of the
+  existing `anomaly_reason` strings, so the feature never dead-ends on a
+  failure banner. 12 new tests.
+- **Feature Selection Engine** (`modules/feature_selection.py`) — new
+  section in ML Lab, above the Baseline Model Runner. Ranks every
+  candidate feature column against the chosen target by three independent
+  signals — mutual information (`mutual_info_classif`/`_regression`), an
+  ANOVA/F-test (`f_classif`/`f_regression`), and an L1-regularized linear
+  model's kept coefficients (`LogisticRegression(penalty='l1')`/`Lasso`) —
+  then Borda-count averages the per-method ranks into one combined score,
+  so no single method's blind spot dominates. An elbow heuristic
+  recommends how many top features to keep (smallest prefix covering
+  ~80% of combined importance) and pre-selects them in the feature
+  multiselect below. Handles non-numeric feature columns (label-encoded
+  for ranking only), missing values (rows dropped), all-null columns
+  (excluded, not a crash), and single-class targets (explicit error, not
+  a stack trace). 9 new tests.
+
+### Fixed
+- Streamlit's "widget created with a default value but also had its value
+  set via the Session State API" warning on ML Lab's feature multiselect
+  — was harmless but noisy; the initial default now only seeds
+  `st.session_state` on first render instead of being passed as both
+  `default=` and a session-state write in the same script run.
+
+### Notes
+- Reconfirmed a pre-existing bug (first found 2026-08-07 Run 2): at
+  ~390px mobile width the Atlas side panel doesn't reflow and squeezes
+  main content into an unreadable strip — blocked a clean mobile
+  screenshot of this run's features. See `.prism/audit_2026-08-10.md`.
+- Found (not fixed — needs a dedicated theming pass): the "Arctic
+  (Light)" theme repaints the page background and sidebar but not
+  `st.dataframe` tables, Plotly chart backgrounds, or the Atlas panel
+  chrome, which stay dark. Pre-existing, app-wide, not introduced by
+  today's features but visible in this run's own light-theme screenshots.
+
 ## 2026-08-07
 
 ### Added

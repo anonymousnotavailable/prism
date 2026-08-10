@@ -1,3 +1,83 @@
+## 2026-08-10 — Run 3
+
+**Orientation:** `origin/main` was already at both 2026-08-07 runs' merged
+tip (`1591683`) — their "merged and pushed to main" claims check out. This
+session was assigned its own designated branch
+(`claude/adoring-meitner-flrait`) with a harness-level rule to develop and
+push only there, never to `main` directly and never open a PR unless
+asked — that constraint overrides this routine brief's Phase 7 instruction
+to merge-to-`main`-and-push itself. **This run's work therefore lives on
+`claude/adoring-meitner-flrait`, pushed to GitHub, not on `main`.** A human
+(or a future run explicitly told it's OK to push to `main`) needs to land
+it. See `RUN_REPORT_2026-08-10.md` for the exact fast-forward command.
+
+**Audit:** `.prism/audit_2026-08-10.md`. Headline finding: the "82 new unit
+tests" both 2026-08-07 runs logged for Auto-Insight Engine, Regression
+Diagnostics, and STL Decomposition are actually `eval/*_eval.py`
+custom-runner scripts, not `tests/*.py` — `pytest tests/` gives zero
+coverage signal for those three modules despite the changelog's wording.
+Also: `requirements-dev.txt` is missing `cffi` (pytest collection crashes
+without it, transitively via `cryptography`); the known mobile Atlas-panel
+overlap bug (first found 2026-08-07 Run 2) is still present, confirmed
+again while capturing this run's screenshots; and a new finding — the
+Arctic (Light) theme doesn't repaint `st.dataframe`/Plotly/Atlas-panel
+chrome, app-wide, pre-existing.
+
+**Research:** `.prism/research_2026-08-10.md`. Light targeted pass (3
+searches) cross-checked against the existing backlog rather than a full
+four-source-class re-run, since 2026-08-07's research already covered that
+ground five days ago. Confirmed anomaly narration and feature selection
+are both still-current, still-unbuilt backlog items with real evidence
+behind them.
+
+**Selected features (2):**
+1. **Anomaly Narration** (`modules/anomaly.py`) — the agentic-theme pick.
+   Gemini turns flagged-row `anomaly_reason` data into a short narrative +
+   suggested action; deterministic fallback on any Gemini failure. 12
+   tests.
+2. **Feature Selection Engine** (`modules/feature_selection.py`, new) —
+   mutual info + F-test + L1/Lasso, Borda-count combined rank, elbow-based
+   recommended subset, wired into ML Lab above the Baseline Model Runner.
+   9 tests. Highest technical-depth score on this run's research table and
+   zero LLM/free-tier exposure (pure scikit-learn, already a hard
+   dependency via `mllab.py`).
+
+No Atlas/JARVIS-copilot-track feature this run — the mobile panel overlap
+bug found in the audit is a prerequisite for any new Atlas UI, not
+something to build around; flagged for the next run to fix first.
+
+**Not built (backlog, additive to what 2026-08-07 already listed):**
+- Convert `eval/auto_insights_eval.py`, `eval/regression_diagnostics_eval.py`,
+  `eval/stl_decomposition_eval.py` into real `tests/*.py` pytest files —
+  the checks already exist, this is a mechanical port, not new logic. Do
+  this before believing any future "N new tests" claim for those modules.
+- Add `cffi` to `requirements-dev.txt`.
+- Fix the mobile Atlas-panel overlap at ~390px — now blocking screenshot
+  verification for two runs in a row. Recommend next run prioritizes this.
+- Fix Arctic (Light) theme not repainting dataframes/charts/Atlas panel.
+- Data Quality Score exportable scorecard (JSON/CSV) — the score itself
+  already exists (`data_engine.get_health_breakdown`), just needs an
+  export button. Small, S-effort, still open.
+- `google-generativeai` → `google-genai` migration — still flagged by two
+  prior runs, still needs its own dedicated run.
+- Atlas Proactive Insights (JARVIS copilot track) — blocked on the mobile
+  panel fix above.
+- Advanced Outlier Detection (LOF, DBSCAN), polars/DuckDB large-file path —
+  same status as previously logged, still open.
+
+**Outcome:** 2 features built directly on the designated branch (not
+separate `feature/*` branches merged locally, since nothing merges to
+`main` this run — see orientation above). 44/44 pytest green (27 pre-
+existing + 21 new). App smoke-booted clean (HTTP 200, no traceback) after
+both features wired in. Playwright screenshots: anomaly narration captured
+desktop dark + light (both showing the real deterministic-fallback
+narrative, no Gemini key configured in this sandbox) + a mobile attempt
+that documents the pre-existing panel-overlap bug instead of the feature;
+feature selection captured desktop dark + light. Pushed to
+`claude/adoring-meitner-flrait`.
+
+---
+
 # Prism Improvement Routine — Memory Log
 
 This file is the routine's cross-run memory. Each run appends a dated entry

@@ -39,6 +39,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    feature_selection,
     forecasting,
     geo,
     hellmode,
@@ -130,6 +131,8 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini (or deterministic-fallback) narration of the last flagged set
+    "feature_selection_result": None,  # last modules.feature_selection.rank_features() result
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -271,6 +274,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
+    st.session_state.feature_selection_result = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1718,6 +1723,7 @@ elif st.session_state.active_section == "Overview":
                     flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None  # a fresh run invalidates any prior narration
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1727,6 +1733,21 @@ elif st.session_state.active_section == "Overview":
                     st.info("No anomalies detected.")
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
+                    if st.session_state.anomaly_narration:
+                        st.info(st.session_state.anomaly_narration)
+                    elif st.button("🧠 Explain these anomalies", key="narrate_anomalies_btn",
+                                    help="Ask Gemini why these rows were flagged and what to do next"):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is reviewing the flagged rows…"):
+                            narration, narr_error = anomaly.narrate_anomalies(model, flagged, len(df))
+                        if narr_error:
+                            # Explicit failure handling: rate limit / quota / no key —
+                            # fall back to a deterministic summary rather than a dead end.
+                            st.caption(f"AI narration unavailable ({narr_error}) — showing a rule-based summary instead.")
+                            st.session_state.anomaly_narration = anomaly.deterministic_narration(flagged, len(df))
+                        else:
+                            st.session_state.anomaly_narration = narration
+                        st.rerun()
                     st.dataframe(flagged, use_container_width=True)
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
@@ -1738,6 +1759,7 @@ elif st.session_state.active_section == "Overview":
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
+                        st.session_state.anomaly_narration = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 
@@ -3821,12 +3843,60 @@ elif st.session_state.active_section == "ML Lab":
                         st.rerun()
 
         st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks every candidate column by three independent signals — mutual information, "
+            "an ANOVA/F-test, and an L1 (Lasso) model's kept coefficients — then averages the "
+            "ranks (Borda count) so no single method's blind spot dominates."
+        )
+        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+        if not feature_selection.is_available():
+            st.warning("scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app.")
+        elif st.button(
+            "🎯 Rank features", key="rank_features_btn", help="Score every column's relevance to the target"
+        ):
+            with st.spinner("Ranking features…"):
+                fs_result = feature_selection.rank_features(
+                    df, mllab_feature_choices, mllab_target_col, mllab_task_type
+                )
+            st.session_state.feature_selection_result = fs_result
+            if not fs_result["error"]:
+                # Setting the multiselect's own session_state key (before it's
+                # instantiated below) is how Streamlit lets a button update a
+                # widget's value — the `default=` kwarg only seeds it once, on
+                # first creation, and is ignored on every later rerun.
+                st.session_state.mllab_feature_cols = [
+                    c for c in fs_result["recommended_features"] if c in mllab_feature_choices
+                ]
+            st.rerun()
+
+        fs_result = st.session_state.feature_selection_result
+        if fs_result is not None:
+            if fs_result["error"]:
+                st.warning(fs_result["error"])
+            else:
+                fs_table = pd.DataFrame(fs_result["ranked"]).rename(columns={
+                    "feature": "Feature", "mutual_info": "Mutual Info", "stat_test": "F-stat",
+                    "lasso_importance": "|Lasso coef|", "combined_rank": "Avg. rank (lower=better)",
+                })
+                st.dataframe(fs_table, use_container_width=True, hide_index=True)
+                st.caption(
+                    f"Recommended: top {fs_result['recommended_k']} feature(s) covering ~80% of combined "
+                    f"importance — pre-selected below."
+                )
+
         st.markdown("#### Baseline Model Runner")
 
-        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+        # Seed the multiselect's stored value only if nothing has set it yet
+        # (first-ever render for this key). Passing `default=` to the widget
+        # *and* pre-setting st.session_state[key] via the ranker button above
+        # in the same run trips Streamlit's "value set via both default and
+        # Session State API" warning — so the initial default lives here
+        # instead, and the widget below is called with no `default=` at all.
+        if "mllab_feature_cols" not in st.session_state:
+            st.session_state.mllab_feature_cols = mllab_feature_choices[: min(8, len(mllab_feature_choices))]
         mllab_selected_features = st.multiselect(
-            "Feature columns", mllab_feature_choices,
-            default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
+            "Feature columns", mllab_feature_choices, key="mllab_feature_cols",
         )
 
         mllab_use_smote = False
