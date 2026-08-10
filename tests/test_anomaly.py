@@ -1,10 +1,20 @@
-"""Tests for modules.anomaly — IsolationForest-based row flagging."""
+"""Tests for modules.anomaly — IsolationForest-based row flagging, plus the
+ensemble (IsolationForest + LOF + DBSCAN) consensus detector."""
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from modules.anomaly import MIN_ROWS_REQUIRED, find_anomalies, fingerprint_flagged, narrate_anomalies
+from modules.anomaly import (
+    ENSEMBLE_METHODS,
+    ENSEMBLE_MIN_ROWS,
+    MIN_ROWS_REQUIRED,
+    find_anomalies,
+    find_anomalies_ensemble,
+    fingerprint_flagged,
+    narrate_anomalies,
+    narrate_ensemble_disagreement,
+)
 
 
 def _clean_df_with_one_outlier(n: int = 50) -> pd.DataFrame:
@@ -106,3 +116,118 @@ def test_narrate_anomalies_calls_gemini_with_flagged_summary():
     narration, error = narrate_anomalies(_FakeModel(), flagged)
     assert error is None
     assert "review" in narration.lower()
+
+
+# --- find_anomalies_ensemble ----------------------------------------------
+
+def _ensemble_df(n: int = 60) -> pd.DataFrame:
+    rng = np.random.default_rng(7)
+    values = rng.normal(loc=50, scale=2, size=n)
+    other = rng.normal(loc=10, scale=1, size=n)
+    # a planted extreme point every method should agree is an outlier
+    values[0], other[0] = 5000.0, 500.0
+    return pd.DataFrame({"value": values, "other": other, "label": ["x"] * n})
+
+
+def test_find_anomalies_ensemble_flags_the_planted_outlier_by_all_methods():
+    df = _ensemble_df()
+    consensus, summary, error = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    assert error is None
+    assert consensus is not None and 0 in consensus.index
+    assert consensus.loc[0, "consensus_count"] == len(ENSEMBLE_METHODS)
+    assert set(summary.keys()) == set(ENSEMBLE_METHODS)
+    for method_stats in summary.values():
+        assert "flagged_count" in method_stats and "pct" in method_stats
+
+
+def test_find_anomalies_ensemble_consensus_sorted_descending():
+    df = _ensemble_df()
+    consensus, _, error = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    assert error is None
+    counts = consensus["consensus_count"].tolist()
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_find_anomalies_ensemble_errors_below_min_rows():
+    df = pd.DataFrame({"value": range(ENSEMBLE_MIN_ROWS - 1), "other": range(ENSEMBLE_MIN_ROWS - 1)})
+    consensus, summary, error = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric"}
+    )
+    assert consensus is None and summary is None
+    assert error is not None
+
+
+def test_find_anomalies_ensemble_errors_with_no_numeric_columns():
+    df = pd.DataFrame({"label": ["a"] * 30})
+    consensus, summary, error = find_anomalies_ensemble(df, {"label": "categorical"})
+    assert consensus is None and summary is None
+    assert error is not None
+
+
+def test_find_anomalies_ensemble_needs_at_least_two_numeric_columns():
+    # distance-based methods (LOF/DBSCAN) are meaningless on a single axis
+    # the same way IsolationForest still works on — document the stricter
+    # requirement rather than silently degrading.
+    rng = np.random.default_rng(1)
+    df = pd.DataFrame({"value": rng.normal(size=30)})
+    consensus, summary, error = find_anomalies_ensemble(df, {"value": "numeric"})
+    assert consensus is None and summary is None
+    assert error is not None
+
+
+def test_find_anomalies_ensemble_returns_empty_when_nothing_flagged():
+    df = pd.DataFrame({"value": [50.0] * 30, "other": [10.0] * 30})
+    consensus, summary, error = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric"}, contamination=0.01
+    )
+    assert error is None
+    assert consensus is not None and consensus.empty
+    assert summary is not None
+
+
+# --- narrate_ensemble_disagreement -----------------------------------------
+
+def test_narrate_ensemble_disagreement_without_model_returns_error():
+    df = _ensemble_df()
+    consensus, summary, _ = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    narration, error = narrate_ensemble_disagreement(None, consensus, summary)
+    assert narration == ""
+    assert error is not None
+
+
+def test_narrate_ensemble_disagreement_with_no_flagged_rows_skips_gemini():
+    empty = pd.DataFrame({"value": [], "other": [], "anomaly_reason": [], "consensus_count": []})
+    summary = {m: {"flagged_count": 0, "pct": 0.0} for m in ENSEMBLE_METHODS}
+
+    class _ShouldNotBeCalled:
+        def generate_content(self, *_args, **_kwargs):
+            raise AssertionError("Gemini should not be called when nothing was flagged")
+
+    narration, error = narrate_ensemble_disagreement(_ShouldNotBeCalled(), empty, summary)
+    assert error is None
+    assert "no anomal" in narration.lower()
+
+
+def test_narrate_ensemble_disagreement_calls_gemini_with_method_summary():
+    df = _ensemble_df()
+    consensus, summary, _ = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+
+    class _FakeResponse:
+        text = "Isolation Forest and LOF agree on the global outlier; DBSCAN is stricter."
+
+    class _FakeModel:
+        def generate_content(self, contents):
+            assert "isolation" in contents.lower() and "lof" in contents.lower()
+            return _FakeResponse()
+
+    narration, error = narrate_ensemble_disagreement(_FakeModel(), consensus, summary)
+    assert error is None
+    assert "agree" in narration.lower()
