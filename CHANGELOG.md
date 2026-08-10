@@ -2,6 +2,43 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** (`modules/anomaly.py`) — the agentic-EDA follow-through
+  on the existing IsolationForest anomaly detector. A new "✨ Narrate with AI"
+  button in the Overview tab's Anomaly Detection panel asks Gemini to explain,
+  in plain English, what the flagged rows have in common and what to do about
+  it — built on the same `ai_analyst.call_gemini` shared error/rate-limit
+  handling every other Gemini call in the app uses. Skips the Gemini call
+  entirely (deterministic "looks clean" message) when nothing was flagged,
+  and degrades gracefully with a clear inline message when no API key is
+  configured or the free-tier quota is exhausted. 6 new tests (mocked model,
+  no crash on API failure, no wasted call on an empty result).
+- **Feature Selection Engine** (`modules/feature_selection.py`) — added to
+  ML Lab, between the existing Feature Engineering Assistant and Baseline
+  Model Runner. Ranks every candidate feature column by three independent,
+  complementary signals — mutual information (model-free, nonlinear
+  dependency), an L1-regularized model's coefficient magnitude
+  (Lasso/L1-logistic), and Recursive Feature Elimination with a Random
+  Forest estimator — combined into a single composite score, shown as a
+  sortable table plus a horizontal bar chart. A "Use top K features" control
+  one-click applies the top-ranked columns to the Baseline Model Runner's
+  feature multiselect below. Each of the three methods degrades to a neutral
+  score independently on failure rather than crashing the whole ranking.
+  9 new tests (informative-vs-noise ranking for both classification and
+  regression, categorical encoding, constant-column handling, the
+  &lt;2-features guard, top-k selection, and the chart).
+
+### Notes
+- Both features reuse existing app-wide patterns (session-state result
+  caching invalidated on a fresh run, `ai_analyst.get_model()` /
+  `call_gemini()` for every Gemini call) rather than introducing a new one.
+- Screenshot-verified at desktop dark/light (1440×1000); mobile (390×844)
+  screenshot capture for these two features was blocked by the pre-existing
+  Atlas side-panel mobile overlap bug (logged in Run 2, still open — see
+  `.prism/routine_log.md`), not by anything in this run's changes.
+
 ## 2026-08-07
 
 ### Added
