@@ -1,3 +1,7 @@
 # Dev/test-only dependencies. Not needed to run the app itself — see requirements.txt.
 -r requirements.txt
 pytest==8.3.4
+# Pinned to prevent a "No module named '_cffi_backend'" import panic seen in
+# some sandboxes when google-generativeai's dependency chain (cryptography)
+# loads its Rust bindings against a stale/missing cffi build.
+cffi>=1.16
