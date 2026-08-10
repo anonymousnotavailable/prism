@@ -52,6 +52,7 @@ from modules import (
     regression_diagnostics,
     report,
     report_writer,
+    scorecard,
     session_io,
     sql_lab,
     stats_lab,
@@ -132,6 +133,8 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "scorecard_narration": None,  # Gemini executive summary of the last-generated Data Quality Scorecard
+    "scorecard_narration_fingerprint": None,  # scorecard.fingerprint_scorecard() the narration above covers
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -1465,6 +1468,61 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    with st.expander("📋 Data Quality Scorecard (export)", expanded=False):
+        st.caption(
+            "A shareable report of the score above — letter grade, weak components, and "
+            "concrete recommendations. Export as Markdown or JSON to attach to a PR, README, "
+            "or stakeholder handoff."
+        )
+        card = scorecard.build_scorecard(
+            df, column_types, quality, health_breakdown, dataset_name=st.session_state.last_file_name or "dataset"
+        )
+        sc_col1, sc_col2 = st.columns([1, 3])
+        with sc_col1:
+            st.metric("Grade", card["grade"])
+        with sc_col2:
+            if card["issues"]:
+                for issue in card["issues"]:
+                    st.warning(f"**{issue['label']}** — {issue['score']}/{issue['max']} ({issue['pct']}%)")
+            else:
+                st.success("No components below the 70% flag threshold — clean bill of health.")
+
+        current_fp = scorecard.fingerprint_scorecard(card)
+        if st.session_state.scorecard_narration and st.session_state.scorecard_narration_fingerprint == current_fp:
+            st.info(f"🤖 {st.session_state.scorecard_narration}")
+        elif st.button(
+            "✨ AI Executive Summary",
+            key="narrate_scorecard_btn",
+            help="Ask Gemini to summarize this scorecard for a non-technical stakeholder",
+        ):
+            model = ai_analyst.get_model()
+            with st.spinner("Gemini is reviewing the scorecard…"):
+                narration, narr_error = scorecard.narrate_scorecard(model, card)
+            if narr_error:
+                st.warning(narr_error)
+            else:
+                st.session_state.scorecard_narration = narration
+                st.session_state.scorecard_narration_fingerprint = current_fp
+                st.rerun()
+
+        dl1, dl2 = st.columns(2)
+        with dl1:
+            st.download_button(
+                "⬇ Download Markdown",
+                data=scorecard.render_markdown_scorecard(card),
+                file_name="data_quality_scorecard.md",
+                mime="text/markdown",
+                key="download_scorecard_md",
+            )
+        with dl2:
+            st.download_button(
+                "⬇ Download JSON",
+                data=scorecard.render_json_scorecard(card),
+                file_name="data_quality_scorecard.json",
+                mime="application/json",
+                key="download_scorecard_json",
+            )
 
     # ------------------------------------------------------------------
     # Auto-Insight Engine — proactive insights surfaced on upload
