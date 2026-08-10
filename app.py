@@ -179,7 +179,8 @@ _DEFAULTS = {
     "atlas_voice_enabled": True,  # sidebar toggle — global mute for all TTS
     "pii_strict_mode": False,  # Indian PII Vault: withhold flagged columns' sample values from every LLM call
     "india_mode": True,  # sidebar toggle — FY labels, Indian number formatting, day-first dates, festival markers
-    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
+    "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking" | "alert"
+    "atlas_alert_count": 0,  # how many high-severity Auto-Insights triggered the current "alert" orb state
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
     "atlas_greeted": False,  # plays the on-load greeting exactly once per session
     "story_mode_active": False,  # True while the Story Mode overlay is showing (Atlas-narrated)
@@ -621,6 +622,13 @@ def announce_ambient_insights(df, quality: dict) -> None:
             "or just tell me what you want to know."
         )
     atlas.say_only(summary)
+
+    # JARVIS-copilot proactive alert: light the orb up unprompted if the
+    # Auto-Insight scan (already computed by set_active_dataset(), no extra
+    # Gemini call here) found anything high-severity. Runs after say_only()
+    # above so it's the state the orb actually renders in this rerun.
+    n_high = sum(1 for ins in (st.session_state.auto_insights or []) if ins["severity"] == "high")
+    atlas.raise_alert(n_high)
 
 
 def _run_auto_clean(target=None) -> None:
@@ -1459,6 +1467,10 @@ elif st.session_state.active_section == "Overview":
     # ------------------------------------------------------------------
     # Auto-Insight Engine — proactive insights surfaced on upload
     # ------------------------------------------------------------------
+    # The user has now actually seen the findings that may have triggered
+    # Atlas's proactive alert HUD (announce_ambient_insights() -> raise_alert())
+    # — clear it so the orb doesn't keep pulsing for something already read.
+    atlas.clear_alert()
     if st.session_state.auto_insights:
         insights_list = st.session_state.auto_insights
         n_high = sum(1 for i in insights_list if i["severity"] == "high")
