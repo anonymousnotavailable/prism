@@ -39,6 +39,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    feature_selection,
     forecasting,
     geo,
     hellmode,
@@ -48,6 +49,7 @@ from modules import (
     mllab,
     pii_detector,
     profiling,
+    quality_scorecard,
     recipes,
     regression_diagnostics,
     report,
@@ -303,6 +305,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_shap_error = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
+    st.session_state.feature_selection_result = None
+    st.session_state.feature_selection_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
@@ -1465,6 +1469,55 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+    # ------------------------------------------------------------------
+    # Data Quality Scorecard — exportable, letter-graded version of the
+    # score above. Reuses `quality`/`health_breakdown` computed just now,
+    # no new scanning pass.
+    # ------------------------------------------------------------------
+    with st.expander("📋 Data Quality Scorecard (exportable)", expanded=False):
+        scorecard = quality_scorecard.build_scorecard(df, column_types, quality, health_breakdown)
+        sc1, sc2 = st.columns([1, 3])
+        with sc1:
+            st.metric("Overall Grade", scorecard["overall_grade"], f"{scorecard['overall_score']} / 100")
+        with sc2:
+            grade_line = "  •  ".join(
+                f"{name.replace('_', ' ').title()}: **{grade}**" for name, grade in scorecard["component_grades"].items()
+            )
+            st.caption(grade_line)
+
+        st.markdown("**Columns needing attention**")
+        if scorecard["worst_columns"]:
+            worst_df = pd.DataFrame(scorecard["worst_columns"])[["column", "type", "grade", "score", "missing_pct", "outlier_pct"]]
+            # NOTE: st.dataframe renders via a canvas grid that reads
+            # Streamlit's config.toml `base="dark"` directly rather than
+            # Prism's injected light/dark CSS, so its rows stay dark-themed
+            # even under Arctic (Light) — a pre-existing issue flagged in the
+            # 2026-08-10 routine log on two other Overview tables, now
+            # confirmed on this one too. A st.table swap was tried during this
+            # run's Phase 5 and reverted: pandas Styler's default HTML came out
+            # with worse contrast (near-invisible text) and unformatted floats
+            # (e.g. "75.000000") rather than fixing the theme mismatch — a real
+            # fix needs explicit Styler color/precision rules or a different
+            # approach entirely, not a same-run patch. Logged for a dedicated
+            # pass rather than shipped half-working.
+            st.dataframe(worst_df, use_container_width=True, hide_index=True)
+        else:
+            ui.render_empty_state("✅", "No weak columns", "Every column scored well — nothing needs attention.")
+
+        dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            st.download_button(
+                "⬇️ Download PDF Scorecard",
+                data=report_writer.generate_quality_scorecard_pdf(scorecard, st.session_state.get("last_file_name") or "dataset"),
+                file_name="prism_quality_scorecard.pdf", mime="application/pdf", use_container_width=True,
+            )
+        with dl_col2:
+            st.download_button(
+                "⬇️ Download JSON Scorecard",
+                data=quality_scorecard.scorecard_to_json(scorecard),
+                file_name="prism_quality_scorecard.json", mime="application/json", use_container_width=True,
+            )
 
     # ------------------------------------------------------------------
     # Auto-Insight Engine — proactive insights surfaced on upload
@@ -3866,10 +3919,57 @@ elif st.session_state.active_section == "ML Lab":
                         st.toast(f"{description}. 🛠️")
                         st.rerun()
 
+        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+
+        st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks candidate features by predictive value for the target above using three complementary "
+            "methods — Mutual Information, L1-regularized (Lasso) coefficients, and Recursive Feature "
+            "Elimination — then synthesizes a consensus ranking. Run this before Baseline Models to see "
+            "which columns actually carry signal."
+        )
+        fs_candidate_cols = st.multiselect(
+            "Candidate columns to rank", mllab_feature_choices,
+            default=mllab_feature_choices[: min(12, len(mllab_feature_choices))], key="fs_candidate_cols",
+        )
+        fs_n_select = st.slider(
+            "Features to recommend", min_value=1, max_value=max(1, len(fs_candidate_cols)),
+            value=min(5, max(1, len(fs_candidate_cols))), key="fs_n_select",
+            disabled=len(fs_candidate_cols) < feature_selection.MIN_FEATURES,
+        )
+        if st.button("Rank Features", key="fs_rank_btn", use_container_width=True, disabled=len(fs_candidate_cols) < feature_selection.MIN_FEATURES):
+            with st.spinner("Running Mutual Information, Lasso, and RFE…"):
+                result = feature_selection.build_feature_selection_report(
+                    df, fs_candidate_cols, mllab_target_col, mllab_task_type, n_features_to_select=fs_n_select
+                )
+            if "error" in result:
+                st.session_state.feature_selection_result = None
+                st.session_state.feature_selection_error = result["error"]
+            else:
+                st.session_state.feature_selection_result = result
+                st.session_state.feature_selection_error = None
+
+        if st.session_state.feature_selection_error:
+            st.error(st.session_state.feature_selection_error)
+        elif st.session_state.feature_selection_result is not None:
+            fs_result = st.session_state.feature_selection_result
+            for line in fs_result["narrative"]:
+                st.markdown(f"- {line}")
+            st.plotly_chart(feature_selection.build_consensus_chart(fs_result["table"]), use_container_width=True)
+            with st.expander("Full ranking table", expanded=False):
+                st.dataframe(fs_result["table"], use_container_width=True, hide_index=True)
+            if st.button(
+                f"Use these {len(fs_result['recommended_features'])} recommended features for Baseline Models",
+                key="fs_use_recommended", use_container_width=True,
+            ):
+                st.session_state.mllab_feature_cols = fs_result["recommended_features"]
+                st.toast("Baseline Model feature columns updated. 🎯")
+                st.rerun()
+
         st.divider()
         st.markdown("#### Baseline Model Runner")
 
-        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
         mllab_selected_features = st.multiselect(
             "Feature columns", mllab_feature_choices,
             default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
