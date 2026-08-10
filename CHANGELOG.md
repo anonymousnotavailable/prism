@@ -2,6 +2,40 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** — the Anomaly Detection panel (Overview tab) gets
+  an optional "✨ Explain these anomalies" button. Sends the already-flagged
+  rows' reasons to Gemini and gets back a 3-5 sentence plain-English
+  explanation of the pattern, a plausible real-world cause, and one
+  concrete next step. No extra rate-limit surface (reuses the existing
+  shared `call_gemini` limiter); degrades gracefully with no Gemini model
+  configured or nothing flagged. 3 new tests, including the repo's first
+  test to exercise the actual `generate_content()` call path via a fake
+  model.
+- **Local Outlier Factor detection method** — Anomaly Detection now has a
+  method selector: Isolation Forest (existing default) or Local Outlier
+  Factor, a density-based method that catches outliers that look normal
+  against the whole dataset but stand out against their nearest neighbors.
+  `n_neighbors` auto-caps to the dataset size so it doesn't break on small
+  data. 4 new tests.
+
+### Fixed
+- **Test-suite integrity**: `CHANGELOG.md`'s 2026-08-07 entry claimed
+  "82/82 new unit tests" for Auto-Insight Engine, Regression Diagnostics,
+  and STL Decomposition. They were never actually collected by `pytest` —
+  what shipped was `eval/*_eval.py` print-based scripts outside
+  `pytest.ini`'s `testpaths`. Ported the same assertions into real
+  `tests/test_auto_insights.py`, `tests/test_regression_diagnostics.py`,
+  and `tests/test_forecasting_stl.py` (36 tests). `pytest` now actually
+  shows 70 passing tests. See `.prism/audit_2026-08-10.md`.
+
+### Known issues (logged, not fixed this run)
+- Arctic (Light) theme: the top nav bar and bottom command input stay
+  dark-styled instead of switching with the rest of the page. Pre-existing,
+  found during this run's screenshot verification.
+
 ## 2026-08-07
 
 ### Added

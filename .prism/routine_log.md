@@ -226,3 +226,30 @@ from future backlogs unless a concrete new gap surfaces).
 need to be the copilot pick; still available for a future run, per the
 routine's own "at most one per run" guardrail — that guardrail is a
 ceiling, not a quota).
+
+**New bug found (logged, not fixed):** while capturing light-theme
+screenshots for the anomaly panel, found that the top segmented-control nav
+bar and the bottom "Ask Atlas anything…" command input stay dark-styled
+under the Arctic (Light) theme while everything else switches correctly.
+Pre-existing, unrelated to this run's changes. Screenshot:
+`.prism/runs/2026-08-10/anomaly_flagged_desktop_light.png`. Deserves its
+own dedicated CSS/theming pass across every tab, not a rushed side-fix —
+same reasoning as the still-open mobile Atlas reflow bug below.
+
+**Outcome:** one fix + two features merged into this run's working branch
+in sequence (`fix/test-suite-integrity`, then `feature/anomaly-narration`
+which bundled both the narration and LOF picks since they share one module
+and one UI expander): 70/70 pytest green (was 27 at the start of this run),
+fresh Streamlit boot verified after every merge (HTTP 200, no traceback),
+Playwright screenshots captured at desktop dark/light for both detection
+methods. Mobile screenshot of the anomaly panel itself was blocked by the
+pre-existing Atlas reflow bug (documented, not re-litigated). Per this
+session's git workflow, changes were merged and pushed to the assigned
+branch `claude/adoring-meitner-z0f7se` rather than `main` directly — see
+`RUN_REPORT_2026-08-10.md` for why and what the user needs to do to land it
+on `main`.
+
+**Not built this run, still open for next run:** Feature Selection Engine
+(mutual info/RFE/L1) for ML Lab — next run's top candidate; polars/DuckDB
+backend; `google-generativeai`→`google-genai` migration; the mobile Atlas
+panel reflow bug; the light-theme dark-nav-bar bug found this run.
