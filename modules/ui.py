@@ -11,6 +11,7 @@ template); this module owns page *content* built out of that styling.
 
 from __future__ import annotations
 
+import html
 import random
 from pathlib import Path
 from typing import Optional
@@ -513,6 +514,44 @@ def render_assertion_results(results: list[dict]) -> None:
         f'<div class="prism-test-list">{"".join(rows)}</div>',
         unsafe_allow_html=True,
     )
+
+
+def build_html_table(df: pd.DataFrame) -> str:
+    """Build a theme-aware HTML table string from a small dataframe, using
+    the app's own `--prism-*` CSS custom properties (see modules/theme.py)
+    instead of Streamlit's native st.dataframe().
+
+    st.dataframe() renders through a canvas-based grid (glide-data-grid)
+    whose colors come from .streamlit/config.toml's static `base = "dark"`
+    theme — Prism's runtime light/dark toggle only injects CSS on top of
+    the DOM, which a canvas grid never picks up, so any st.dataframe()
+    table stays dark-styled even when Light theme is active (flagged in
+    .prism/audit_2026-08-10.md for the Overview tab's "Missing Values by
+    Column" / "Outliers" tables). A plain HTML table styled with the app's
+    own CSS vars fixes that — at the cost of losing sort/resize, which is
+    an acceptable trade for small summary tables, not the big data-preview
+    grid.
+
+    Split out from render_html_table() below so this HTML-building half is
+    plain string logic, testable without a Streamlit script context.
+    """
+    headers = "".join(f"<th>{html.escape(str(c))}</th>" for c in df.columns)
+    body_rows = []
+    for _, row in df.iterrows():
+        cells = "".join(f"<td>{html.escape(str(v))}</td>" for v in row)
+        body_rows.append(f"<tr>{cells}</tr>")
+    return (
+        '<div class="prism-html-table-wrap"><table class="prism-html-table">'
+        f"<thead><tr>{headers}</tr></thead><tbody>{''.join(body_rows)}</tbody>"
+        "</table></div>"
+    )
+
+
+def render_html_table(df: pd.DataFrame) -> None:
+    """Render `build_html_table()`'s output. See that function's docstring
+    for why this exists instead of a plain st.dataframe() call.
+    """
+    st.markdown(build_html_table(df), unsafe_allow_html=True)
 
 
 def render_empty_state(icon: str, title: str, message: str) -> None:
