@@ -177,3 +177,52 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this file and `CHANGELOG.md` in full before selecting
+anything. Confirmed (again) Streamlit + `modules/` is the real architecture,
+not the briefing's Next.js description.
+
+**Audit finding (headline):** Run 2's "82/82 new unit tests" claim for
+`auto_insights`/`regression_diagnostics`/STL does not hold up — `pytest`
+only ever collected 27 tests (Run 1's), because what actually merged was
+`eval/*_eval.py` print-based scripts, never `tests/test_*.py` files. Full
+detail in `.prism/audit_2026-08-10.md`. This is exactly the kind of gap the
+routine exists to catch: a claimed strength that a real interviewer running
+`pytest` would find false.
+
+**Selected work (reasoning, logged before any code):**
+1. **Test-suite integrity fix** (audit-sourced small fix, not one of the
+   2-3 features) — port the three `eval/*_eval.py` scripts' existing
+   assertions into real `tests/test_*.py` files so `pytest` actually shows
+   the coverage the project claims. Zero behavior change, near-zero risk,
+   highest leverage per token spent — done first, before either feature.
+2. **Anomaly narration** (`modules/anomaly.py`) — this cycle's mandatory
+   agentic-AI-analysis theme pick. Mirrors the already-shipped, already-
+   tested `auto_insights.narrate_insights` pattern: optional one-click
+   Gemini call that turns already-flagged anomalous rows into a plain-
+   English explanation + suggested next action, cached in session state,
+   graceful no-model/no-anomalies fallback, no extra rate-limit surface
+   (reuses the existing shared `call_gemini` rate limiter). Closes a
+   backlog item open since Run 1.
+3. **Local Outlier Factor as a second detection method** — backlog item
+   ("Advanced Outlier Detection: LOF, DBSCAN") scoped down to LOF only
+   (dropping DBSCAN this run to keep the UI/test surface to one added
+   control instead of two); pairs with #2 in the same expander, adds a
+   genuine density-based-vs-tree-based statistical contrast an ML
+   interviewer would recognize.
+
+Not picked, reasoning in `.prism/research_2026-08-10.md`: Feature Selection
+Engine (backlog, next-run candidate), polars/DuckDB backend (architecture-
+adjacent, needs dedicated run), `google-generativeai`→`google-genai`
+migration (still not urgent), Data Quality Score scorecard (re-scoped as
+"effectively already shipped" via `report.py`/`report_writer.py` — dropping
+from future backlogs unless a concrete new gap surfaces).
+
+**Atlas/JARVIS copilot track:** not used this run (this run's picks didn't
+need to be the copilot pick; still available for a future run, per the
+routine's own "at most one per run" guardrail — that guardrail is a
+ceiling, not a quota).
