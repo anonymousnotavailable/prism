@@ -42,6 +42,7 @@ from modules import (
     forecasting,
     geo,
     hellmode,
+    hypothesis_suite,
     india,
     insight_verifier,
     join_engine,
@@ -91,6 +92,9 @@ _DEFAULTS = {
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
+    "hypothesis_suite_result": None,  # last run_hypothesis_suite() result dict
+    "hypothesis_suite_narration": None,  # Gemini-narrated summary of the last sweep's surviving findings
+    "hypothesis_suite_narration_fingerprint": None,  # hypothesis_suite.fingerprint_suite() of the narrated result
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -282,6 +286,9 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
     st.session_state.stats_lab_result = None
+    st.session_state.hypothesis_suite_result = None
+    st.session_state.hypothesis_suite_narration = None
+    st.session_state.hypothesis_suite_narration_fingerprint = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
     st.session_state.stl_decomp_result = None
@@ -3348,6 +3355,79 @@ elif st.session_state.active_section == "Stats Lab":
 
                     for warning_msg in stats_lab.normality_warnings(result):
                         st.warning(warning_msg)
+
+        st.divider()
+        st.markdown("#### 🔬 Automated Hypothesis Sweep")
+        st.caption(
+            "Instead of testing one pair at a time, run every viable column pair through "
+            "Stats Lab automatically and correct for the multiple-comparisons problem that "
+            "creates (Benjamini-Hochberg FDR) — the agentic version of this tab."
+        )
+
+        if st.button("Run full sweep", key="run_hypothesis_sweep_btn"):
+            with st.spinner("Testing every viable column pair…"):
+                st.session_state.hypothesis_suite_result = hypothesis_suite.run_hypothesis_suite(
+                    df, column_types
+                )
+            st.session_state.hypothesis_suite_narration = None
+            st.session_state.hypothesis_suite_narration_fingerprint = None
+
+        sweep_result = st.session_state.hypothesis_suite_result
+        if sweep_result is None:
+            ui.render_empty_state(
+                "🔬", "No sweep run yet", 'Click "Run full sweep" above to test every column pair at once.'
+            )
+        elif sweep_result["n_tested"] == 0:
+            st.info("No viable column pairs found for automated testing.")
+        else:
+            trunc = sweep_result["truncation"]
+            if trunc:
+                dropped_bits = [f"{n} {kind} column(s)" if kind != "pairs" else f"{n} pair(s)" for kind, n in trunc.items()]
+                st.caption(f"⚠ Dataset is wide — dropped {', '.join(dropped_bits)} to keep the sweep bounded.")
+
+            sc1, sc2, sc3 = st.columns(3)
+            sc1.metric("Pairs tested", sweep_result["n_tested"])
+            sc2.metric("Significant (raw p<0.05)", sweep_result["n_significant_raw"])
+            sc3.metric("Survive FDR correction", sweep_result["n_significant_corrected"])
+
+            findings_df = pd.DataFrame(
+                [
+                    {
+                        "Column A": f["col_a"],
+                        "Column B": f["col_b"],
+                        "Test": stats_lab.TEST_LABELS[f["test"]],
+                        "p-value": f["p_value"],
+                        f["effect_size_name"]: f["effect_size"],
+                        "Survives FDR": "✓" if f["significant_corrected"] else "",
+                        "Verdict": f["interpretation"],
+                    }
+                    for f in sweep_result["findings"]
+                ]
+            )
+            st.dataframe(findings_df, use_container_width=True, hide_index=True)
+
+            # AI narration — cached per fingerprint of this exact sweep result so
+            # re-viewing it (tab switch, etc.) doesn't re-spend a Gemini call.
+            current_fp = hypothesis_suite.fingerprint_suite(sweep_result)
+            if (
+                st.session_state.hypothesis_suite_narration
+                and st.session_state.hypothesis_suite_narration_fingerprint == current_fp
+            ):
+                st.info(f"🤖 {st.session_state.hypothesis_suite_narration}")
+            elif st.button(
+                "✨ Summarize this sweep with AI",
+                key="narrate_hypothesis_suite_btn",
+                help="Ask Gemini to summarize the surviving findings and suggest a next step",
+            ):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is reviewing the sweep…"):
+                    narration, narr_error = hypothesis_suite.narrate_hypothesis_suite(model, sweep_result)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.hypothesis_suite_narration = narration
+                    st.session_state.hypothesis_suite_narration_fingerprint = current_fp
+                    st.rerun()
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.
