@@ -5,6 +5,7 @@ over the dataset's numeric columns, with a plain-English reason per flagged row.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 import pandas as pd
@@ -84,3 +85,59 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+def fingerprint_flagged(flagged: Optional[pd.DataFrame]) -> str:
+    """A short, stable hash of a `find_anomalies()` result — used to cache
+    the AI narration below so re-viewing the same flagged set (e.g. after
+    switching tabs and back, with no re-detection) doesn't re-spend a
+    Gemini call. Changes whenever the row count or the specific rows/reasons
+    flagged change; index order doesn't matter (sorted first).
+    """
+    if flagged is None or flagged.empty:
+        return "empty"
+    reasons = flagged["anomaly_reason"] if "anomaly_reason" in flagged.columns else pd.Series(dtype=str)
+    parts = sorted(f"{idx}:{reasons.get(idx, '')}" for idx in flagged.index)
+    key = f"{len(flagged)}|" + "|".join(parts)
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
+_NARRATION_PROMPT = (
+    "You are a senior data analyst explaining an anomaly-detection result (from an "
+    "IsolationForest model) to a stakeholder who isn't technical. {n} row(s) out of the "
+    "dataset were flagged as unusual. Here are the most common reasons they were flagged, "
+    "with counts:\n\n{reasons_text}\n\n"
+    "In 3-4 sentences: explain in plain English what pattern of anomalies this suggests "
+    "(e.g. data-entry errors vs. genuine rare events), and suggest one concrete next action "
+    "(e.g. spot-check a few rows, exclude them, or investigate a specific column further). "
+    "Do not simply restate the numbers back."
+)
+
+
+def narrate_anomalies(model, flagged: Optional[pd.DataFrame]) -> tuple[str, Optional[str]]:
+    """Ask Gemini to turn a `find_anomalies()` result into a short plain-
+    English explanation + suggested next action.
+
+    Returns (narration, error). Callers should cache the result keyed by
+    `fingerprint_flagged(flagged)` to avoid re-calling Gemini for a result
+    the user has already seen narrated (this function itself makes no
+    caching decision — it always calls Gemini when given a model and a
+    non-empty flagged set, same as the rest of the app's narration
+    helpers).
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+    if flagged is None or flagged.empty:
+        return "No anomalies were flagged — nothing to narrate.", None
+    if "anomaly_reason" not in flagged.columns:
+        return "", "This result has no anomaly_reason column to narrate."
+
+    from modules.ai_analyst import call_gemini
+
+    reason_counts = flagged["anomaly_reason"].value_counts().head(8)
+    reasons_text = "\n".join(f"- {reason} ({count} row(s))" for reason, count in reason_counts.items())
+    prompt = _NARRATION_PROMPT.format(n=len(flagged), reasons_text=reasons_text)
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None

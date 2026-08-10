@@ -177,3 +177,52 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this file plus `CHANGELOG.md` in full. Confirmed via
+`git log --all -- tests/` that Run 2's claimed "82 new tests" for
+`auto_insights`/`regression_diagnostics`/STL never actually landed in the
+repo (only Run 1's `tests/test_*.py` exist, 27 tests) — logged as an audit
+finding and treated as a small fix this run, not re-litigated further.
+
+**Audit:** `.prism/audit_2026-08-10.md`. Headline: the test-coverage gap
+above. Also confirmed still-open backlog items (Gemini SDK migration,
+polars/DuckDB path, mobile Atlas panel overlap at ~390px) untouched.
+
+**Research:** `.prism/research_2026-08-10.md` — light live web pass
+(agentic-EDA research + 2026 job-market skills) plus the standing
+competitor landscape from prior runs. Confirms the agentic-AI priority
+theme is well-aimed; no pivot needed.
+
+**Selected features (2, plus one bundled small fix):**
+1. **Anomaly narration** (`modules/anomaly.py`) — Gemini explains the
+   flagged IsolationForest rows in plain English with a suggested next
+   action, narration cached per a fingerprint of the flagged set (row
+   count + index hash) so re-viewing the same result doesn't re-spend a
+   Gemini call. Serves this cycle's required agentic-AI theme; closes a
+   backlog item both prior runs flagged and left open.
+2. **Atlas proactive alert HUD** (`modules/atlas.py`, incremental JARVIS-
+   copilot slice under the routine's ≤1/run cap) — the orb gets a new
+   `alert` visual state (amber pulsing ring + "⚠ N new insight(s)" label)
+   that lights up automatically whenever a fresh dataset load contains a
+   high-severity Auto-Insight finding, with zero extra Gemini calls
+   (reuses the already-computed `auto_insights.generate_insights()` list).
+   Clears itself once the user opens Overview and sees the findings.
+   Closes the "Atlas Proactive Insights" backlog item both prior runs
+   flagged but neither built.
+3. **Bundled small fix**: baseline pytest coverage for the three orphaned
+   modules from Run 2 (`auto_insights`, `regression_diagnostics`,
+   `forecasting.decompose_series`) — not a new feature, closing the
+   documentation/reality gap found in orientation.
+
+**Not built (backlog, unchanged from prior runs unless noted):** Data
+Quality Score scorecard, Advanced outlier detection (LOF/DBSCAN), Feature
+Selection Engine, polars/DuckDB large-file path (architecture-adjacent,
+still flagged for a dedicated run), `google-generativeai` → `google-genai`
+migration (still flagged for a dedicated run), mobile Atlas panel overlap
+at ~390px (still open, still needs a focused CSS-reflow pass).
+
+*(Build/verify/ship outcome appended below once complete.)*
