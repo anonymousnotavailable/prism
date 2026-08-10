@@ -2,6 +2,23 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly narration** (`modules/anomaly.py`) — the Anomaly Detection panel's
+  flagged rows now get an optional "✨ Explain these anomalies" button that
+  asks Gemini to turn the templated `anomaly_reason` strings into a 2-4
+  sentence plain-English explanation plus one concrete suggested next
+  action (investigate a column, exclude the rows, or treat them as a valid
+  rare segment). Short-circuits with no Gemini call when there's nothing
+  flagged, and caches the narration in session state keyed on a new
+  `anomaly_fingerprint()` helper so switching tabs or rerunning the page
+  doesn't re-spend a free-tier request on an unchanged detection result —
+  only a fresh "Find Anomalies" click that changes the flagged set
+  invalidates the cache. Closes the "Anomaly narration" backlog item
+  logged in `.prism/routine_log.md` after the 2026-08-07 runs. 11 new
+  tests (37 total in the suite).
+
 ## 2026-08-07
 
 ### Added

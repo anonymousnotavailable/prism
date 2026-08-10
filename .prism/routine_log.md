@@ -177,3 +177,87 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this file and `CHANGELOG.md` in full before selecting
+anything — confirmed against the backlog above that nothing planned this run
+duplicates prior work. Also discovered a git-hygiene note worth flagging for
+future runs: despite Run 1/2's log text above saying "merged to `main`,
+pushed," the actual `main` branch on `origin` does **not** contain that work
+— it lives on the harness-designated session branch instead (this session's
+harness enforces "push only to the designated branch," which silently
+overrides the routine's own Phase 7 instruction to push `main` directly).
+This run followed the same harness constraint: work is committed and merged
+into the designated branch, not `main`. **Future runs: verify which branch
+you're actually pushing to before trusting this log's "merged to main"
+language — check `git log --oneline` on real `origin/main`, not just the
+routine log's prose.**
+
+**Environment note:** the sandbox's system `cryptography`/`cffi` install was
+broken on arrival (`pyo3_runtime.PanicException` on import, blocking any
+test file that transitively imports `modules.ai_analyst` → `google.generativeai`
+→ `google.auth` → `cryptography`). Fixed with
+`pip install --ignore-installed cffi cryptography`. Not a code issue — just
+recording it in case a future run hits the same broken base image.
+
+**Audit:** light-touch this run (no new dedicated audit file) — reused the
+existing backlog below plus one bug found incidentally during Phase 5
+screenshotting (see "Discovered mid-run").
+
+**Selected feature (this run): Anomaly Narration** — closes the backlog item
+first logged 2026-08-07 Run 1. `modules/anomaly.py` gained
+`format_anomalies_text()`, `narrate_anomalies()`, and `anomaly_fingerprint()`;
+`app.py`'s Anomaly Detection expander gained an "✨ Explain these anomalies"
+button that asks Gemini to explain the flagged set in plain English with one
+concrete suggested next action, cached per fingerprint so re-renders don't
+re-spend a free-tier call. This is this cycle's required agentic-AI-analysis
+pick — it directly upgrades a templated, non-LLM output into agentic
+narration, the same pattern already proven safe by `auto_insights.narrate_insights()`.
+11 new tests (37 total in the suite, all green; 0 regressions).
+
+**Scope decision:** shipped one feature, not 2-3. Same reasoning Run 1 gave
+on 2026-08-07 (conservative, token-efficient — this run's own instructions
+explicitly asked for minimal token/credit spend) plus a practical one: doing
+Phase 5 screenshot verification properly (Streamlit's Playwright automation
+is genuinely fiddly per Run 2's notes above) already consumed real effort
+for one feature; a second rushed feature without equally careful
+verification would be exactly what this routine's guardrails warn against.
+
+**Not built (still open backlog — unchanged from before, plus one addition):**
+- `google-generativeai` → `google-genai` migration (still flagged, still
+  needs its own dedicated run).
+- Polars/DuckDB large-file path (architecture-adjacent, still needs a
+  dedicated run).
+- Data Quality Score with Exportable Scorecard.
+- Advanced Outlier Detection (LOF, DBSCAN).
+- Feature Selection Engine (mutual info, RFE, L1) for ML Lab.
+- Atlas Proactive Insights (JARVIS copilot track) — still not picked; next
+  run should seriously consider this since it's been skipped twice now.
+- Natural Language Summary of Every Tab.
+- **NEW — dataframe/table widgets don't follow the light/dark theme
+  toggle.** Discovered while screenshotting the light theme for this run's
+  feature (`.prism/runs/2026-08-10/anomaly_flagged_desktop-light.png`):
+  every `st.dataframe`/`st.table` on the page stays rendered in a dark
+  canvas (Streamlit's glide-data-grid widget takes its colors from
+  Streamlit's own `theme.base` config, not from Prism's injected custom
+  CSS in `modules/theme.py`, which only styles the container border/radius
+  — see `modules/theme.py:411`). Confirmed pre-existing (unrelated to this
+  run's diff — the same dataframe widget was already on the page before
+  this feature). Needs either a `st.dataframe`-column-config-level style
+  pass, syncing `st.set_page_config`/config.toml `theme.base` to the
+  active Prism theme mode, or a bespoke HTML table renderer for light mode
+  — worth a dedicated run rather than a rushed patch here.
+- **Re-confirmed (still open):** the mobile Atlas-panel reflow issue first
+  logged 2026-08-07 Run 2 is still present — reproduced again this run at
+  390px width (`.prism/runs/2026-08-10/overview_mobile-dark.png` shows the
+  squished vertical-text sidebar). Still out of scope for a feature-shipping
+  run; still needs its own focused CSS pass.
+
+**Outcome:** one feature branch (`feature/anomaly-narration`) built, tested
+(37/37 pytest green, 11 new), merged into the session branch, smoke-booted
+the full Streamlit app (HTTP 200, no traceback) before and after, screenshot-
+verified at desktop dark/light and mobile dark (Playwright against
+`/opt/pw-browsers/chromium`), pushed.
