@@ -87,15 +87,41 @@ def _quality_section_html(quality_report: dict) -> str:
     """
 
 
+def _health_score_section_html(health_breakdown: dict) -> str:
+    from modules.data_engine import HEALTH_COMPONENT_WEIGHTS
+
+    rows = "".join(
+        f"<tr><td>{name.replace('_', ' ').title()}</td><td>{health_breakdown[name]} / {weight}</td></tr>"
+        for name, weight in HEALTH_COMPONENT_WEIGHTS.items()
+    )
+    return f"""
+    <h2>Data Health Score</h2>
+    <div class="metric-row">
+      <div class="metric"><div class="value">{health_breakdown['total']} / 100</div><div class="label">Overall Score</div></div>
+    </div>
+    <table><tr><th>Component</th><th>Score</th></tr>{rows}</table>
+    """
+
+
 def generate_html_report(
     df: pd.DataFrame,
     quality_report: dict,
     stats_df: pd.DataFrame,
     charts: dict[str, go.Figure],
     cleaning_log: Optional[list[str]] = None,
+    health_breakdown: Optional[dict] = None,
 ) -> str:
-    """Assemble the full standalone HTML report string."""
+    """Assemble the full standalone HTML report string.
+
+    `health_breakdown` (from `data_engine.get_health_breakdown()`) is
+    optional and backward-compatible — existing callers that don't pass it
+    still get a report, just without the Data Health Score section. Added
+    this run to close the "exportable scorecard" gap: the score existed
+    live in the app but was never part of the shareable report.
+    """
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    health_html = _health_score_section_html(health_breakdown) if health_breakdown else ""
 
     cleaning_html = ""
     if cleaning_log:
@@ -121,6 +147,7 @@ def generate_html_report(
 <body>
   <h1>Prism — Auto-EDA Report</h1>
   <p>Generated {generated_at} &middot; {df.shape[0]:,} rows &times; {df.shape[1]} columns</p>
+  {health_html}
   {_quality_section_html(quality_report)}
   {cleaning_html}
   {stats_html}

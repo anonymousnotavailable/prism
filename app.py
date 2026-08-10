@@ -34,6 +34,7 @@ from modules import (
     dashboard_builder,
     data_dictionary,
     data_engine,
+    data_quality,
     dataset_knowledge,
     datetime_intel,
     domains,
@@ -132,6 +133,8 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "health_score_narration": None,  # Gemini-narrated read of the last Data Health Score breakdown
+    "health_score_narration_fingerprint": None,  # data_quality.fingerprint_breakdown() of the breakdown above
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -312,6 +315,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
     st.session_state.anomaly_narration_fingerprint = None
+    st.session_state.health_score_narration = None
+    st.session_state.health_score_narration_fingerprint = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -1465,6 +1470,45 @@ elif st.session_state.active_section == "Overview":
         for component, weight in data_engine.HEALTH_COMPONENT_WEIGHTS.items():
             st.caption(f"**{component.replace('_', ' ').title()}** — {health_breakdown[component]} / {weight}")
         st.progress(health_score / 100, text=f"Total: {health_score} / 100")
+
+        # Exportable Data Quality Scorecard — the score above already lived
+        # inside the running app before this run; the gap was that it was
+        # never shareable outside it. Backlog item from three prior runs.
+        scorecard = data_quality.build_scorecard(
+            quality, health_breakdown, dataset_name=st.session_state.last_file_name
+        )
+        sc_col1, sc_col2 = st.columns(2)
+        with sc_col1:
+            st.download_button(
+                "⬇️ Download Scorecard (JSON)",
+                data=data_quality.scorecard_json_bytes(scorecard),
+                file_name="prism_data_quality_scorecard.json",
+                mime="application/json",
+                use_container_width=True,
+                key="download_scorecard_btn",
+            )
+        with sc_col2:
+            score_fp = data_quality.fingerprint_breakdown(health_breakdown)
+            if (
+                st.session_state.health_score_narration
+                and st.session_state.health_score_narration_fingerprint == score_fp
+            ):
+                st.info(f"🤖 {st.session_state.health_score_narration}")
+            elif st.button(
+                "✨ Explain this score with AI",
+                key="narrate_health_score_btn",
+                help="Ask Gemini what's dragging the score down and what to fix first",
+                use_container_width=True,
+            ):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is reviewing the breakdown…"):
+                    narration, narr_error = data_quality.narrate_health_score(model, health_breakdown)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.health_score_narration = narration
+                    st.session_state.health_score_narration_fingerprint = score_fp
+                    st.rerun()
 
     # ------------------------------------------------------------------
     # Auto-Insight Engine — proactive insights surfaced on upload
