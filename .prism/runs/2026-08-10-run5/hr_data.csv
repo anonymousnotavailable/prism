@@ -1,0 +1,301 @@
+employee_id,department,job_title,join_date,salary,attrition
+EMP-6000,Marketing,Marketing Manager,2023-07-09,,No
+EMP-6001,HR,Recruiter,2019-12-05,"₹66,522",No
+EMP-6002,Engineering,Software Engineer,2023-03-21,"₹61,312",No
+EMP-6003,Sales,Sales Manager,2021-09-02,"₹76,833",No
+EMP-6004,Finance,Financial Analyst,2018-10-26,"₹101,615",No
+EMP-6005,Finance,Accountant,2023-06-23,"₹56,839",No
+EMP-6006,HR,Recruiter,2016-03-19,"₹108,466",Yes
+EMP-6007,Marketing,Marketing Manager,2017-03-22,,No
+EMP-6008,Engineering,Senior Engineer,2023-10-11,"₹68,941",No
+EMP-6009,Marketing,Marketing Specialist,2022-12-13,"₹93,661",No
+EMP-6010,Finance,Accountant,2018-08-13,"₹48,682",No
+EMP-6011,Engineering,Engineering Manager,2024-08-20,"₹43,369",Yes
+EMP-6012,Sales,Sales Rep,2021-10-03,"₹52,204",No
+EMP-6013,Marketing,Content Strategist,2018-02-15,"₹69,805",No
+EMP-6014,Marketing,Content Strategist,2023-07-09,"₹71,492",No
+EMP-6015,Marketing,Content Strategist,2024-09-08,"₹500,000",No
+EMP-6016,Support,Support Agent,2022-12-29,"₹79,988",No
+EMP-6017,Support,Support Agent,2021-06-22,"₹35,297",No
+EMP-6018,Support,Support Lead,2023-07-23,,No
+EMP-6019,Marketing,Marketing Specialist,2023-01-22,"₹49,614",No
+EMP-6020,HR,HR Generalist,2020-04-14,"₹64,783",No
+EMP-6021,Marketing,Content Strategist,2022-08-23,"₹69,743",No
+EMP-6022,Finance,Accountant,2023-05-19,"₹54,876",No
+EMP-6023,Support,Support Agent,2016-04-15,"₹50,580",Yes
+EMP-6024,Marketing,Marketing Manager,2020-01-15,"₹57,878",Yes
+EMP-6025,Support,Support Agent,2024-03-14,"₹77,762",No
+EMP-6026,Finance,Financial Analyst,2018-04-24,"₹89,800",No
+EMP-6027,Marketing,Marketing Manager,2021-05-20,,No
+EMP-6028,Marketing,Content Strategist,2020-03-19,"₹58,110",Yes
+EMP-6029,Support,Support Lead,2021-02-19,"₹62,168",Yes
+EMP-6030,Marketing,Content Strategist,2018-12-09,"₹59,588",No
+EMP-6031,Finance,Accountant,2021-08-01,"₹86,996",No
+EMP-6032,Marketing,Content Strategist,2022-09-20,"₹37,252",No
+EMP-6033,Engineering,Engineering Manager,2022-06-20,"₹102,767",No
+EMP-6034,Marketing,Content Strategist,2023-04-15,"₹68,304",No
+EMP-6035,HR,HR Generalist,2018-03-20,"₹62,330",No
+EMP-6036,Sales,Sales Rep,2017-03-27,"₹84,789",No
+EMP-6037,Sales,Account Executive,2020-09-30,"₹98,652",Yes
+EMP-6038,Sales,Account Executive,2017-06-10,"₹84,852",No
+EMP-6039,HR,HR Generalist,2021-07-02,"₹99,055",No
+EMP-6040,Engineering,Software Engineer,2019-05-12,"₹80,687",No
+EMP-6041,Marketing,Content Strategist,2022-04-18,"₹102,593",No
+EMP-6042,Marketing,Marketing Specialist,2020-01-22,"₹102,903",No
+EMP-6043,Support,Support Lead,2020-12-03,"₹76,010",No
+EMP-6044,Sales,Sales Manager,2024-05-18,"₹106,784",No
+EMP-6045,Finance,Financial Analyst,2021-07-03,"₹81,295",No
+EMP-6046,HR,Recruiter,2024-04-01,"₹79,738",Yes
+EMP-6047,Marketing,Marketing Manager,2018-02-15,"₹59,571",No
+EMP-6048,HR,Recruiter,2024-06-21,"₹72,224",No
+EMP-6049,Engineering,Engineering Manager,2017-11-18,"₹93,552",Yes
+EMP-6050,Marketing,Marketing Manager,2022-05-24,"₹51,747",Yes
+EMP-6051,HR,Recruiter,2016-05-27,"₹90,992",No
+EMP-6052,Support,Support Lead,2021-12-07,"₹84,972",No
+EMP-6053,Sales,Sales Manager,2023-09-19,"₹83,551",No
+EMP-6054,HR,Recruiter,2018-05-15,"₹35,000",No
+EMP-6055,HR,HR Generalist,2017-05-17,"₹75,935",No
+EMP-6056,Marketing,Content Strategist,2019-04-07,"₹90,965",No
+EMP-6057,Sales,Account Executive,2016-08-01,"₹62,741",Yes
+EMP-6058,Support,Support Agent,2016-01-09,"₹79,806",No
+EMP-6059,Support,Support Lead,2019-09-29,"₹35,000",Yes
+EMP-6060,Marketing,Marketing Manager,2023-04-19,"₹91,428",No
+EMP-6061,Finance,Financial Analyst,2019-07-14,"₹64,751",No
+EMP-6062,Support,Support Agent,2018-06-02,"₹95,427",No
+EMP-6063,Finance,Financial Analyst,2017-12-19,"₹41,144",No
+EMP-6064,HR,HR Generalist,2016-09-10,"₹91,845",No
+EMP-6065,Finance,Financial Analyst,2019-06-15,"₹73,261",No
+EMP-6066,Engineering,Software Engineer,2018-10-06,"₹94,152",No
+EMP-6067,Engineering,Engineering Manager,2019-12-08,"₹59,486",No
+EMP-6068,HR,HR Generalist,2018-10-31,"₹65,631",Yes
+EMP-6069,Finance,Financial Analyst,2021-03-05,"₹122,849",
+EMP-6070,Support,Support Agent,2022-05-05,"₹61,401",No
+EMP-6071,Sales,Sales Rep,2016-02-08,"₹63,879",Yes
+EMP-6072,Finance,Accountant,2016-01-19,"₹72,468",Yes
+EMP-6073,Engineering,Engineering Manager,2018-06-04,"₹57,549",No
+EMP-6074,Support,Support Agent,2018-01-06,"₹101,809",No
+EMP-6075,Marketing,Marketing Specialist,2016-10-09,"₹112,500",No
+EMP-6076,HR,HR Generalist,2023-11-08,"₹63,918",No
+EMP-6077,Finance,Accountant,2016-10-09,"₹43,479",No
+EMP-6078,Sales,Sales Manager,2023-06-28,"₹101,440",No
+EMP-6079,Finance,Accountant,2016-07-29,"₹100,168",No
+EMP-6080,Finance,Accountant,2021-07-05,"₹94,433",No
+EMP-6081,Sales,Account Executive,2019-05-07,"₹101,130",Yes
+EMP-6082,Sales,Sales Manager,2020-11-23,"₹60,649",No
+EMP-6083,Marketing,Content Strategist,2020-07-27,"₹74,630",No
+EMP-6084,Support,Support Lead,2017-12-13,,No
+EMP-6085,Sales,Sales Rep,2016-11-21,,No
+EMP-6086,Finance,Financial Analyst,2023-09-01,"₹97,622",No
+EMP-6087,Support,Support Agent,2022-05-22,"₹64,562",
+EMP-6088,Sales,Sales Manager,2022-08-31,"₹123,591",No
+EMP-6089,Finance,Financial Analyst,2021-05-31,"₹79,484",No
+EMP-6090,Engineering,Senior Engineer,2020-06-29,"₹65,192",No
+EMP-6091,HR,HR Generalist,2023-06-15,"₹93,958",Yes
+EMP-6092,Finance,Accountant,2017-05-30,"₹114,025",No
+EMP-6093,Engineering,Senior Engineer,2021-04-25,"₹87,723",Yes
+EMP-6094,Finance,Financial Analyst,2017-11-21,"₹53,657",No
+EMP-6095,Sales,Sales Manager,2021-09-15,"₹85,420",
+EMP-6096,Support,Support Lead,2019-04-28,"₹105,512",Yes
+EMP-6097,Sales,Account Executive,2019-09-28,"₹68,135",No
+EMP-6098,Sales,Account Executive,2018-11-25,"₹62,527",No
+EMP-6099,Engineering,Engineering Manager,2021-03-23,"₹98,329",Yes
+EMP-6100,Support,Support Agent,2016-07-14,"₹80,799",No
+EMP-6101,Support,Support Lead,2022-10-05,"₹55,949",No
+EMP-6102,Engineering,Senior Engineer,2019-07-24,"₹70,405",No
+EMP-6103,Sales,Sales Rep,2024-08-04,"₹62,887",No
+EMP-6104,Support,Support Lead,2019-12-06,"₹83,925",No
+EMP-6105,Finance,Accountant,2017-01-27,"₹80,194",No
+EMP-6106,Support,Support Lead,2018-07-07,"₹101,009",No
+EMP-6107,Engineering,Software Engineer,2020-01-11,"₹92,193",Yes
+EMP-6108,Support,Support Lead,2019-05-14,"₹46,729",Yes
+EMP-6109,Sales,Sales Rep,2018-04-27,"₹86,140",No
+EMP-6110,Marketing,Marketing Manager,2018-11-29,"₹95,939",No
+EMP-6111,Marketing,Marketing Manager,2022-06-02,"₹87,118",No
+EMP-6112,Sales,Sales Manager,2019-04-20,"₹98,601",No
+EMP-6113,Finance,Financial Analyst,2017-05-12,"₹67,008",No
+EMP-6114,Finance,Accountant,2021-06-03,"₹58,983",No
+EMP-6115,Engineering,Software Engineer,2022-06-24,"₹96,601",No
+EMP-6116,Marketing,Marketing Manager,2020-05-10,"₹56,691",No
+EMP-6117,Engineering,Software Engineer,2022-05-07,"₹35,000",No
+EMP-6118,Finance,Accountant,2017-09-24,"₹98,506",No
+EMP-6119,Marketing,Content Strategist,2017-04-08,"₹63,516",No
+EMP-6120,Marketing,Marketing Specialist,2022-12-19,"₹71,879",No
+EMP-6121,Sales,Account Executive,2022-11-30,"₹50,040",Yes
+EMP-6122,Engineering,Senior Engineer,2020-06-30,,Yes
+EMP-6123,Engineering,Software Engineer,2020-04-02,"₹54,868",No
+EMP-6124,Support,Support Agent,2020-01-06,"₹70,787",No
+EMP-6125,Finance,Accountant,2017-12-06,,No
+EMP-6126,Support,Support Lead,2022-04-01,"₹35,000",No
+EMP-6127,Sales,Sales Rep,2019-05-06,"₹93,043",No
+EMP-6128,HR,HR Generalist,2022-08-03,"₹54,360",Yes
+EMP-6129,Support,Support Lead,2019-11-15,"₹56,674",No
+EMP-6130,HR,Recruiter,2023-06-09,"₹91,557",No
+EMP-6131,Engineering,Senior Engineer,2023-06-03,"₹76,507",No
+EMP-6132,Engineering,Engineering Manager,2023-02-08,"₹47,271",No
+EMP-6133,Engineering,Senior Engineer,2018-05-10,"₹114,892",No
+EMP-6134,Finance,Financial Analyst,2021-11-10,"₹60,788",No
+EMP-6135,Marketing,Content Strategist,2022-08-08,"₹82,946",No
+EMP-6136,Sales,Sales Rep,2022-04-26,"₹81,998",No
+EMP-6137,Support,Support Lead,2023-09-14,"₹106,227",No
+EMP-6138,Finance,Financial Analyst,2017-05-17,"₹68,887",No
+EMP-6139,Marketing,Marketing Manager,2021-10-02,"₹98,162",No
+EMP-6140,Marketing,Content Strategist,2022-02-15,"₹63,162",No
+EMP-6141,Marketing,Marketing Manager,2019-02-17,"₹100,443",No
+EMP-6142,Sales,Account Executive,2018-03-25,"₹62,740",No
+EMP-6143,Marketing,Marketing Specialist,2020-12-14,"₹70,756",No
+EMP-6144,Marketing,Content Strategist,2018-04-05,"₹115,919",
+EMP-6145,Sales,Account Executive,2021-02-25,"₹84,339",No
+EMP-6146,Support,Support Agent,2017-01-19,"₹80,195",No
+EMP-6147,Support,Support Agent,2019-06-19,"₹122,841",No
+EMP-6148,Finance,Financial Analyst,2019-06-24,"₹85,227",No
+EMP-6149,Engineering,Software Engineer,2022-06-04,"₹61,677",No
+EMP-6150,Support,Support Agent,2016-03-04,"₹92,693",No
+EMP-6151,Sales,Sales Rep,2019-03-08,"₹54,366",No
+EMP-6152,Finance,Accountant,2021-10-03,"₹100,566",No
+EMP-6153,HR,HR Generalist,2020-05-09,"₹102,120",No
+EMP-6154,Marketing,Content Strategist,2022-07-21,"₹66,541",No
+EMP-6155,Engineering,Engineering Manager,2023-08-13,"₹65,442",No
+EMP-6156,Finance,Accountant,2022-10-17,"₹81,530",No
+EMP-6157,Sales,Sales Manager,2018-12-05,"₹78,283",No
+EMP-6158,Marketing,Marketing Manager,2017-02-16,"₹58,446",Yes
+EMP-6159,Support,Support Lead,2016-10-06,"₹89,362",No
+EMP-6160,Support,Support Agent,2021-08-13,"₹37,162",No
+EMP-6161,Engineering,Engineering Manager,2017-02-07,"₹69,343",Yes
+EMP-6162,Marketing,Marketing Specialist,2023-05-06,"₹69,921",No
+EMP-6163,Marketing,Marketing Specialist,2021-01-26,"₹72,535",No
+EMP-6164,Support,Support Lead,2016-04-25,"₹84,144",No
+EMP-6165,Support,Support Agent,2022-12-07,"₹53,440",Yes
+EMP-6166,Engineering,Senior Engineer,2017-09-10,"₹89,770",No
+EMP-6167,Engineering,Senior Engineer,2024-09-10,"₹74,397",No
+EMP-6168,Marketing,Marketing Specialist,2018-05-06,"₹64,996",No
+EMP-6169,HR,HR Generalist,2020-10-26,"₹50,663",No
+EMP-6170,Sales,Sales Rep,2020-01-18,"₹54,338",No
+EMP-6171,Engineering,Senior Engineer,2019-01-31,"₹85,206",No
+EMP-6172,Marketing,Marketing Specialist,2017-07-04,"₹58,723",Yes
+EMP-6173,Sales,Sales Manager,2016-07-15,"₹79,284",Yes
+EMP-6174,Engineering,Senior Engineer,2020-09-20,"₹99,240",No
+EMP-6175,HR,HR Generalist,2024-08-12,"₹98,653",No
+EMP-6176,Support,Support Lead,2019-01-05,"₹109,208",No
+EMP-6177,Finance,Financial Analyst,2018-08-18,"₹72,074",No
+EMP-6178,HR,HR Generalist,2021-09-27,"₹56,297",No
+EMP-6179,Support,Support Agent,2024-10-01,"₹98,411",No
+EMP-6180,Marketing,Content Strategist,2020-08-27,"₹84,192",No
+EMP-6181,Engineering,Engineering Manager,2024-06-26,"₹100,479",No
+EMP-6182,Engineering,Senior Engineer,2022-01-05,"₹78,221",No
+EMP-6183,Sales,Account Executive,2022-12-26,"₹101,913",No
+EMP-6184,Support,Support Agent,2018-02-27,"₹94,928",No
+EMP-6185,Support,Support Lead,2020-10-31,"₹92,328",No
+EMP-6186,Engineering,Engineering Manager,2022-03-12,"₹88,070",No
+EMP-6187,Sales,Sales Rep,2019-03-04,"₹85,954",No
+EMP-6188,HR,HR Generalist,2022-06-08,"₹82,661",No
+EMP-6189,Sales,Sales Rep,2019-05-22,"₹82,518",No
+EMP-6190,Engineering,Software Engineer,2022-04-29,"₹97,804",No
+EMP-6191,Sales,Sales Rep,2019-12-24,"₹67,760",No
+EMP-6192,Marketing,Marketing Manager,2016-08-07,"₹112,714",No
+EMP-6193,Marketing,Marketing Specialist,2016-11-06,"₹75,875",No
+EMP-6194,Marketing,Marketing Manager,2024-04-15,"₹97,708",No
+EMP-6195,Engineering,Engineering Manager,2021-07-30,"₹76,195",No
+EMP-6196,Engineering,Engineering Manager,2021-01-19,"₹73,067",No
+EMP-6197,Sales,Sales Manager,2022-10-02,"₹118,645",No
+EMP-6198,Sales,Sales Rep,2018-05-21,"₹71,813",No
+EMP-6199,HR,Recruiter,2019-03-15,"₹52,456",No
+EMP-6200,Sales,Sales Manager,2019-10-21,"₹63,718",Yes
+EMP-6201,Marketing,Marketing Specialist,2021-10-05,"₹71,655",No
+EMP-6202,Finance,Financial Analyst,2020-07-14,"₹121,104",No
+EMP-6203,Marketing,Marketing Specialist,2018-05-20,"₹82,135",Yes
+EMP-6204,HR,HR Generalist,2020-07-14,"₹96,694",No
+EMP-6205,Marketing,Marketing Manager,2019-04-11,"₹57,968",No
+EMP-6206,Marketing,Marketing Specialist,2018-03-04,"₹85,052",Yes
+EMP-6207,Finance,Accountant,2017-09-05,"₹91,430",No
+EMP-6208,Finance,Financial Analyst,2018-04-27,"₹114,033",No
+EMP-6209,Support,Support Lead,2020-09-20,"₹64,075",No
+EMP-6210,Engineering,Senior Engineer,2019-03-09,"₹90,070",No
+EMP-6211,Sales,Account Executive,2019-09-15,"₹84,052",No
+EMP-6212,Support,Support Lead,2022-11-03,"₹57,566",No
+EMP-6213,Marketing,Content Strategist,2022-02-01,,No
+EMP-6214,Marketing,Marketing Manager,2019-10-31,"₹72,731",No
+EMP-6215,Sales,Account Executive,2021-01-14,"₹35,000",No
+EMP-6216,Sales,Account Executive,2016-05-03,"₹89,973",No
+EMP-6217,Marketing,Marketing Manager,2019-08-01,"₹88,805",No
+EMP-6218,Finance,Financial Analyst,2019-12-18,"₹69,221",No
+EMP-6219,Marketing,Content Strategist,2018-08-08,"₹51,229",Yes
+EMP-6220,Finance,Accountant,2017-10-06,"₹107,598",No
+EMP-6221,HR,HR Generalist,2022-06-27,"₹83,320",No
+EMP-6222,Engineering,Engineering Manager,2016-02-09,"₹98,334",No
+EMP-6223,HR,HR Generalist,2024-07-22,"₹106,206",No
+EMP-6224,Sales,Sales Rep,2024-07-23,"₹67,582",No
+EMP-6225,Engineering,Software Engineer,2021-06-23,"₹94,243",No
+EMP-6226,Finance,Accountant,2018-07-28,"₹73,177",No
+EMP-6227,Engineering,Engineering Manager,2018-07-29,"₹76,749",
+EMP-6228,HR,Recruiter,2020-09-15,"₹76,288",No
+EMP-6229,Sales,Account Executive,2021-11-11,"₹77,974",
+EMP-6230,Support,Support Lead,2019-02-20,"₹100,279",Yes
+EMP-6231,Sales,Sales Manager,2019-11-10,"₹80,477",No
+EMP-6232,HR,Recruiter,2016-06-19,"₹74,925",No
+EMP-6233,Finance,Financial Analyst,2023-10-05,"₹72,469",Yes
+EMP-6234,HR,Recruiter,2023-11-22,"₹84,826",No
+EMP-6235,Finance,Financial Analyst,2018-04-19,"₹60,103",No
+EMP-6236,Finance,Financial Analyst,2024-03-13,"₹67,947",No
+EMP-6237,HR,Recruiter,2023-06-06,"₹76,954",No
+EMP-6238,Support,Support Lead,2017-08-19,"₹66,683",No
+EMP-6239,Sales,Account Executive,2017-05-04,"₹75,630",No
+EMP-6240,Sales,Account Executive,2019-08-30,"₹65,784",No
+EMP-6241,Support,Support Agent,2022-01-22,"₹118,079",No
+EMP-6242,Marketing,Marketing Manager,2019-04-10,"₹104,581",No
+EMP-6243,Finance,Financial Analyst,2022-06-02,,No
+EMP-6244,Support,Support Agent,2017-06-19,"₹76,928",No
+EMP-6245,Engineering,Senior Engineer,2024-02-11,"₹121,815",No
+EMP-6246,HR,HR Generalist,2021-10-18,"₹84,459",No
+EMP-6247,HR,Recruiter,2018-03-12,"₹76,263",No
+EMP-6248,Sales,Account Executive,2022-11-07,"₹84,063",No
+EMP-6249,Sales,Account Executive,2019-08-05,"₹84,119",No
+EMP-6250,Marketing,Marketing Specialist,2022-08-28,"₹106,206",No
+EMP-6251,Finance,Financial Analyst,2022-02-27,"₹77,621",No
+EMP-6252,Engineering,Engineering Manager,2021-11-30,"₹119,986",No
+EMP-6253,Sales,Sales Manager,2017-01-22,"₹60,360",Yes
+EMP-6254,Finance,Accountant,2016-02-25,"₹91,881",No
+EMP-6255,Marketing,Content Strategist,2022-02-17,"₹57,963",Yes
+EMP-6256,Marketing,Marketing Specialist,2018-01-04,"₹114,342",No
+EMP-6257,HR,Recruiter,2016-08-02,"₹71,389",No
+EMP-6258,Finance,Accountant,2020-07-04,"₹76,836",Yes
+EMP-6259,Engineering,Senior Engineer,2024-03-08,"₹96,485",No
+EMP-6260,Sales,Sales Rep,2022-02-27,"₹103,107",No
+EMP-6261,Sales,Sales Rep,2018-08-20,"₹55,762",No
+EMP-6262,Support,Support Lead,2019-05-21,"₹71,077",Yes
+EMP-6263,Marketing,Marketing Specialist,2022-02-11,"₹50,102",No
+EMP-6264,Finance,Accountant,2019-12-08,"₹80,746",No
+EMP-6265,Sales,Sales Rep,2020-11-22,"₹75,973",No
+EMP-6266,Marketing,Marketing Manager,2023-05-14,,No
+EMP-6267,Marketing,Marketing Specialist,2016-06-30,"₹64,311",No
+EMP-6268,Sales,Sales Manager,2016-03-16,"₹70,282",Yes
+EMP-6269,Sales,Sales Rep,2023-10-19,"₹63,072",No
+EMP-6270,Marketing,Content Strategist,2018-05-09,"₹88,579",No
+EMP-6271,Finance,Financial Analyst,2023-03-15,"₹108,319",No
+EMP-6272,Finance,Accountant,2018-07-16,"₹39,386",No
+EMP-6273,Finance,Financial Analyst,2023-06-03,,Yes
+EMP-6274,Sales,Account Executive,2024-09-11,"₹69,637",Yes
+EMP-6275,Support,Support Agent,2024-01-26,"₹87,847",No
+EMP-6276,Engineering,Senior Engineer,2017-12-29,"₹58,965",No
+EMP-6277,Engineering,Engineering Manager,2020-07-13,"₹75,071",No
+EMP-6278,Marketing,Content Strategist,2016-05-30,"₹57,208",Yes
+EMP-6279,Finance,Financial Analyst,2018-05-04,"₹91,934",No
+EMP-6280,Sales,Sales Rep,2019-08-25,"₹79,985",Yes
+EMP-6281,Sales,Sales Rep,2016-04-25,"₹74,771",No
+EMP-6282,Finance,Accountant,2021-09-09,,No
+EMP-6283,Support,Support Lead,2017-09-08,"₹73,070",No
+EMP-6284,Finance,Financial Analyst,2017-05-05,"₹46,924",Yes
+EMP-6285,Engineering,Senior Engineer,2021-09-14,,No
+EMP-6286,HR,HR Generalist,2023-05-11,"₹83,765",Yes
+EMP-6287,Finance,Financial Analyst,2024-09-25,"₹74,918",No
+EMP-6288,HR,Recruiter,2017-09-20,"₹97,698",No
+EMP-6289,Engineering,Software Engineer,2022-10-21,"₹102,370",No
+EMP-6290,Support,Support Lead,2022-03-03,"₹56,154",No
+EMP-6291,Support,Support Lead,2023-02-15,"₹62,378",No
+EMP-6292,Sales,Sales Manager,2017-06-01,"₹108,946",No
+EMP-6293,HR,HR Generalist,2020-03-12,"₹106,377",No
+EMP-6294,Finance,Accountant,2023-09-22,"₹63,232",No
+EMP-6000,Marketing,Marketing Manager,2023-07-09,,No
+EMP-6001,HR,Recruiter,2019-12-05,"₹66,522",No
+EMP-6002,Engineering,Software Engineer,2023-03-21,"₹61,312",No
+EMP-6003,Sales,Sales Manager,2021-09-02,"₹76,833",No
+EMP-6004,Finance,Financial Analyst,2018-10-26,"₹101,615",No

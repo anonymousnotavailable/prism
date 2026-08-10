@@ -2,6 +2,42 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 5)
+
+### Added
+- **Auto-Verified Hypothesis Testing** (`modules/auto_analyst.py`,
+  `auto_verify_hypothesis()`) — Auto Analyst's "Suggested next step" card
+  previously only handed the user a column pair and required a manual trip
+  to Stats Lab to actually test it. A new "⚡ Auto-verify now" button runs
+  the matching scipy.stats significance test immediately, in place, via
+  the same `suggest_test`/`run_test`/`interpret_result` machinery Stats Lab
+  uses, and shows the test statistic/p-value/effect size right there.
+  `narrate_hypothesis_verdict()` asks Gemini to phrase the already-computed
+  verdict in plain English — detection stays fully deterministic, the LLM
+  only explains. Closes the suggest -> verify loop; serves this cycle's
+  required agentic-AI theme (self-verifying analysis). 4 new tests.
+- **Feature Selection Engine** (`modules/mllab.py`, `select_features()`) —
+  new ML Lab section between Feature Engineering and the Baseline Model
+  Runner. Ranks candidate features by relevance to the target using three
+  independent methods — mutual information (filter), L1-regularized
+  coefficients (embedded, Lasso/L1-LogisticRegression), and Recursive
+  Feature Elimination (wrapper) — and reports where at least 2 of 3 agree
+  as the recommended set, mirroring the same agreement-over-any-single-
+  method pattern Ensemble Anomaly Consensus (Run 4) already established.
+  A one-click "Apply recommended features" pre-fills the feature
+  multiselect below. First dedicated test coverage for `modules/mllab.py`
+  (6 new tests).
+
+### Fixed
+- **NameError crash on "Auto-verify now"** — the new auto-verify narration
+  branch referenced `gemini_model`, a variable scoped to a different tab
+  (Overview's Key Insights section); the Auto Analyst tab's own model
+  variable is `auto_model`. Would have crashed instantly for any real user
+  with a Gemini key configured. Caught during this run's own Phase 5
+  screenshot review using a stubbed-Gemini local harness
+  (`.prism/runs/2026-08-10-run5/_screenshot_app.py`, never shipped) —
+  fixed and re-verified before merging, so main was never broken by it.
+
 ## 2026-08-10 (Run 4)
 
 ### Added

@@ -334,3 +334,69 @@ screenshot verification (fourth consecutive run with no API key in the
 sandbox — anomaly narration, ensemble disagreement narration, and
 Auto-Insights narration are all still only verified via unit tests + the
 graceful-fallback-message screenshot).
+
+---
+
+## 2026-08-10 — Run 5 (third independent session, same day)
+
+**Important git-hygiene finding:** the literal local/origin `main` branch
+(`dd20c293`) is an *ancestor* of this session's designated branch
+`claude/adoring-meitner-opvofn` (`699e97a`) — an older, separate history
+with none of the four prior runs' work (no `tests/`, `.prism/`,
+`CHANGELOG.md`). Every prior run's "merged/pushed to main" was actually
+merged/pushed to `claude/adoring-meitner-opvofn`, never the literal `main`.
+This run follows its own harness instructions (develop + push only on
+`claude/adoring-meitner-opvofn`) rather than the routine script's generic
+"push to main" wording. **Next run: verify via the GitHub API whether this
+branch has a PR against the real default branch before repeating either
+claim.** Full detail in `.prism/audit_2026-08-10-run5.md`.
+
+**Selected features:** (1) **Auto-Verified Hypothesis Testing**
+(`modules/auto_analyst.py`) — Auto Analyst's suggested-hypothesis card now
+has an "⚡ Auto-verify now" button that immediately runs the matching
+scipy.stats test in place (via Stats Lab's own `suggest_test`/`run_test`/
+`interpret_result`) instead of only pointing the user at Stats Lab to run
+it manually; Gemini narrates the already-computed verdict, never decides
+it. Closes the suggest→verify loop; serves this cycle's required agentic
+theme. 4 new tests. (2) **Feature Selection Engine** (`modules/mllab.py`)
+— new ML Lab section ranking candidate features by target relevance via
+three independent methods (mutual information, L1 coefficients, RFE),
+recommending features ≥2/3 methods agree on — same agreement-over-any-
+single-method idea as Run 4's Ensemble Anomaly Consensus, applied to
+feature relevance. Confirmed via direct codebase inspection (not just the
+backlog description) that this is distinct from the existing
+`suggest_features()` (encoding/scaling, not relevance ranking) before
+building it. 6 new tests — first dedicated test coverage for
+`modules/mllab.py`.
+
+**Bug caught by Phase 5 (not by unit tests):** the auto-verify narration
+branch crashed with `NameError: name 'gemini_model' is not defined` — it
+referenced a variable scoped to a *different* tab (Overview's Key
+Insights) instead of the Auto Analyst tab's own `auto_model`. Would have
+crashed for any real user with a Gemini key configured; unit tests didn't
+catch it because they call the pure function directly, never through the
+Streamlit script's tab-scoped variables. Caught using a local, never-
+shipped stubbed-Gemini Playwright harness
+(`.prism/runs/2026-08-10-run5/_screenshot_app.py`) built specifically
+because the sandbox has no live API key and this tab has no offline
+fallback path at all (unlike Auto Analyst's plan generation, which does
+have one — the "Run Full Analysis" button itself is fully gated behind a
+non-null model). Fixed and re-verified (screenshots clean in both themes
++ mobile) before merging.
+
+**Outcome:** two feature branches (`feature/hypothesis-auto-verify`,
+`feature/ml-lab-feature-selection`) built, tested, screenshot-reviewed,
+merged to `claude/adoring-meitner-opvofn` in sequence, pushed. 108/108
+pytest green (98 prior + 10 new). Playwright screenshots at desktop
+dark/light and mobile dark for both features — see
+`.prism/runs/2026-08-10-run5/`. Fresh-checkout boot check passed (HTTP
+200, no traceback).
+
+**Not built (backlog for next run):** polars/DuckDB large-file path (five
+consecutive runs now agree it needs a dedicated session — `duckdb` is
+already a pinned dependency, only the ingestion path itself still isn't
+using it), `google-generativeai` → `google-genai` migration (four
+consecutive runs), live-Gemini screenshot verification (fifth consecutive
+run with no API key in the sandbox), Advanced Tools popover doesn't
+auto-close after nav click (new minor UX finding this run, not fixed —
+see audit file).
