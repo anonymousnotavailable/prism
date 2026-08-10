@@ -39,6 +39,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    feature_selection,
     forecasting,
     geo,
     hellmode,
@@ -130,6 +131,8 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration": None,  # Gemini-narrated plain-English summary of the last anomaly run
+    "anomaly_narration_error": None,  # error from the last anomaly-narration attempt, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -156,6 +159,8 @@ _DEFAULTS = {
     "mllab_error": None,  # error from the last baseline model run, if any
     "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
     "mllab_shap_error": None,  # error from the last SHAP attempt, if any
+    "mllab_feature_ranking": None,  # last "Rank Features" result DataFrame from modules.feature_selection
+    "mllab_feature_ranking_error": None,  # error from the last feature-ranking attempt, if any
     "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
     "chaos_result": None,  # last "Run Chaos Test" preview: {"chaotic_df", "report", "before_health", "after_health"}
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
@@ -271,6 +276,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration = None
+    st.session_state.anomaly_narration_error = None
+    st.session_state.mllab_feature_ranking = None
+    st.session_state.mllab_feature_ranking_error = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1718,6 +1727,8 @@ elif st.session_state.active_section == "Overview":
                     flagged, anomaly_err = anomaly.find_anomalies(df, column_types)
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_narration = None  # a new run invalidates any prior narration
+                st.session_state.anomaly_narration_error = None
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
@@ -1728,6 +1739,22 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     st.dataframe(flagged, use_container_width=True)
+
+                    if st.session_state.anomaly_narration:
+                        st.info(st.session_state.anomaly_narration)
+                    elif st.button(
+                        "✨ Narrate with AI", key="narrate_anomalies_btn",
+                        help="Ask Gemini to explain what the flagged rows have in common and suggest a next step",
+                    ):
+                        narration_model = ai_analyst.get_model()
+                        with st.spinner(ui.get_loading_message()):
+                            narration, narr_error = anomaly.narrate_anomalies(narration_model, flagged, len(df))
+                        st.session_state.anomaly_narration = narration
+                        st.session_state.anomaly_narration_error = narr_error
+                        st.rerun()
+                    if st.session_state.anomaly_narration_error:
+                        st.warning(st.session_state.anomaly_narration_error)
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
@@ -3820,10 +3847,51 @@ elif st.session_state.active_section == "ML Lab":
                         st.toast(f"{description}. 🛠️")
                         st.rerun()
 
+        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
+
+        st.divider()
+        st.markdown("#### Feature Selection")
+        st.caption(
+            "Ranks every candidate column by three independent signals — mutual information, an L1-regularized "
+            "model's coefficients, and Recursive Feature Elimination with a Random Forest — so the columns you "
+            "hand the baseline models below aren't just a guess."
+        )
+        if len(mllab_feature_choices) < feature_selection.MIN_FEATURES_REQUIRED:
+            st.info("Need at least 2 candidate columns to rank.")
+        elif st.button("Rank Features", key="rank_features_btn"):
+            with st.spinner(ui.get_loading_message()):
+                try:
+                    st.session_state.mllab_feature_ranking = feature_selection.rank_features(
+                        df, mllab_feature_choices, mllab_target_col, mllab_task_type
+                    )
+                    st.session_state.mllab_feature_ranking_error = None
+                except Exception as e:
+                    st.session_state.mllab_feature_ranking = None
+                    st.session_state.mllab_feature_ranking_error = str(e)
+
+        if st.session_state.mllab_feature_ranking_error:
+            st.error(st.session_state.mllab_feature_ranking_error)
+        elif st.session_state.mllab_feature_ranking is not None:
+            ranked = st.session_state.mllab_feature_ranking
+            st.dataframe(
+                ranked.style.format(
+                    {"mutual_info": "{:.4f}", "l1_score": "{:.4f}", "composite_score": "{:.3f}"}
+                ),
+                use_container_width=True,
+            )
+            st.plotly_chart(feature_selection.build_ranking_chart(ranked), use_container_width=True)
+
+            top_k = st.number_input(
+                "Use top K features", min_value=1, max_value=len(ranked), value=min(8, len(ranked)), key="mllab_top_k",
+            )
+            if st.button("Apply to feature selection below", key="apply_ranked_features_btn"):
+                st.session_state["mllab_feature_cols"] = feature_selection.select_top_k(ranked, int(top_k))
+                st.toast(f"Selected the top {int(top_k)} ranked feature(s). 🎯")
+                st.rerun()
+
         st.divider()
         st.markdown("#### Baseline Model Runner")
 
-        mllab_feature_choices = [c for c in df.columns if c != mllab_target_col]
         mllab_selected_features = st.multiselect(
             "Feature columns", mllab_feature_choices,
             default=mllab_feature_choices[: min(8, len(mllab_feature_choices))], key="mllab_feature_cols",
