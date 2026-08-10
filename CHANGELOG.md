@@ -2,6 +2,41 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** (`modules/anomaly.py`) — the existing IsolationForest
+  anomaly detector now has an optional Gemini narration pass: click
+  "✨ Explain these anomalies" after a scan to get a 2-3 sentence plain-
+  English summary of what's driving the flagged rows plus a suggested next
+  action. Only aggregated reason counts are ever sent to Gemini (never raw
+  row values), and the result is cached per dataset fingerprint so an
+  unchanged flagged set never re-calls the API across Streamlit reruns.
+  13 new tests.
+- **Data Quality Scorecard** (`modules/quality_scorecard.py`) — a new
+  "📋 Data Quality Scorecard" panel in the Overview tab turns the existing
+  weighted Data Health Score into a standalone, letter-graded (A-F)
+  per-column breakdown with prioritized remediation bullets, downloadable
+  as a self-contained HTML page or portfolio-ready Markdown. Fully
+  deterministic, no Gemini call. 9 new tests.
+
+### Fixed
+- Mobile Atlas panel: below 768px viewport width, the panel now reflows
+  into normal document flow (bounded, scrollable) instead of a
+  `position: fixed` overlay that was wider than most phone screens and
+  covered/squeezed main content.
+- Pinned `cffi>=1.16` in `requirements-dev.txt` to prevent a
+  `_cffi_backend` import panic seen when installing dev dependencies fresh.
+
+### Known issue (documented, not yet fixed)
+- A pre-existing, more severe mobile layout bug was found while verifying
+  the Atlas panel fix above: below ~768px viewport width, the entire main
+  content column (every tab, not just Atlas) collapses to a small fraction
+  of the screen width. Confirmed present before this release too — not a
+  regression from the fixes above. See `.prism/audit_2026-08-10.md` for
+  the full diagnosis; flagged as the top priority for the next round of
+  work.
+
 ## 2026-08-07
 
 ### Added
