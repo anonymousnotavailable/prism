@@ -39,6 +39,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    feature_selection,
     forecasting,
     geo,
     hellmode,
@@ -159,6 +160,10 @@ _DEFAULTS = {
     "mllab_error": None,  # error from the last baseline model run, if any
     "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
     "mllab_shap_error": None,  # error from the last SHAP attempt, if any
+    "feature_selection_result": None,  # last "Rank Features" result dict from modules.feature_selection
+    "feature_selection_error": None,  # error from the last feature-ranking attempt, if any
+    "feature_selection_narration": None,  # Gemini-narrated explanation of the last ranking
+    "feature_selection_narration_fingerprint": None,  # feature_selection.fingerprint_ranking() the narration above covers
     "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
     "chaos_result": None,  # last "Run Chaos Test" preview: {"chaotic_df", "report", "before_health", "after_health"}
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
@@ -303,6 +308,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.feature_selection_result = None
+    st.session_state.feature_selection_error = None
+    st.session_state.feature_selection_narration = None
+    st.session_state.feature_selection_narration_fingerprint = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
@@ -3908,6 +3917,79 @@ elif st.session_state.active_section == "ML Lab":
                         log_step(description, code)
                         st.toast(f"{description}. 🛠️")
                         st.rerun()
+
+        st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Ranks every candidate column by relevance to the target using three independent "
+            "methods — mutual information, an L1-regularized model, and recursive feature "
+            "elimination — then reports a consensus score. A feature all three agree on is a "
+            "much stronger signal than any single method's opinion."
+        )
+        fs_feature_choices = [c for c in df.columns if c != mllab_target_col]
+        if st.button("Rank Features", key="rank_features_btn", use_container_width=True):
+            with st.spinner(ui.get_loading_message()):
+                fs_result, fs_error = feature_selection.rank_features(
+                    df, fs_feature_choices, mllab_target_col, column_types, mllab_task_type
+                )
+            st.session_state.feature_selection_result = fs_result
+            st.session_state.feature_selection_error = fs_error
+            st.session_state.feature_selection_narration = None
+            st.session_state.feature_selection_narration_fingerprint = None
+
+        if st.session_state.feature_selection_error:
+            st.error(st.session_state.feature_selection_error)
+        elif st.session_state.feature_selection_result is None:
+            ui.render_empty_state(
+                "🎯", "No ranking yet", 'Click "Rank Features" to see which columns matter most for this target.'
+            )
+        else:
+            fs_result = st.session_state.feature_selection_result
+            st.caption(f"Ranked on {fs_result['n_rows_used']} rows with a non-missing target.")
+
+            if fs_result["method_errors"]:
+                failed = ", ".join(fs_result["method_errors"])
+                st.caption(f"⚠️ {failed} couldn't run on this data — consensus uses the remaining method(s).")
+
+            if fs_result["dropped_features"]:
+                with st.expander(f"{len(fs_result['dropped_features'])} column(s) excluded from ranking"):
+                    for d in fs_result["dropped_features"]:
+                        st.caption(f"**{d['feature']}** — {d['reason']}")
+
+            st.plotly_chart(feature_selection.build_ranking_chart(fs_result), use_container_width=True)
+
+            fs_col1, fs_col2 = st.columns([3, 1])
+            with fs_col1:
+                st.caption(
+                    "Consensus score averages all three methods' normalized scores; \"votes\" counts how "
+                    f"many placed the feature in their own top {feature_selection.TOP_K_DEFAULT}."
+                )
+            with fs_col2:
+                if st.button(f"Use top {len(fs_result['top_k'])}", key="use_top_features_btn", use_container_width=True):
+                    st.session_state.mllab_feature_cols = fs_result["top_k"]
+                    st.toast(f"Feature columns set to the top {len(fs_result['top_k'])} ranked features. 🎯")
+                    st.rerun()
+
+            current_fs_fp = feature_selection.fingerprint_ranking(fs_result)
+            if (
+                st.session_state.feature_selection_narration
+                and st.session_state.feature_selection_narration_fingerprint == current_fs_fp
+            ):
+                st.info(f"🤖 {st.session_state.feature_selection_narration}")
+            elif st.button(
+                "✨ Explain this ranking with AI",
+                key="narrate_features_btn",
+                help="Ask Gemini to interpret why the top features matter",
+            ):
+                fs_model = ai_analyst.get_model()
+                with st.spinner("Gemini is reviewing the ranking…"):
+                    narration, narr_error = feature_selection.narrate_feature_ranking(fs_model, fs_result)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.feature_selection_narration = narration
+                    st.session_state.feature_selection_narration_fingerprint = current_fs_fp
+                    st.rerun()
 
         st.divider()
         st.markdown("#### Baseline Model Runner")
