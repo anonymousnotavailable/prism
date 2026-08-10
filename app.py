@@ -159,6 +159,10 @@ _DEFAULTS = {
     "mllab_error": None,  # error from the last baseline model run, if any
     "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
     "mllab_shap_error": None,  # error from the last SHAP attempt, if any
+    "mllab_selection_result": None,  # last "Run Feature Selection" result DataFrame from mllab.run_feature_selection
+    "mllab_selection_error": None,  # error from the last feature selection attempt, if any
+    "mllab_selection_narration": None,  # Gemini-narrated explanation of the last feature selection result
+    "mllab_selection_narration_fingerprint": None,  # mllab.fingerprint_selection() of the set the narration above covers
     "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
     "chaos_result": None,  # last "Run Chaos Test" preview: {"chaotic_df", "report", "before_health", "after_health"}
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
@@ -303,6 +307,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_error = None
     st.session_state.mllab_shap_values = None
     st.session_state.mllab_shap_error = None
+    st.session_state.mllab_selection_result = None
+    st.session_state.mllab_selection_error = None
+    st.session_state.mllab_selection_narration = None
+    st.session_state.mllab_selection_narration_fingerprint = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
@@ -3907,6 +3915,75 @@ elif st.session_state.active_section == "ML Lab":
                         st.session_state.column_types = data_engine.detect_column_types(new_df)
                         log_step(description, code)
                         st.toast(f"{description}. 🛠️")
+                        st.rerun()
+
+        st.divider()
+        st.markdown("#### Feature Selection Engine")
+        st.caption(
+            "Cross-checks three feature-selection methods — Mutual Information (model-free, "
+            "catches non-linear relationships), an L1-penalized model (zeroes out redundant "
+            "features), and Recursive Feature Elimination (catches interactions the other two "
+            "score independently and miss) — and shows how many of the 3 agree on each column."
+        )
+        mllab_selection_candidates = [c for c in df.columns if c != mllab_target_col]
+        if len(mllab_selection_candidates) < 2:
+            ui.render_empty_state(
+                "🧪", "Not enough columns", "Need at least 2 candidate feature columns to run feature selection."
+            )
+        else:
+            if st.button("Run Feature Selection", key="run_feature_selection_btn", use_container_width=True):
+                with st.spinner(ui.get_loading_message()):
+                    selection_result, selection_error = mllab.run_feature_selection(
+                        df, mllab_selection_candidates, mllab_target_col, mllab_task_type
+                    )
+                st.session_state.mllab_selection_result = selection_result
+                st.session_state.mllab_selection_error = selection_error
+                st.session_state.mllab_selection_narration = None
+                st.session_state.mllab_selection_narration_fingerprint = None
+
+            if st.session_state.mllab_selection_error:
+                st.error(st.session_state.mllab_selection_error)
+            elif st.session_state.mllab_selection_result is None:
+                ui.render_empty_state(
+                    "🧪", "No selection run yet", 'Click "Run Feature Selection" to rank candidate feature columns.'
+                )
+            else:
+                selection_result = st.session_state.mllab_selection_result
+                st.plotly_chart(mllab.build_votes_chart(selection_result), use_container_width=True)
+                st.dataframe(
+                    selection_result[
+                        ["feature", "votes", "mutual_info_norm", "l1_selected", "rfe_selected", "rfe_rank"]
+                    ].rename(columns={"mutual_info_norm": "mutual_info (norm)"}),
+                    use_container_width=True,
+                )
+                recommended = mllab.recommended_features(selection_result)
+                st.caption(f"🗳️ Recommended (≥2 of 3 methods agree): **{', '.join(recommended)}**")
+
+                if st.button("Use recommended features below", key="use_recommended_features_btn"):
+                    st.session_state.mllab_feature_cols = recommended
+                    st.rerun()
+
+                selection_fp = mllab.fingerprint_selection(selection_result)
+                if (
+                    st.session_state.mllab_selection_narration
+                    and st.session_state.mllab_selection_narration_fingerprint == selection_fp
+                ):
+                    st.info(f"🤖 {st.session_state.mllab_selection_narration}")
+                elif st.button(
+                    "✨ Explain this selection with AI",
+                    key="narrate_feature_selection_btn",
+                    help="Ask Gemini to explain which features are strong signal vs. noise",
+                ):
+                    model = ai_analyst.get_model()
+                    with st.spinner("Gemini is reviewing the feature selection result…"):
+                        narration, narr_error = mllab.narrate_feature_selection(
+                            model, selection_result, mllab_target_col
+                        )
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.mllab_selection_narration = narration
+                        st.session_state.mllab_selection_narration_fingerprint = selection_fp
                         st.rerun()
 
         st.divider()
