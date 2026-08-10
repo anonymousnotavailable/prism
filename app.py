@@ -143,6 +143,7 @@ _DEFAULTS = {
     "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
+    "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
     "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
@@ -289,6 +290,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hypothesis_sweep_result = None
     st.session_state.hypothesis_sweep_narration = None
     st.session_state.hypothesis_sweep_narration_fingerprint = None
+    st.session_state.mllab_feature_selection_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
     st.session_state.stl_decomp_result = None
@@ -4013,6 +4015,52 @@ elif st.session_state.active_section == "ML Lab":
                 st.warning(mllab.imbalance_explanation(imbalance_info))
                 mllab_use_smote = st.checkbox("Apply SMOTE resampling to the training set", key="mllab_use_smote")
                 st.caption(mllab.SMOTE_TEST_SET_NOTE)
+
+        st.divider()
+        st.markdown("#### 🧭 Feature Selection Engine")
+        st.caption(
+            "Cross-checks Mutual Information, an L1-regularized linear model, and Recursive "
+            "Feature Elimination (Random Forest) against each other — the same self-verifying-"
+            "ensemble pattern used for anomaly detection, applied here to picking features. A "
+            "feature's consensus score is how many of the 3 methods agree it matters."
+        )
+        if len(mllab_selected_features) < mllab.FEATURE_SELECTION_MIN_FEATURES:
+            st.info(f"Pick at least {mllab.FEATURE_SELECTION_MIN_FEATURES} feature columns above to run selection.")
+        elif st.button("Run Feature Selection", key="run_feature_selection_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.mllab_feature_selection_result = mllab.run_feature_selection(
+                    df, mllab_selected_features, mllab_target_col, mllab_task_type
+                )
+
+        fs_result = st.session_state.mllab_feature_selection_result
+        if fs_result is None:
+            ui.render_empty_state(
+                "🧭", "No selection run yet",
+                'Click "Run Feature Selection" to rank the chosen feature columns.',
+            )
+        elif fs_result.get("error"):
+            st.error(fs_result["error"])
+        else:
+            st.caption(
+                f"{fs_result['n_features']} preprocessed feature(s) ranked "
+                f"(categorical columns are one-hot expanded). Top {fs_result['top_k']} recommended below."
+            )
+            st.success(f"**Recommended features:** {', '.join(fs_result['recommended_features'])}")
+
+            display_ranking = fs_result["ranking"].copy()
+            display_ranking.index.name = "Feature"
+            display_ranking = display_ranking.rename(
+                columns={
+                    "mutual_info": "Mutual Info",
+                    "l1_coef_abs": "|L1 coef|",
+                    "rfe_selected": "RFE selected",
+                    "consensus_votes": "Consensus (/3)",
+                    "consensus_rank": "Avg. rank",
+                }
+            )[["Mutual Info", "|L1 coef|", "RFE selected", "Consensus (/3)", "Avg. rank"]].round(4)
+            st.dataframe(display_ranking, use_container_width=True)
+
+            st.plotly_chart(mllab.build_feature_selection_chart(fs_result["ranking"]), use_container_width=True)
 
         if not mllab_selected_features:
             st.info("Pick at least one feature column.")
