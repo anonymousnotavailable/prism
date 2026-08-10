@@ -177,3 +177,92 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this file in full plus `CHANGELOG.md` before selecting
+anything — confirmed Insight Verifier, hypothesis-handoff, Auto-Insight
+Engine, Regression Diagnostics, and STL Decomposition are all already
+shipped and did not re-attempt any of them. Also note for future runs: this
+run's execution sandbox was missing `pytest`, `playwright`, and `cffi`
+(the last one broke `google.generativeai`'s import chain, which broke test
+*collection*, not just individual tests) — all three had to be `pip
+install`-ed before anything could run. See `.prism/audit_2026-08-10.md`.
+
+**Branch note (harness policy, read before assuming Phase 7 ran as
+written):** this execution environment assigns each session a fixed
+integration branch (`claude/adoring-meitner-htm9xo`) and forbids pushing
+anywhere else without explicit user permission — a stricter rule than the
+routine's own Phase 7 ("merge to main, push main"). At the start of this
+run that branch and `main` pointed at the identical commit, so the
+substitution is a name only, not a scope change: the feature branch was
+merged into `claude/adoring-meitner-htm9xo` (not into a `main` checkout
+directly) and that branch was pushed. No pull request was opened (default
+policy: only open one if explicitly asked). A human merging that branch
+into `main` completes Phase 7 exactly as the routine intends. Future runs
+in this same kind of session should expect the same substitution.
+
+**Audit:** `.prism/audit_2026-08-10.md` — a scoped pass (not a full
+tab-by-tab re-walk; Runs 1/2 already logged 30+ findings, still open).
+Re-confirmed the mobile Atlas-panel overlap is still unfixed (still out of
+scope — needs its own dedicated CSS pass). New finding: `st.dataframe`'s
+canvas-rendered grid doesn't pick up the custom "Arctic (Light)" theme's
+background, staying dark under an otherwise-light chrome — cosmetic, not a
+contrast failure, not fixed this run.
+
+**Research:** `.prism/research_2026-08-10.md` — light web pass across all
+four source classes. Headline finding: none of Julius AI/ChatGPT/Hex/
+Deepnote narrate *unsupervised anomaly-detection output* in plain English
+specifically (they narrate summary stats and chat answers) — a real, if
+narrow, gap that lines up with the backlog item below.
+
+**Selected feature (this run):** Anomaly Narration
+(`modules/anomaly.py::narrate_anomalies`) — closes the "Anomaly narration"
+backlog item both 2026-08-07 runs flagged: `find_anomalies()` already
+tagged each flagged row with a templated `anomaly_reason`; this adds a
+"🧠 Narrate Anomalies" button that asks Gemini to synthesize the flagged set
+into a short plain-English paragraph plus one concrete next action, in the
+Overview tab's existing Anomaly Detection expander. One scoped feature
+again this run (not 2-3) — same reasoning as Run 1: a single well-tested
+feature that closes a real backlog item beats a rushed third pick, and this
+run's own guardrails ask for conservative, token-efficient work.
+
+**Serves this cycle's priority theme (agentic AI analysis):** yes — the
+Auto-Insight Engine (Run 2) already covers proactive stats-on-upload;
+Anomaly Narration is the equivalent treatment for anomaly detection,
+completing the same "raw findings → Gemini synthesis" pattern across both
+surfaces. Not an Atlas-copilot-track pick (no voice/HUD/proactive-surfacing
+work this run).
+
+**Outcome:** `feature/anomaly-narration` built test-first (12 new tests,
+32/32 total green, no regressions), merged into `claude/adoring-meitner-
+htm9xo`, pushed. Playwright screenshots at desktop dark/light (full flow,
+including the "no Gemini key configured" graceful-failure state — this
+sandbox has no `GEMINI_API_KEY`) and mobile dark/light (mobile screenshots
+mostly reconfirm the known Atlas-panel overlap bug above, not a regression
+from this feature) saved to `.prism/runs/2026-08-10/`. Fresh-clone-from-
+`claude/adoring-meitner-htm9xo` boot check passed (HTTP 200).
+
+**Not built (backlog, unchanged additions from this run's research):**
+- Data Quality Score with exportable scorecard — still open (Run 2).
+- Feature Selection Engine (mutual info, RFE, L1) for ML Lab — still open
+  (Run 2), and this run's job-posting research reconfirms ML skills are the
+  3rd most-demanded in data-scientist postings — good next-run candidate.
+- Advanced outlier detection (LOF, DBSCAN) beyond IQR/IsolationForest —
+  still open (Run 2).
+- Polars/DuckDB-backed large-file pipeline — still open (Run 1/2),
+  reconfirmed by this run's ecosystem research as a live 2026 trend;
+  still architecture-adjacent, still needs its own dedicated run.
+- `google-generativeai` → `google-genai` migration — still open (Run 1/2);
+  the deprecation `FutureWarning` is now visible in every single pytest run.
+  Worth prioritizing soon purely to stop the warning noise, even though it's
+  not urgent functionally yet.
+- Atlas proactive insights (JARVIS copilot track) — still unclaimed by any
+  run so far; next run is a reasonable place to spend this cycle's one
+  allowed copilot-track pick.
+- Mobile Atlas-panel CSS reflow — reconfirmed again this run (3rd time
+  logged), still not fixed. Recommend a future run spend its "small fixes"
+  budget here specifically, since it's now blocking clean mobile
+  screenshots for every UI-touching run.
