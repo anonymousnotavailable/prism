@@ -12,6 +12,66 @@ other entry says otherwise.
 
 ---
 
+## 2026-08-10 — Run 3
+
+**Orientation:** read both 2026-08-07 entries in full. Confirmed shipped:
+SQL Lab (pre-dates the routine), Insight Verifier, Suggested Next Hypothesis,
+Auto-Insight Engine, Regression Diagnostics Panel, STL Decomposition. None
+rebuilt.
+
+**Headline audit finding:** Run 2's "82 new unit tests" claim in
+`CHANGELOG.md`/this log was false — the tests were real `eval/*.py` scripts
+that were never wired into `pytest`. Fixed as a small fix this run (not
+counted against the feature budget): ported all three into `tests/`.
+Full details in `.prism/audit_2026-08-10.md`. Suite went from 27 → 57
+passing. **This is now fixed — do not re-port `eval/*.py` again.**
+
+**Research:** `.prism/research_2026-08-10.md`. Light targeted web pass
+(agentic anomaly narration literature, feature-selection interview-prep
+material, Hex/Deepnote/Julius competitor positioning) layered on the
+still-open backlog from Run 1/2.
+
+**Selected features (2, this run):**
+1. **Anomaly Narration** (`modules/anomaly.py::narrate_anomalies`) — closes
+   the Run 2 backlog item. Gemini narrates the IsolationForest-flagged rows
+   (reasons + count + affected columns) into a plain-English paragraph with
+   a suggested next action, gated behind a button (no auto-call), and
+   **cached in `st.session_state` keyed by a fingerprint of the flagged set**
+   (row count + sorted reason strings, hashed) so re-rendering or re-clicking
+   the same anomaly result never re-hits the Gemini free tier. Serves this
+   cycle's **required agentic-AI-analysis theme**.
+2. **Feature Selection Engine** (`modules/mllab.py::rank_features`) — new
+   ML Lab panel between the Feature Engineering Assistant and the Baseline
+   Model Runner. Ranks every candidate feature column by three canonical
+   methods — mutual information (filter), L1/Lasso-or-LogisticRegression-L1
+   coefficient magnitude (embedded), and Recursive Feature Elimination
+   (wrapper) — normalizes each to 0-1, averages into a consensus score, and
+   recommends the above-mean subset with a one-click "select recommended"
+   that pre-fills the existing feature multiselect. Highest technical-depth
+   score on this run's research table (#2 in `.prism/research_2026-08-10.md`)
+   and closes the other Run 2 backlog item.
+
+**Not selected this run (see research doc for full table):**
+- Exportable Data Quality Scorecard — the score itself already exists
+  (`data_engine.get_health_breakdown`); only the export half is missing.
+  Lower depth-to-effort than the two picks above. Still open backlog.
+- Atlas Proactive Insights (JARVIS copilot track) — routine guardrail caps
+  this to one such feature per run; skipped this run to keep scope to two
+  well-tested features. Good candidate for next run's copilot slice.
+- `google-generativeai` → `google-genai` migration — third run in a row
+  flagging this. Still correctly scoped as its own dedicated run, not a
+  rider on a feature-shipping run. **Next run should seriously consider
+  making this the whole run**, since the "not urgent" framing is aging.
+- Advanced outlier detection (LOF/DBSCAN), NL-to-chart layer, real-time
+  collaboration — all logged in the research doc, lower priority or
+  architecture-adjacent.
+
+(Outcome and screenshot verification appended in the closing summary below
+once building is complete — see the bottom of this file for the 5-line
+run summary the routine's Phase 8 requires.)
+
+---
+
 ## 2026-08-07 — Run 1 (first run of this specific routine)
 
 **Orientation finding:** the repo's git history already shows extensive prior
