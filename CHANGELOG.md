@@ -2,6 +2,65 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 9)
+
+### Added
+- **Agentic Insight Orchestrator** (`modules/insight_orchestrator.py`) —
+  Prism had grown seven independent detector modules (Auto-Insights,
+  Anomaly Detection, Confounder Check, Causal Effect Estimator ATT + CATE,
+  Drift, Insight Verifier) that each ran and rendered standalone, with
+  nothing tying their outputs together. This adds a pure synthesis layer
+  over already-computed detector output — no detection logic is re-run —
+  wired into the Overview tab as a new "🧠 Agent Summary" panel above
+  Auto-Insights. It normalizes each detector's own finding shape into a
+  common `Claim`, groups claims that share the same subject columns (the
+  de-duplication step: two detectors independently flagging the same
+  variable pair collapse into one topic instead of two disconnected panel
+  entries), flags **cross-detector agreement** (multiple independent
+  checks on the same issue = higher confidence, badged "✅ Confirmed by N
+  detectors") and one specific **contradiction pattern** — a causal ATT
+  estimate whose outcome variable has an unaddressed confound Confounder
+  Check already flagged — surfaced as a "🟠 Check this" flag rather than a
+  hard error, since the estimate may still be directionally right. The
+  deduplicated, cross-checked findings are severity-ranked into a top-5
+  "what matters most" list. Optional cached Gemini narration
+  (`narrate_orchestration`) follows the exact `call_gemini()` /
+  fingerprint-cached / graceful-fallback convention used by
+  `auto_insights.narrate_insights` and `confounder_detection.narrate_
+  confounder_finding`. Stays silent — renders nothing — until at least two
+  detectors have fired this session, the same "don't manufacture noise"
+  convention as every detector panel it synthesizes. This cycle's required
+  agentic-AI-analysis pick: a genuine planner/executor/critic pattern
+  (the detectors are the executors, this is the critic that cross-checks
+  and ranks their output) rather than another standalone detector. 37 new
+  tests covering normalization of every detector's raw shape, grouping/
+  dedup, the agreement and contradiction paths, severity ranking order,
+  the silent/empty-state threshold, and the narration cache/fallback
+  convention. Verified end-to-end via Playwright against
+  `samples/stock_data.csv`: uploading auto-triggers Auto-Insights +
+  Confounder Check (2 detectors, "Confirmed by 2 detectors" badges on the
+  shared correlated pairs), and running the Causal Effect Estimator with
+  a confounding covariate deliberately excluded correctly surfaced "Check
+  this: the causal estimate for 'high' doesn't adjust for 'close', which
+  Confounder Check found weakens the relationship between 'high' and
+  'open'."
+
+### Fixed
+- **Agent Summary same-script-pass staleness** — the new panel renders
+  near the top of the Overview tab, above the Causal Effect Estimator and
+  Anomaly Detection panels further down. Streamlit reruns the whole
+  script on a button click without restarting mid-script, so on the exact
+  rerun where "Estimate causal effect" or "Find Anomalies" was clicked,
+  Agent Summary was rendering with the pre-click session state and
+  wouldn't reflect the new result until some unrelated later interaction
+  forced a second rerun. Fixed with `st.rerun()` right after those button
+  handlers write their result to session state — the same idiom already
+  used throughout `app.py` for cross-panel reactivity — so Agent Summary
+  updates on the very next render pass. Caught via live Playwright
+  verification, not by the unit tests (which correctly exercise the pure
+  orchestration logic and had no opinion on Streamlit's script-rerun
+  ordering).
+
 ## 2026-08-10 (Run 8)
 
 ### Added

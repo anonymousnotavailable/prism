@@ -668,5 +668,84 @@ a single new detector. Selection reasoning and rejected alternatives
 (PyGWalker chart builder, DuckDB Auto Cleaner follow-on — both deferred,
 not agentic-themed) logged in the research file above.
 
-**Status:** build in progress — see the follow-up log entry / RUN_REPORT
-for outcome, test counts, and screenshots.
+**Outcome:** shipped. `modules/insight_orchestrator.py` is a pure
+synthesis layer over the already-computed findings from Auto-Insights,
+Confounder Check, the Causal Effect Estimator (ATT + CATE), Anomaly
+Detection, and Drift — no detection logic is re-run. It normalizes each
+detector's own finding shape into a common `Claim`, groups claims that
+share the same subject columns (de-duplicating two detectors flagging
+the same variable pair into one topic), flags cross-detector agreement
+("✅ Confirmed by N detectors") and one specific contradiction pattern
+(a causal ATT estimate whose outcome variable has an unaddressed
+confound Confounder Check already flagged, surfaced as "🟠 Check this" —
+a flag, not a hard error), and severity-ranks the result into a top-5
+"what matters most" list. Wired into the Overview tab as a new "🧠 Agent
+Summary" panel above Auto-Insights. Optional cached Gemini narration
+follows the exact `call_gemini()`/fingerprint-cached/graceful-fallback
+convention as every other `narrate_*` helper. Stays silent — renders
+nothing — until at least two detectors have fired this session, matching
+every other detector panel's "don't manufacture noise" convention.
+
+37 new tests (`tests/test_insight_orchestrator.py`) covering
+normalization of each detector's raw output shape, grouping/dedup, the
+agreement and contradiction paths (synthetic fixtures with genuinely
+overlapping and genuinely conflicting findings), severity ranking order
+(including that a contradiction/agreement outranks a lone unconfirmed
+claim), the silent/empty-state threshold, and the narration cache/
+fallback convention. Full suite: 242/242 passing (205 baseline + 37 new).
+
+**Bug caught and fixed during Phase 4 (not shipped as a separate item):**
+the original contradiction check required a confounder claim's exact
+(x, y) subject pair to equal a causal claim's exact (treatment, outcome)
+pair — which can never happen live, since Confounder Check only pairs
+numeric columns while the Causal Effect Estimator only accepts a
+categorical/boolean treatment. Generalized to check every confounder
+claim whose pair includes the causal claim's *outcome* column against
+that claim's covariates, regardless of the treatment column — verified
+live against `samples/stock_data.csv` before this was caught, the
+contradiction path was logically correct in unit tests but could never
+actually fire through the real UI.
+
+**Second bug caught live (not visible in unit tests at all):** a same-
+script-pass staleness bug — Agent Summary renders near the top of the
+Overview tab, above the Causal Effect Estimator and Anomaly Detection
+panels further down. Streamlit reruns the whole script on a button click
+without restarting mid-script, so on the exact rerun where "Estimate
+causal effect" or "Find Anomalies" was clicked, Agent Summary rendered
+with the pre-click session state and wouldn't reflect the new result
+until an unrelated later interaction forced a second rerun. Fixed with
+`st.rerun()` right after those three button handlers write their result
+to session state (same idiom already used throughout `app.py`). This
+class of bug is invisible to pure-function unit tests by construction —
+only caught by actually driving the live app with Playwright, clicking
+the button, and comparing the panel's text before/after. Also retuned
+`_CONTRADICTION_BONUS` (2.0 → 2.5) after the live check showed several
+tied same-severity solo claims crowding a real contradiction out of the
+top-5 ranking.
+
+Playwright screenshots (desktop dark/light, mobile dark ~390px, plus the
+graceful no-`GEMINI_API_KEY` narration fallback) in
+`.prism/runs/2026-08-10-run9/`, captured against `samples/stock_data.csv`
+(OHLC data whose columns are strongly enough correlated to trigger
+Auto-Insights + Confounder Check on upload, plus the Causal Effect
+Estimator manually driven to demonstrate the contradiction path). Merged
+`feature/agentic-insight-orchestrator` to `main` (`--no-ff`). Fresh-
+checkout sanity check (working-tree clean, `python -m pytest -q` re-run
+on `main` post-merge, `streamlit run app.py` boots without traceback)
+passed. Pushed `main` and fast-forwarded the session branch
+(`claude/adoring-meitner-jwj582`) to match.
+
+**Not built (backlog for next run, unchanged):** PyGWalker-style drag-
+and-drop chart builder (effort L, competitor-parity, now the longest-
+standing unaddressed item across 5+ runs), live-Gemini screenshot
+verification (ninth consecutive run with no API key in the sandbox), a
+DuckDB/polars-backed path for Auto Cleaner operations on large sampled-
+down datasets, light-theme dataframe/chart repaint-lag (cosmetic/timing,
+three prior sessions already invested, not re-attempted). New candidate
+surfaced this run: `insight_verifier` (numeric-claim fact-checking for
+Auto Analyst) was deliberately *not* wired into the orchestrator — its
+findings live in the Auto Analyst tab, a different scope from the
+Overview-tab detectors this orchestrator synthesizes. A future run could
+extend the orchestrator (or add a parallel one) to also cross-check Auto
+Analyst's verified/flagged findings once that tab's findings are
+available at the same point in the render pass.
