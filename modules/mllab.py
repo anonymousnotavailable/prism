@@ -160,6 +160,130 @@ def apply_suggestion(df: pd.DataFrame, suggestion: dict) -> tuple[pd.DataFrame, 
 
 
 # ==========================================================================
+# 9b. Feature Selection Engine
+# ==========================================================================
+
+
+def _encode_for_selection(df: pd.DataFrame, feature_cols: list[str], column_types: dict[str, str]) -> pd.DataFrame:
+    """Impute + ordinal-encode a feature matrix for selection scoring.
+
+    Ordinal encoding (rather than one-hot) is deliberate here: every scorer
+    needs exactly one score per *original* column so the three rankings can
+    be compared feature-for-feature — one-hot would fragment a single
+    categorical column into several, breaking that 1:1 mapping.
+    """
+    X = pd.DataFrame(index=df.index)
+    for col in feature_cols:
+        if column_types.get(col) == "categorical":
+            X[col] = df[col].astype("category").cat.codes.replace(-1, np.nan)
+            X[col] = X[col].fillna(X[col].median() if X[col].notna().any() else 0)
+        else:
+            series = pd.to_numeric(df[col], errors="coerce")
+            X[col] = series.fillna(series.median() if series.notna().any() else 0)
+    return X
+
+
+def select_features(
+    df: pd.DataFrame, column_types: dict[str, str], feature_cols: list[str], target_col: str, task_type: str
+) -> dict:
+    """Rank candidate features by relevance to target_col using three
+    independent selection methods and report where they agree:
+
+    - Mutual information (filter method) — catches any statistical
+      dependency, linear or not.
+    - L1-regularized coefficients (embedded method) — Lasso for regression,
+      L1 LogisticRegression for classification; sparse by construction.
+    - Recursive Feature Elimination (wrapper method) — repeatedly drops the
+      weakest feature from a light linear model and records the elimination
+      order.
+
+    Each method produces its own rank (1 = most relevant); "consensus_rank"
+    is their mean, and "recommended" is the set of features at least 2 of
+    the 3 methods place in the top half — the same agreement-over-any-single-
+    model idea as anomaly.py's ensemble consensus mode, applied to feature
+    relevance instead of outlier detection.
+
+    Returns {"error": str|None, "ranking": DataFrame|None, "recommended": list[str]}.
+    Never raises: any column that can't be scored is dropped from that one
+    method rather than failing the whole call; degenerate input (too few
+    features, constant target) returns a populated "error" instead.
+    """
+    if len(feature_cols) < 2:
+        return {"error": "Pick at least 2 candidate feature columns to compare relevance.", "ranking": None, "recommended": []}
+
+    data = df[feature_cols + [target_col]].dropna(subset=[target_col])
+    if data[target_col].nunique() < 2:
+        return {"error": f"'{target_col}' has only one distinct value — nothing to predict.", "ranking": None, "recommended": []}
+    if len(data) < 10:
+        return {"error": "Not enough rows with a non-missing target to score feature relevance.", "ranking": None, "recommended": []}
+
+    try:
+        from sklearn.feature_selection import RFE, mutual_info_classif, mutual_info_regression
+        from sklearn.linear_model import Lasso, LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+
+        X = _encode_for_selection(data, feature_cols, column_types)
+        y = data[target_col]
+        is_classification = task_type == "classification"
+
+        X_scaled = pd.DataFrame(StandardScaler().fit_transform(X), columns=feature_cols, index=X.index)
+
+        # 1. Mutual information — higher is more relevant.
+        if is_classification:
+            mi_scores = mutual_info_classif(X, y, random_state=42)
+        else:
+            mi_scores = mutual_info_regression(X, y, random_state=42)
+
+        # 2. L1-regularized coefficient magnitude — higher is more relevant.
+        if is_classification:
+            l1_model = LogisticRegression(penalty="l1", solver="liblinear", C=0.5, max_iter=1000, random_state=42)
+            l1_model.fit(X_scaled, y)
+            l1_scores = np.abs(l1_model.coef_).mean(axis=0)
+        else:
+            l1_model = Lasso(alpha=0.05, random_state=42, max_iter=5000)
+            l1_model.fit(X_scaled, y)
+            l1_scores = np.abs(l1_model.coef_)
+
+        # 3. RFE — ranking_ is elimination order (1 = kept longest = most relevant);
+        # invert so higher is more relevant, matching the other two methods.
+        rfe_estimator = (
+            LogisticRegression(max_iter=1000, random_state=42) if is_classification else Lasso(alpha=0.05, random_state=42, max_iter=5000)
+        )
+        rfe = RFE(rfe_estimator, n_features_to_select=1)
+        rfe.fit(X_scaled, y)
+        rfe_scores = len(feature_cols) - rfe.ranking_ + 1
+
+        ranking = pd.DataFrame(
+            {
+                "feature": feature_cols,
+                "mutual_info": mi_scores,
+                "l1_coefficient": l1_scores,
+                "rfe_score": rfe_scores,
+            }
+        )
+        for col, out_col in [("mutual_info", "mi_rank"), ("l1_coefficient", "l1_rank"), ("rfe_score", "rfe_rank")]:
+            ranking[out_col] = ranking[col].rank(ascending=False, method="min")
+        ranking["consensus_rank"] = ranking[["mi_rank", "l1_rank", "rfe_rank"]].mean(axis=1)
+        ranking = ranking.sort_values("consensus_rank").reset_index(drop=True)
+
+        top_half_cutoff = max(1, len(feature_cols) // 2)
+        ranking["votes"] = (
+            (ranking["mi_rank"] <= top_half_cutoff).astype(int)
+            + (ranking["l1_rank"] <= top_half_cutoff).astype(int)
+            + (ranking["rfe_rank"] <= top_half_cutoff).astype(int)
+        )
+        recommended = ranking.loc[ranking["votes"] >= 2, "feature"].tolist()
+        if not recommended:
+            # Nothing hit a 2/3 majority (e.g. only 2 candidate features) — fall
+            # back to the single top-ranked feature so the caller isn't left empty.
+            recommended = [ranking.iloc[0]["feature"]]
+
+        return {"error": None, "ranking": ranking, "recommended": recommended}
+    except Exception as e:
+        return {"error": f"Feature selection failed: {e}", "ranking": None, "recommended": []}
+
+
+# ==========================================================================
 # 10. Baseline Model Runner
 # ==========================================================================
 
