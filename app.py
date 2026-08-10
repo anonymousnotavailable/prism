@@ -130,6 +130,7 @@ _DEFAULTS = {
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
     "anomaly_result_df": None,  # last "Find Anomalies" result
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
+    "anomaly_narration_cache": {},  # fingerprint -> Gemini narration text, avoids re-calling Gemini on unchanged flags
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -271,6 +272,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_narration_cache = {}
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -1728,6 +1730,25 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     st.dataframe(flagged, use_container_width=True)
+
+                    # Agentic narration layer: aggregated reason counts only
+                    # (never raw row values) sent to Gemini, cached per
+                    # fingerprint so an unchanged flagged set never re-calls
+                    # the API across reruns.
+                    fp = anomaly.anomaly_fingerprint(flagged, len(df))
+                    cached_narration = st.session_state.anomaly_narration_cache.get(fp)
+                    if cached_narration:
+                        st.info(f"🤖 {cached_narration}")
+                    elif st.button("✨ Explain these anomalies", key="narrate_anomalies_btn", help="Ask Gemini to summarize why these rows were flagged and what to do next"):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is reviewing the flagged rows…"):
+                            narration, narr_error = anomaly.narrate_anomalies(model, flagged, len(df))
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.anomaly_narration_cache[fp] = narration
+                            st.rerun()
+
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):
                         push_undo_snapshot()
                         new_df = df.drop(index=flagged.index)
