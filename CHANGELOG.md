@@ -2,6 +2,39 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 7)
+
+### Added
+- **Causal Effect Estimator** (`modules/causal_inference.py`) — a new
+  "Causal Effect Estimator" panel in Overview, directly below Confounder
+  Check, that estimates the Average Treatment Effect on the Treated (ATT)
+  via propensity score matching: a logistic-regression propensity model,
+  greedy nearest-neighbor caliper matching without replacement, covariate
+  balance (standardized mean difference) reported before and after
+  matching, and a bootstrap 95% confidence interval. This is the natural
+  agentic follow-on to the Confounder/Simpson's-Paradox detector (Run 6) —
+  that panel diagnoses "this correlation might be confounded," this one
+  answers "okay, so what's the actual effect once you correct for it."
+  Only renders when the dataset has a usable binary treatment column and
+  enough numeric columns for an outcome plus covariates; every failure
+  path (non-binary treatment, non-numeric outcome, too few units, no
+  usable covariates, zero matches within the caliper) is reported in
+  plain English instead of raising. Optional Gemini narration follows the
+  same cached, graceful-fallback pattern as every other narration helper
+  in the app. 23 new tests, including a synthetic confounded-assignment
+  fixture proving the matched estimate is measurably closer to the true
+  effect than a naive (unadjusted) group-mean comparison.
+
+### Fixed / Maintenance
+- Result metrics in the new Causal Effect Estimator panel initially
+  overflowed their `st.metric` tiles at desktop width (the CI and
+  matched-pairs strings were too long) — caught in Phase 5 screenshot
+  review and fixed before shipping by moving the longer values to a
+  caption under two short metric tiles.
+- Investigated Run 6's open "light-theme dataframe canvas styling"
+  finding (in-session theme toggle + a genuine browser reload) — does not
+  reproduce; `sync_native_theme()` (Run 4) works correctly. Closed.
+
 ## 2026-08-10 (Run 6)
 
 ### Added

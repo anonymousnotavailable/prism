@@ -487,3 +487,63 @@ inference correction tooling as a follow-on to this run's confounder
 from this run's research, effort L, depth 5), light-theme dataframe
 canvas-styling re-check (new finding above), live-Gemini screenshot
 verification (sixth consecutive run with no API key in the sandbox).
+
+---
+
+## 2026-08-10 — Run 7 (fifth independent session, same day)
+
+**Orientation:** `origin/main` at Run 6's tip (`d7bb1d1`), no drift. Full
+audit in `.prism/audit_2026-08-10-run7.md`, research in
+`.prism/research_2026-08-10-run7.md`. Baseline: 164/164 pytest green
+(same `cffi`/`cryptography` reinstall quirk as Run 5/6).
+
+**Selected feature (this run, 1 — depth over breadth, same precedent as
+Run 1/Run 5):** Causal Effect Estimator (`modules/causal_inference.py`) —
+the direct agentic follow-on to Run 6's Confounder/Simpson's-Paradox
+detector, closing the causal-inference backlog item Run 6 flagged.
+Estimates the Average Treatment Effect on the Treated (ATT) via
+propensity-score matching (logistic-regression propensity + greedy
+nearest-neighbor caliper matching without replacement), reports
+covariate balance (SMD) before/after matching, and a bootstrap 95% CI.
+New Overview panel directly below Confounder Check, gated behind having
+a binary treatment column and >= 2 numeric columns; stays silent
+otherwise. Optional cached Gemini narration, same convention as every
+other narrate_* helper. 23 new tests, including a synthetic-confound
+fixture proving the matched estimate beats a naive group-mean comparison
+at recovering the true injected effect — verified live end-to-end via
+Playwright against the Stocks sample dataset (`ticker` as treatment,
+`open` as outcome, ATT = 0.477, 95% CI [-0.829, 1.67], 172/200 matched,
+correctly flagged a remaining-imbalance warning on `volume`).
+
+**Bug caught and fixed in Phase 5 (not shipped):** the panel's four
+result values (ATT, 95% CI, matched pairs, match rate) initially all
+lived in `st.metric` tiles; the CI and matched-pairs strings were long
+enough to truncate at 1440px. Fixed by keeping only the two short values
+as metric tiles and moving the rest to a caption. General lesson logged
+in the audit file for future `st.metric` usage.
+
+**Backlog item investigated and closed:** Run 6's open "light-theme
+dataframe canvas styling" finding. Tested both the in-session theme-
+toggle path (renders correctly — no dark banding) and a genuine browser
+reload while `theme_mode` is Arctic (Streamlit resets the whole session
+on a hard reload, so there's no code path that actually reaches the
+dataframe tables in light theme without going through the in-session
+toggle first). Does not reproduce — `sync_native_theme()` works
+correctly. Dropped from the backlog; see audit file for detail.
+
+**Outcome:** one feature branch (`feature/causal-effect-estimator`)
+built, tested (187/187 pytest green, 23 new tests), merged to `main`
+(`--no-ff`), pushed. Playwright screenshots at desktop dark (panel +
+balance table + graceful no-API-key narration fallback), desktop light,
+and mobile dark — see `.prism/runs/2026-08-10-run7/`. Fresh-clone-from-
+scratch install + test + boot check on `main` passed.
+
+**Not built (backlog for next run):** polars/DuckDB large-file path
+(architecture-adjacent, seven consecutive runs now — strongly recommend
+the next run either does this as its dedicated focus or explicitly
+schedules a future one for it rather than deferring an eighth time),
+PyGWalker-style drag-and-drop chart builder (effort L), CATE/uplift
+modeling as a follow-on to this run's ATT estimator — "does the effect
+vary by subgroup" (new candidate, effort L, depth 5), live-Gemini
+screenshot verification (seventh consecutive run with no API key in the
+sandbox).
