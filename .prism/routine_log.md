@@ -269,3 +269,68 @@ dedicated run), `google-generativeai` → `google-genai` migration (still
 needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
 reconfirmed present in this run's own mobile screenshot), light-theme
 dataframe styling on Overview (new finding above).
+
+---
+
+## 2026-08-10 — Run 4 (second independent session, same day)
+
+**Orientation:** `origin/main` was already at Run 3's tip — no drift to
+reconcile. Full audit in `.prism/audit_2026-08-10-run4.md`.
+
+**Correction to the standing backlog:** "Data Quality Score with
+exportable scorecard" has been listed as open since 2026-08-07 Run 2. It
+is **not actually open** — `data_engine.get_health_score()` /
+`get_health_breakdown()` already compute a weighted 0-100 composite score
+(completeness/consistency/uniqueness/validity/outlier_burden) and it's
+already exportable via `report_writer.generate_pdf_report()` and
+`generate_cleaning_certificate()`. Found this before writing any code,
+not after — future runs should drop this item from the backlog rather
+than rebuild it. If a real gap remains it's a *standalone scorecard entry
+point*, not the scoring/export logic itself.
+
+**Selected feature (this run):** Ensemble Anomaly Consensus
+(`modules/anomaly.py`) — an "Ensemble mode" checkbox cross-checks
+Isolation Forest against LOF and DBSCAN over the same numeric columns,
+reports per-row `consensus_count` and per-method summary, sorted by
+agreement. `narrate_ensemble_disagreement()` asks Gemini to interpret the
+agreement/disagreement pattern — detection stays deterministic
+(3 independent sklearn models), the LLM's job is strictly interpretation.
+Closes the "Advanced outlier detection (LOF, DBSCAN)" backlog item open
+since 2026-08-07 Run 2; serves this cycle's required agentic-AI theme via
+the self-verifying/consensus pattern (see `.prism/research_2026-08-10-run4.md`
+for the supporting web research). 19 new tests.
+
+**Two bundled small fixes (both from Run 3's own "recommendation for next
+run" list):**
+1. **Light-theme dataframe styling** — `st.dataframe`/`st.table` render
+   via glide-data-grid (`<canvas>`), whose colors come from Streamlit's
+   `theme.base` runtime config, not CSS. `sync_native_theme()` now pushes
+   the active Prism theme's colors into that config via
+   `st._config.set_option` on every theme switch. 7 new tests.
+2. **Mobile Atlas panel overlap (~390px)** — root-caused properly this
+   run (see audit file): it was **two** independent unconditional rules,
+   not one — a fixed 328px panel width (`modules/theme.py`) *and* a
+   separate 352px `block-container` right-padding reservation in `app.py`
+   that two prior runs' descriptions didn't mention and this run's first
+   attempted fix (theme.py alone) didn't catch. Both now scoped to a
+   768px breakpoint. Caught by inspecting live computed styles/bounding
+   boxes when a screenshot after the first fix still looked broken,
+   rather than assuming the fix was wrong or the bug was elsewhere.
+
+**Outcome:** one feature branch (`feature/ensemble-anomaly-consensus`,
+bundling both small fixes — all touch the same Overview Anomaly Detection
+review flow) built, tested (98/98 pytest green, 16 net new tests), merged
+to `main`, pushed. Playwright screenshots at desktop dark/light and
+mobile dark confirm all three changes render correctly — see
+`.prism/runs/2026-08-10/07-11_*.png`. Fresh-clone-from-scratch boot check
+on `main` passed (HTTP 200, no traceback).
+
+**Not built (backlog for next run):** polars/DuckDB large-file path
+(architecture-adjacent, four consecutive runs now agree it needs a
+dedicated session), Feature Selection Engine (mutual info/RFE/L1) for ML
+Lab, `google-generativeai` → `google-genai` migration (three consecutive
+runs agree it needs a dedicated regression-tested session), live-Gemini
+screenshot verification (fourth consecutive run with no API key in the
+sandbox — anomaly narration, ensemble disagreement narration, and
+Auto-Insights narration are all still only verified via unit tests + the
+graceful-fallback-message screenshot).
