@@ -257,3 +257,31 @@ requirements-dev.txt.
 - Atlas full JARVIS voice HUD — still untouched; next run is a reasonable
   candidate to spend its one copilot-track slot here if 2-3 solid
   non-copilot features aren't found first.
+
+**CRITICAL discovery during Phase 5 (screenshot verification) — read
+`.prism/audit_2026-08-10.md`'s last section before starting next run.**
+While screenshotting the mobile Atlas panel fix, found a far more severe,
+**pre-existing** mobile bug the mobile fix above does not (and structurally
+cannot) address: below ~768px viewport width, the entire main-content
+column collapses to a tiny fraction of the screen (measured 22px wide at a
+390px phone viewport) — every tab, not just Atlas, renders as 1-2
+characters per line and the app is unusable on a phone. Confirmed via a
+clean worktree diff against the pre-this-run commit that this predates
+this run entirely (present with or without any of this run's changes).
+Diagnosed as far as: `stMainBlockContainer` itself is correctly full-width,
+but its child `stVerticalBlock` (a Streamlit-internal emotion-cache class,
+not Prism's own CSS) collapses following `content_width ≈ viewport_width −
+368px` up to ~768px — consistent with something reserving the sidebar's
+*expanded* width even while it's visually collapsed off-canvas. Forcing
+`width:100% !important` on that element did not fix it (rules out a
+simple flex-basis override), and no `calc()`/sidebar-width reference
+exists anywhere in `modules/theme.py`, so this looks like a Streamlit
+1.50.0 internal layout behavior rather than something Prism's own CSS
+causes. **Not fixed this run** — root-causing an upstream-shaped layout
+bug safely was judged too large/risky to land inside this run's budget
+alongside the selected features (see the routine's own "be conservative
+where damage is possible" guardrail). A repro/diagnostic script is saved
+at `.prism/runs/2026-08-10/diagnose_mobile_width_bug.py` — **next run
+should make this the #1 priority**, starting from the reproduction steps
+listed in the audit file. This is a bigger interview-credibility risk than
+any single missing feature: a "PWA" that's unreadable on an actual phone.
