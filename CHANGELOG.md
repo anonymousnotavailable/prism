@@ -2,6 +2,56 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Anomaly Narration** (`modules/anomaly.py::narrate_anomalies`) — Gemini
+  turns IsolationForest's flagged rows and their deterministic reasons into
+  a short, stakeholder-readable narrative with a suggested next action, via
+  the app's existing shared rate-limit/error handling (`call_gemini`). The
+  narration is cached in session state keyed by a hash of the flagged set
+  (`anomaly_fingerprint`), so repeat renders or clicks on the same result
+  never re-hit the Gemini free tier. Surfaced in the Overview tab's Anomaly
+  Detection panel behind a new "✨ Narrate these anomalies" button. Closes
+  the Anomaly Narration backlog item from the 2026-08-07 runs; serves this
+  cycle's agentic-AI-analysis priority theme. 7 new tests.
+- **Feature Selection Engine** (`modules/mllab.py::rank_features`) — new ML
+  Lab panel, between the Feature Engineering Assistant and the Baseline
+  Model Runner. Ranks every candidate feature column by three canonical
+  methods — mutual information (filter, nonlinear-aware), L1/Lasso
+  coefficient magnitude (embedded), Recursive Feature Elimination
+  (wrapper) — normalizes each to 0-1 by its own max, and averages them
+  into a consensus score. Shows a grouped bar + consensus-marker chart and
+  a per-feature score table, with a one-click "Use recommended features
+  below" handoff that pre-fills the Baseline Model Runner's feature
+  multiselect with the above-average-consensus subset. Any single method
+  failing on degenerate data is dropped from that feature's consensus
+  instead of failing the whole ranking. Closes the Feature Selection
+  Engine backlog item from the 2026-08-07 runs. 9 new tests.
+- **Real pytest coverage for three previously-untested modules**
+  (`tests/test_auto_insights.py`, `test_regression_diagnostics.py`,
+  `test_stl_decomposition.py`) — the 2026-08-07 Run 2 CHANGELOG entry
+  claimed "82 new unit tests" for `auto_insights.py`,
+  `regression_diagnostics.py`, and the STL addition to `forecasting.py`,
+  but those tests were only ever standalone `eval/*.py` scripts, never
+  wired into `pytest`. Ported them as real tests. Suite: 27 → 73 passing.
+  Full writeup in `.prism/audit_2026-08-10.md`.
+
+### Investigated, not fixed (see `.prism/audit_2026-08-10.md`)
+- The 2026-08-07 Run 2 finding that Prism's Atlas side panel overlaps main
+  content at ~390px viewport widths was root-caused further: the panel's
+  own CSS isn't the real problem (two attempted fixes there were reverted
+  after making things worse or merely unmasking it), and the actual bug is
+  a pre-existing Streamlit layout quirk that collapses the *entire*
+  Overview tab's main content to a ~22px sliver on phone widths,
+  independent of the Atlas panel. Repro evidence and a suggested fix
+  shape are logged for a dedicated future run.
+- Plotly charts across the whole app (not just this run's new chart) keep
+  a dark plot area even when Prism's in-app theme is switched to light —
+  traced to `.streamlit/config.toml`'s hardcoded native dark `base` plus
+  every `st.plotly_chart(...)` call omitting `theme=None`. Cosmetic,
+  app-wide, pre-existing; logged for backlog.
+
 ## 2026-08-07
 
 ### Added

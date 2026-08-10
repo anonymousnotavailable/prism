@@ -66,9 +66,34 @@ still-open backlog from Run 1/2.
   collaboration — all logged in the research doc, lower priority or
   architecture-adjacent.
 
-(Outcome and screenshot verification appended in the closing summary below
-once building is complete — see the bottom of this file for the 5-line
-run summary the routine's Phase 8 requires.)
+**Outcome:** two feature branches (`feature/anomaly-narration`,
+`feature/feature-selection-engine`) built, tested (73/73 pytest green, up
+from 27 at the start of this run — 30 tests from the eval-script port + 16
+from the two new features), screenshotted desktop dark/light (Stocks
+sample dataset — Sales/Startup Funding didn't reliably produce flagged
+anomalies at default contamination), merged into this run's integration
+branch, pushed. A third attempted deliverable — fixing the Run 2 mobile
+Atlas-panel-overlap bug — was investigated (two CSS approaches tried) but
+reverted per Phase 6: neither produced a genuinely usable mobile layout,
+and the real bug turned out to be a deeper pre-existing Streamlit layout
+quirk unrelated to the panel's own CSS. Full diagnostic writeup and repro
+evidence in `.prism/audit_2026-08-10.md` so the next run can pick it up
+without repeating the same two dead ends.
+
+**Branch note:** this run's harness pinned development to a specific
+session branch rather than `main` directly (`claude/adoring-meitner-9whu1j`).
+Both feature branches were merged into that branch (not `main`) and pushed
+there — functionally the same integration-and-ship flow the routine
+describes, just against the branch this session was authorized to push to.
+
+**5-line summary:** Shipped Anomaly Narration (Gemini explains flagged
+rows, agentic theme) and a Feature Selection Engine (MI/L1/RFE consensus
+ranking) in ML Lab. Fixed a real test-coverage gap: Run 2's claimed "82
+tests" were never wired into pytest — ported them, suite now 73/73 green.
+Investigated but reverted a mobile layout fix after root-causing it to a
+deeper pre-existing Streamlit bug — logged for a dedicated future run.
+Next run: strongly consider making the `google-genai` SDK migration (now
+3 runs deferred) or the mobile content-squish bug the whole run's focus.
 
 ---
 
