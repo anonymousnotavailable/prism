@@ -160,6 +160,188 @@ def apply_suggestion(df: pd.DataFrame, suggestion: dict) -> tuple[pd.DataFrame, 
 
 
 # ==========================================================================
+# 9b. Feature Selection Engine — ranks candidate features by the three
+# canonical selection families (filter / embedded / wrapper) and averages
+# them into one consensus score, so the choice of which features to feed
+# the Baseline Model Runner is backed by more than one method's opinion.
+# ==========================================================================
+
+MIN_ROWS_FOR_SELECTION = 20
+# Bounds RFE's O(n_features) re-fit loop so this stays fast on wide datasets.
+MAX_FEATURES_FOR_SELECTION = 40
+
+
+def _build_selection_matrix(df: pd.DataFrame, feature_cols: list[str], target_col: str):
+    """A 1-column-per-original-feature numeric matrix (+ y, + a categorical
+    mask), unlike run_baseline_models' one-hot pipeline — feature *selection*
+    needs to score each original column once, not each one-hot level, so the
+    ranking can be reported (and acted on, via the multiselect) in terms of
+    the columns the user actually picked.
+    """
+    data = df[feature_cols + [target_col]].dropna(subset=[target_col])
+    y = data[target_col]
+    X = pd.DataFrame(index=data.index)
+    categorical_mask = []
+    for col in feature_cols:
+        series = data[col]
+        if pd.api.types.is_numeric_dtype(series):
+            X[col] = series.fillna(series.median())
+            categorical_mask.append(False)
+        else:
+            mode = series.mode()
+            fill_value = mode.iloc[0] if not mode.empty else "missing"
+            X[col] = series.fillna(fill_value).astype("category").cat.codes
+            categorical_mask.append(True)
+    return X, y, categorical_mask
+
+
+def _normalize(values: np.ndarray) -> np.ndarray:
+    """Scale a non-negative importance array to [0, 1] by its own max —
+    each method's units are incomparable (MI is in nats, |coef| is in
+    scaled-feature units, RFE ranks are ordinal), so relative-to-its-own-max
+    is what makes averaging across methods meaningful."""
+    values = np.asarray(values, dtype=float)
+    peak = values.max() if len(values) else 0.0
+    return values / peak if peak > 0 else np.zeros_like(values)
+
+
+def rank_features(
+    df: pd.DataFrame, feature_cols: list[str], target_col: str, task_type: str
+) -> tuple[Optional[dict], Optional[str]]:
+    """Rank candidate feature columns by mutual information (filter),
+    L1-regularized coefficient magnitude (embedded), and Recursive Feature
+    Elimination (wrapper), then average the three into a consensus score.
+
+    Returns (result, error). result = {"ranking": [{"feature", "mutual_info_score",
+    "l1_score", "rfe_score", "consensus_score"}, ...] sorted descending by
+    consensus, "recommended": [feature, ...] (above-average consensus, always
+    at least 1), "warnings": [str, ...]}. Any single method failing (e.g. on
+    degenerate data) is dropped from that feature's consensus rather than
+    failing the whole ranking.
+    """
+    if not feature_cols:
+        return None, "Pick at least one feature column to rank."
+
+    data_rows = df[list(feature_cols) + [target_col]].dropna(subset=[target_col])
+    if len(data_rows) < MIN_ROWS_FOR_SELECTION:
+        return None, f"Not enough rows to reliably rank features (need at least {MIN_ROWS_FOR_SELECTION})."
+
+    warnings: list[str] = []
+    cols = list(feature_cols)
+    if len(cols) > MAX_FEATURES_FOR_SELECTION:
+        warnings.append(
+            f"Only the first {MAX_FEATURES_FOR_SELECTION} of {len(cols)} columns were ranked, to keep this fast."
+        )
+        cols = cols[:MAX_FEATURES_FOR_SELECTION]
+
+    X, y, categorical_mask = _build_selection_matrix(df, cols, target_col)
+
+    if len(cols) == 1:
+        row = {"feature": cols[0], "mutual_info_score": 1.0, "l1_score": 1.0, "rfe_score": 1.0, "consensus_score": 1.0}
+        return {"ranking": [row], "recommended": [cols[0]], "warnings": warnings}, None
+
+    from sklearn.exceptions import ConvergenceWarning
+    from sklearn.feature_selection import RFE, mutual_info_classif, mutual_info_regression
+    from sklearn.linear_model import LassoCV, LinearRegression, LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+
+    X_scaled = pd.DataFrame(StandardScaler().fit_transform(X), columns=cols, index=X.index)
+    n = len(cols)
+
+    mi_norm = None
+    try:
+        mi_fn = mutual_info_classif if task_type == "classification" else mutual_info_regression
+        mi = mi_fn(X, y, discrete_features=categorical_mask, random_state=42)
+        mi_norm = _normalize(mi)
+    except Exception as e:
+        warnings.append(f"Mutual information scoring failed ({e}); excluded from consensus.")
+
+    l1_norm = None
+    try:
+        import warnings as _warnings
+
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", ConvergenceWarning)
+            if task_type == "classification":
+                l1_model = LogisticRegression(penalty="l1", solver="liblinear", max_iter=1000, random_state=42)
+                l1_model.fit(X_scaled, y)
+                coefs = np.abs(l1_model.coef_)
+                l1_importance = coefs.mean(axis=0) if coefs.ndim > 1 else coefs.ravel()
+            else:
+                l1_model = LassoCV(cv=min(5, max(2, len(X_scaled) // 10)), random_state=42, max_iter=5000)
+                l1_model.fit(X_scaled, y)
+                l1_importance = np.abs(l1_model.coef_)
+        l1_norm = _normalize(l1_importance)
+    except Exception as e:
+        warnings.append(f"L1-based scoring failed ({e}); excluded from consensus.")
+
+    rfe_norm = None
+    try:
+        rfe_estimator = (
+            LogisticRegression(max_iter=1000, random_state=42) if task_type == "classification" else LinearRegression()
+        )
+        rfe = RFE(rfe_estimator, n_features_to_select=max(1, n // 2))
+        rfe.fit(X_scaled, y)
+        ranks = rfe.ranking_.astype(float)  # 1 = selected first/best, higher = eliminated earlier
+        max_rank = ranks.max()
+        rfe_norm = 1.0 - (ranks - 1) / (max_rank - 1) if max_rank > 1 else np.ones_like(ranks)
+    except Exception as e:
+        warnings.append(f"RFE scoring failed ({e}); excluded from consensus.")
+
+    per_method = [m for m in (mi_norm, l1_norm, rfe_norm) if m is not None]
+    if not per_method:
+        return None, "All feature-ranking methods failed on this data — try a different feature set."
+    consensus = np.mean(np.vstack(per_method), axis=0)
+
+    def _score(arr, i):
+        return round(float(arr[i]), 4) if arr is not None else None
+
+    ranking = [
+        {
+            "feature": cols[i],
+            "mutual_info_score": _score(mi_norm, i),
+            "l1_score": _score(l1_norm, i),
+            "rfe_score": _score(rfe_norm, i),
+            "consensus_score": round(float(consensus[i]), 4),
+        }
+        for i in range(n)
+    ]
+    ranking.sort(key=lambda r: (-r["consensus_score"], r["feature"]))
+
+    threshold = float(consensus.mean())
+    recommended = [r["feature"] for r in ranking if r["consensus_score"] >= threshold]
+
+    return {"ranking": ranking, "recommended": recommended, "warnings": warnings}, None
+
+
+def build_feature_ranking_chart(ranking: list[dict]) -> go.Figure:
+    """Grouped horizontal bar chart: each feature's three underlying method
+    scores plus its consensus, sorted so the strongest consensus is on top."""
+    ordered = sorted(ranking, key=lambda r: r["consensus_score"])
+    features = [r["feature"] for r in ordered]
+    fig = go.Figure()
+    for score_key, label in [
+        ("mutual_info_score", "Mutual Info"),
+        ("l1_score", "L1 / Lasso"),
+        ("rfe_score", "RFE"),
+    ]:
+        values = [r[score_key] if r[score_key] is not None else 0 for r in ordered]
+        fig.add_trace(go.Bar(x=values, y=features, name=label, orientation="h"))
+    fig.add_trace(
+        go.Scatter(
+            x=[r["consensus_score"] for r in ordered], y=features, mode="markers",
+            name="Consensus", marker=dict(size=10, symbol="diamond"),
+        )
+    )
+    fig.update_layout(
+        barmode="group", title="Feature Selection — method scores + consensus",
+        xaxis_title="Normalized score (0-1)", margin=dict(t=50, b=10, l=10, r=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+    )
+    return fig
+
+
+# ==========================================================================
 # 10. Baseline Model Runner
 # ==========================================================================
 
