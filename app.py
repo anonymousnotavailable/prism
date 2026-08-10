@@ -1721,6 +1721,12 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.causal_narration = None
                 st.session_state.cate_result = None
                 st.session_state.cate_narration = None
+                # Agent Summary renders earlier in this same script pass (by
+                # design — it's the top-line synthesis, above the detail
+                # panels) so it would otherwise show the *pre-click* causal
+                # state for this one rerun; force a fresh pass so it picks
+                # up the result just computed above.
+                st.rerun()
 
             result = st.session_state.causal_result
             if result is not None:
@@ -1797,6 +1803,7 @@ elif st.session_state.active_section == "Overview":
                                     covariates=covariates,
                                 )
                             st.session_state.cate_narration = None
+                            st.rerun()  # see the Agent Summary same-pass-staleness note above
 
                         cate_result = st.session_state.cate_result
                         if cate_result is not None:
@@ -2090,6 +2097,7 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.anomaly_error = anomaly_err
                 st.session_state.anomaly_narration = None
                 st.session_state.anomaly_narration_fingerprint = None
+                st.rerun()  # see the Agent Summary same-pass-staleness note above
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)

@@ -54,7 +54,10 @@ MIN_DETECTORS_FOR_OUTPUT = 2  # fewer distinct detectors firing -> nothing to or
 
 _SEVERITY_WEIGHT = {"high": 3, "medium": 2, "low": 1}
 _AGREEMENT_BONUS_PER_EXTRA_DETECTOR = 1.5
-_CONTRADICTION_BONUS = 2.0
+_CONTRADICTION_BONUS = 2.5  # keeps a "check this" flag above a lone same-severity claim (a mismatch
+                            # between two independent checks is more actionable than one detector's
+                            # unconfirmed opinion), while still ranking below genuine multi-detector
+                            # agreement on the strongest findings
 
 _DRIFT_NOTABLE_SCORE = 50.0  # drift_score (0-100) at/above this is worth surfacing
 _ANOMALY_HIGH_PCT = 10.0
