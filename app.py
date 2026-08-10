@@ -96,6 +96,8 @@ _DEFAULTS = {
     "confounder_narrations": {},  # (x, y, confounder) -> cached Gemini narration text, avoids re-spending a call per rerun
     "causal_result": None,  # last causal_inference.estimate_causal_effect() result dict (kept across reruns so the panel doesn't collapse)
     "causal_narration": None,  # cached Gemini narration of causal_result, avoids re-spending a call per rerun
+    "cate_result": None,  # last causal_inference.estimate_cate_by_subgroup() result dict (kept across reruns so the panel doesn't collapse)
+    "cate_narration": None,  # cached Gemini narration of cate_result, avoids re-spending a call per rerun
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -329,6 +331,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.confounder_narrations = {}
     st.session_state.causal_result = None
     st.session_state.causal_narration = None
+    st.session_state.cate_result = None
+    st.session_state.cate_narration = None
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
@@ -1623,6 +1627,8 @@ elif st.session_state.active_section == "Overview":
                             working_df, treatment_col, treated_value, outcome_col, covariates=covariates
                         )
                 st.session_state.causal_narration = None
+                st.session_state.cate_result = None
+                st.session_state.cate_narration = None
 
             result = st.session_state.causal_result
             if result is not None:
@@ -1665,6 +1671,77 @@ elif st.session_state.active_section == "Overview":
                         else:
                             st.session_state.causal_narration = narration
                             st.rerun()
+
+                    # --------------------------------------------------
+                    # CATE by subgroup — does this effect actually hold for
+                    # everyone, or does a single pooled ATT hide a treatment
+                    # that helps one segment and hurts another? Only offered
+                    # once a pooled estimate exists, and only when there's a
+                    # low-cardinality categorical column to slice by (2-10
+                    # groups — below 2 there's nothing to compare, above 10
+                    # per-group sample sizes get too thin to match on).
+                    # --------------------------------------------------
+                    _cate_subgroup_cols = [
+                        c for c, t in st.session_state.column_types.items()
+                        if t in ("categorical", "text", "boolean")
+                        and c in working_df.columns
+                        and c != treatment_col
+                        and 2 <= working_df[c].nunique(dropna=True) <= 10
+                    ]
+                    if _cate_subgroup_cols:
+                        st.divider()
+                        st.markdown("**Does the effect vary by subgroup?**")
+                        st.caption(
+                            "A single pooled number can hide a treatment that helps one segment and hurts "
+                            "another. Re-runs the same matching estimate within each level of the column "
+                            "below and checks whether the effect actually holds everywhere."
+                        )
+                        sc1, sc2 = st.columns([2, 1])
+                        subgroup_col = sc1.selectbox("Subgroup column", _cate_subgroup_cols, key="cate_subgroup_col")
+                        if sc2.button("Check heterogeneity", key="cate_estimate_btn"):
+                            with st.spinner("Re-matching within each subgroup…"):
+                                st.session_state.cate_result = causal_inference.estimate_cate_by_subgroup(
+                                    working_df, treatment_col, treated_value, outcome_col, subgroup_col,
+                                    covariates=covariates,
+                                )
+                            st.session_state.cate_narration = None
+
+                        cate_result = st.session_state.cate_result
+                        if cate_result is not None:
+                            if not cate_result["ok"]:
+                                st.warning(cate_result["error"])
+                            else:
+                                if cate_result["sign_reversal"]:
+                                    st.error(
+                                        "⚠️ Sign reversal detected — the treatment helps in some subgroups and "
+                                        "hurts in others. A blanket rollout would be the wrong call here."
+                                    )
+                                elif cate_result["heterogeneity_detected"]:
+                                    st.warning(
+                                        "The effect size differs meaningfully by subgroup (non-overlapping "
+                                        "confidence intervals) — consider a targeted rollout over a blanket one."
+                                    )
+                                else:
+                                    st.success("The effect looks consistent across subgroups — no evidence it varies.")
+
+                                cate_fig = visualization.plot_cate_by_subgroup(cate_result)
+                                if cate_fig is not None:
+                                    st.plotly_chart(cate_fig, use_container_width=True)
+
+                                for w in cate_result["warnings"]:
+                                    st.caption(f"⚠ {w}")
+
+                                if st.session_state.cate_narration:
+                                    st.info(st.session_state.cate_narration)
+                                elif st.button("✨ Explain this", key="cate_narrate_btn"):
+                                    model = ai_analyst.get_model()
+                                    with st.spinner("Gemini is interpreting this…"):
+                                        narration, narr_error = causal_inference.narrate_cate_heterogeneity(model, cate_result)
+                                    if narr_error:
+                                        st.warning(narr_error)
+                                    else:
+                                        st.session_state.cate_narration = narration
+                                        st.rerun()
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
