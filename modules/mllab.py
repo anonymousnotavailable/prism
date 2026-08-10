@@ -11,6 +11,7 @@ pipeline — every result the UI shows should be paired with that framing.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 import numpy as np
@@ -369,6 +370,236 @@ def build_class_distribution_chart(imbalance_info: dict) -> go.Figure:
         labels={"x": "Class", "y": "Count"}, title="Class Distribution",
     )
     fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+    return fig
+
+
+# ==========================================================================
+# 13. Feature Selection Engine
+# ==========================================================================
+#
+# Three feature-selection methods with different assumptions, cross-checked
+# against each other the same way anomaly.py's ensemble detector cross-checks
+# three anomaly detectors — a feature every method votes for is a much
+# stronger signal than any single method's opinion:
+#   mutual_info — model-free, captures non-linear relationships (an
+#                 information-theoretic measure, not a fitted model at all)
+#   l1          — an L1-penalized linear model (Lasso / L1-LogisticRegression)
+#                 zeroes out a coefficient entirely when a feature adds
+#                 nothing beyond what other features already explain
+#   rfe         — Recursive Feature Elimination: repeatedly fits a model and
+#                 drops the weakest feature, capturing interactions the two
+#                 methods above (which score each feature independently) miss
+#
+# Every method scores at the *original column* level (categoricals are
+# ordinal-encoded rather than one-hot expanded) so a user sees one row per
+# column they recognize, not a scattered one-hot fragment per category. This
+# trades a small amount of ML rigor — ordinal encoding implies a false
+# ordering for categoricals — for interpretability, which is this tool's job:
+# surfacing signal per column to guide the Baseline Model Runner above, not
+# maximizing raw accuracy itself.
+
+FEATURE_SELECTION_METHODS = ("mutual_info", "l1", "rfe")
+FEATURE_SELECTION_MIN_ROWS = 20
+
+
+def _prepare_selection_matrix(df: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, list[bool]]:
+    """Impute + ordinal-encode categoricals, median-impute numerics — one
+    column per original feature, no one-hot expansion. Returns (X, is_categorical)
+    where is_categorical aligns 1:1 with feature_cols, for mutual_info's
+    discrete_features hint.
+    """
+    X = pd.DataFrame(index=df.index)
+    is_categorical = []
+    for col in feature_cols:
+        series = df[col]
+        if pd.api.types.is_numeric_dtype(series):
+            filled = series.astype(float)
+            median = filled.median()
+            X[col] = filled.fillna(median if pd.notna(median) else 0.0)
+            is_categorical.append(False)
+        else:
+            codes = series.astype("category").cat.codes.astype(float)
+            codes = codes.replace(-1, np.nan)  # -1 = NaN in the original column
+            median = codes.median()
+            X[col] = codes.fillna(median if pd.notna(median) else 0.0)
+            is_categorical.append(True)
+    return X, is_categorical
+
+
+def run_feature_selection(
+    df: pd.DataFrame, feature_cols: list[str], target_col: str, task_type: str, top_k: Optional[int] = None
+) -> tuple[Optional[pd.DataFrame], Optional[str]]:
+    """Run mutual information, L1-based selection, and RFE over the same
+    feature columns and return a per-feature consensus.
+
+    Returns (result_df, error). result_df has one row per feature with:
+      mutual_info, mutual_info_norm (0-1), mutual_info_selected (>= median)
+      l1_coef (abs magnitude), l1_selected (nonzero coefficient)
+      rfe_selected (bool), rfe_rank (1 = kept, higher = eliminated earlier)
+      votes (0-3, how many methods selected this feature)
+    sorted by votes descending, then mutual_info_norm descending. error is
+    set only when selection couldn't run at all (too few features/rows).
+    """
+    if len(feature_cols) < 2:
+        return None, "Feature selection needs at least 2 candidate feature columns to compare."
+
+    data = df[feature_cols + [target_col]].dropna(subset=[target_col])
+    if len(data) < FEATURE_SELECTION_MIN_ROWS:
+        return None, f"Not enough rows with a non-missing target for feature selection (need at least {FEATURE_SELECTION_MIN_ROWS})."
+
+    X, is_categorical = _prepare_selection_matrix(data, feature_cols)
+    y = data[target_col]
+    if task_type == "classification" and not pd.api.types.is_numeric_dtype(y):
+        y = y.astype("category").cat.codes
+
+    from sklearn.feature_selection import RFE, mutual_info_classif, mutual_info_regression
+    from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+
+    # A zero-variance column breaks StandardScaler/RFE's implicit division-by-scale
+    # assumptions in edge cases; scaling still works (scale becomes 1.0 for a
+    # constant column via sklearn's built-in floor), so no special-casing needed
+    # beyond letting every score for that column legitimately come out as ~0.
+    X_scaled = StandardScaler().fit_transform(X.values)
+
+    mi_func = mutual_info_classif if task_type == "classification" else mutual_info_regression
+    try:
+        mi_scores = mi_func(X.values, y, discrete_features=is_categorical, random_state=42)
+    except Exception as e:
+        return None, f"Mutual information computation failed: {e}"
+
+    if task_type == "classification":
+        l1_model = LogisticRegression(penalty="l1", solver="liblinear", C=1.0, max_iter=1000, random_state=42)
+        l1_model.fit(X_scaled, y)
+        coefs = l1_model.coef_
+        l1_coefs = np.abs(coefs).max(axis=0) if coefs.ndim > 1 and coefs.shape[0] > 1 else np.abs(coefs).ravel()
+    else:
+        l1_model = Lasso(alpha=0.01, random_state=42, max_iter=5000)
+        l1_model.fit(X_scaled, y)
+        l1_coefs = np.abs(l1_model.coef_)
+
+    rfe_estimator = (
+        LogisticRegression(max_iter=1000, random_state=42) if task_type == "classification" else LinearRegression()
+    )
+    n_select = top_k if top_k else max(1, round(len(feature_cols) / 2))
+    n_select = max(1, min(n_select, len(feature_cols)))
+    try:
+        rfe = RFE(rfe_estimator, n_features_to_select=n_select)
+        rfe.fit(X_scaled, y)
+        rfe_selected, rfe_rank = rfe.support_, rfe.ranking_
+    except Exception:
+        # RFE's underlying estimator can fail to converge on pathological
+        # inputs (e.g. every feature constant) — degrade to "select everything,
+        # rank 1" rather than losing the mutual_info/L1 results this run did
+        # manage to compute.
+        rfe_selected = np.ones(len(feature_cols), dtype=bool)
+        rfe_rank = np.ones(len(feature_cols), dtype=int)
+
+    result = pd.DataFrame(
+        {
+            "feature": feature_cols,
+            "mutual_info": mi_scores,
+            "l1_coef": l1_coefs,
+            "rfe_selected": rfe_selected,
+            "rfe_rank": rfe_rank,
+        }
+    )
+    max_mi = result["mutual_info"].max()
+    result["mutual_info_norm"] = (result["mutual_info"] / max_mi) if max_mi > 0 else 0.0
+    result["mutual_info_selected"] = result["mutual_info_norm"] >= result["mutual_info_norm"].median()
+    result["l1_selected"] = result["l1_coef"].abs() > 1e-6
+
+    result["votes"] = result[["mutual_info_selected", "l1_selected", "rfe_selected"]].sum(axis=1).astype(int)
+    result = result.sort_values(["votes", "mutual_info_norm"], ascending=[False, False]).reset_index(drop=True)
+    return result, None
+
+
+def recommended_features(result: Optional[pd.DataFrame], min_votes: int = 2) -> list[str]:
+    """Features with at least `min_votes` (of 3) methods agreeing they're
+    useful. Falls back to the single top-voted feature if nothing reaches
+    the threshold (e.g. all three methods disagree) rather than returning
+    an empty recommendation for a non-empty result.
+    """
+    if result is None or result.empty:
+        return []
+    picked = result.loc[result["votes"] >= min_votes, "feature"].tolist()
+    if picked:
+        return picked
+    return [result.iloc[0]["feature"]]
+
+
+def fingerprint_selection(result: Optional[pd.DataFrame]) -> str:
+    """A short, stable hash of a `run_feature_selection()` result — used to
+    cache the AI narration below so re-viewing the same result (e.g. after
+    switching tabs and back) doesn't re-spend a Gemini call. Changes
+    whenever the feature set or any feature's vote count changes.
+    """
+    if result is None or result.empty:
+        return "empty"
+    parts = sorted(f"{row.feature}:{row.votes}" for row in result.itertuples())
+    key = f"{len(result)}|" + "|".join(parts)
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
+_FEATURE_SELECTION_NARRATION_PROMPT = (
+    "You are a senior data scientist explaining a feature selection result to a stakeholder who "
+    "isn't technical. Three different feature-selection methods were run over the same candidate "
+    "columns, each with different assumptions: Mutual Information (model-free, captures non-linear "
+    "relationships with the target), an L1-penalized linear model (zeroes out a feature's "
+    "coefficient entirely when it adds nothing beyond the other features), and Recursive Feature "
+    "Elimination (repeatedly refits a model, dropping the weakest feature each round, which can "
+    "catch interactions the other two miss). Here is each candidate feature and how many of the 3 "
+    "methods voted to keep it (target column: {target}):\n\n{votes_text}\n\n"
+    "In 3-4 sentences: explain in plain English which features are the strongest, genuinely useful "
+    "signal (high agreement) versus which look like noise or redundant with other columns (low "
+    "agreement), and suggest which features to drop before training a model. Do not simply restate "
+    "the vote counts back."
+)
+
+
+def narrate_feature_selection(model, result: Optional[pd.DataFrame], target_col: str = "the target") -> tuple[str, Optional[str]]:
+    """Ask Gemini to explain *why* features were selected/dropped — the
+    interpretive layer of the self-verifying pattern also used by
+    anomaly.py's ensemble narration: selection itself stays deterministic
+    and auditable (three independent, well-established sklearn methods),
+    Gemini's only job is turning vote counts into an explanation a
+    stakeholder can act on.
+
+    Returns (narration, error). Callers should cache the result keyed by
+    fingerprint_selection(result) to avoid re-calling Gemini for a result
+    the user has already seen narrated.
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+    if result is None or result.empty:
+        return "No feature selection result to narrate yet — run feature selection first.", None
+
+    votes_text = "\n".join(
+        f"- {row.feature}: {row.votes}/3 methods (mutual info rank {'high' if row.mutual_info_selected else 'low'}, "
+        f"L1 {'kept' if row.l1_selected else 'zeroed out'}, RFE {'kept' if row.rfe_selected else 'eliminated'})"
+        for row in result.itertuples()
+    )
+    prompt = _FEATURE_SELECTION_NARRATION_PROMPT.format(target=target_col, votes_text=votes_text)
+
+    from modules.ai_analyst import call_gemini
+
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
+
+
+def build_votes_chart(result: pd.DataFrame) -> go.Figure:
+    """Horizontal bar chart of each feature's vote count (0-3), colored by
+    agreement level — the at-a-glance view before reading the narration."""
+    ordered = result.sort_values("votes", ascending=True)
+    fig = px.bar(
+        ordered, x="votes", y="feature", orientation="h", color="votes",
+        color_continuous_scale="Tealgrn", range_x=[0, len(FEATURE_SELECTION_METHODS)],
+        labels={"votes": "Methods agreeing (of 3)", "feature": "Feature"},
+        title="Feature Selection Consensus",
+    )
+    fig.update_layout(margin=dict(t=50, b=10, l=10, r=10), coloraxis_showscale=False)
     return fig
 
 
