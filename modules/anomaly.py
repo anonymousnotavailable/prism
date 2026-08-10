@@ -1,6 +1,15 @@
 """
 Anomaly Detection — flags unusual rows via scikit-learn's IsolationForest
 over the dataset's numeric columns, with a plain-English reason per flagged row.
+
+Also offers an ensemble mode (`find_anomalies_ensemble`) that runs three
+independent unsupervised outlier detectors — IsolationForest, Local Outlier
+Factor, and DBSCAN — and reports a per-row consensus count. A single method
+flagging a row is weak evidence (each algorithm has known blind spots:
+IsolationForest struggles with local density variation, LOF struggles with
+uniform-density outliers, DBSCAN is sensitive to its eps parameter); two or
+three methods agreeing is a much stronger signal, so the ensemble result is
+sortable/filterable by confidence instead of a single binary flag.
 """
 
 from __future__ import annotations
@@ -8,14 +17,27 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 try:
     from sklearn.ensemble import IsolationForest
+    from sklearn.cluster import DBSCAN
+    from sklearn.neighbors import LocalOutlierFactor, NearestNeighbors
+    from sklearn.preprocessing import StandardScaler
 except ImportError:  # the app should still load even if the package isn't installed yet
     IsolationForest = None
+    DBSCAN = None
+    LocalOutlierFactor = None
+    NearestNeighbors = None
+    StandardScaler = None
 
 MIN_ROWS_REQUIRED = 10
+_ENSEMBLE_METHOD_LABELS = {
+    "isolation_forest": "IsolationForest",
+    "local_outlier_factor": "LOF",
+    "dbscan": "DBSCAN",
+}
 
 
 def is_available() -> bool:
@@ -85,6 +107,93 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+def _dbscan_eps_heuristic(X: np.ndarray, min_samples: int) -> float:
+    """Auto-pick DBSCAN's `eps` via the classic k-distance elbow heuristic
+    (Ester et al. 1996): sort every point's distance to its k-th nearest
+    neighbor, then take a high percentile of that curve as the density
+    threshold. Points whose neighborhood is sparser than that (i.e. past
+    the "elbow") end up as DBSCAN noise (-1) — its outlier signal. This
+    avoids requiring the caller to hand-tune eps per dataset, which is
+    DBSCAN's usual practical pain point.
+    """
+    k = max(1, min(min_samples, len(X) - 1))
+    distances, _ = NearestNeighbors(n_neighbors=k + 1).fit(X).kneighbors(X)
+    kth_distances = np.sort(distances[:, -1])
+    idx = min(int(len(kth_distances) * 0.90), len(kth_distances) - 1)
+    eps = float(kth_distances[idx])
+    return eps if eps > 0 else 1e-6
+
+
+def find_anomalies_ensemble(
+    df: pd.DataFrame, column_types: dict[str, str], contamination: float = 0.05
+) -> tuple[Optional[pd.DataFrame], dict, Optional[str]]:
+    """Ensemble outlier detection: IsolationForest + Local Outlier Factor +
+    DBSCAN vote independently, then rows are ranked by how many of the
+    three agree (`consensus_count`, 1-3) and which ones flagged them
+    (`methods_flagged`). Rows flagged by 2+ methods are the high-confidence
+    picks; a lone flag from one method is worth a look but far more likely
+    to be that method's specific blind spot than a genuine anomaly.
+
+    Returns (flagged_df, method_summary, error) — method_summary is a dict
+    of per-method total flag counts (`{"isolation_forest": n, ...}`), always
+    returned (even empty {} on error) so the UI can render a per-method
+    breakdown regardless of whether anything was ultimately flagged.
+    """
+    if IsolationForest is None or LocalOutlierFactor is None or DBSCAN is None:
+        return None, {}, "scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app."
+
+    numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+    if not numeric_cols:
+        return None, {}, "No numeric columns available for anomaly detection."
+
+    if len(df) < MIN_ROWS_REQUIRED:
+        return None, {}, f"Not enough rows to reliably detect anomalies (need at least {MIN_ROWS_REQUIRED})."
+
+    numeric_df = df[numeric_cols].copy()
+    numeric_df = numeric_df.fillna(numeric_df.median(numeric_only=True))
+    numeric_df = numeric_df.dropna(axis=1, how="all")
+    if numeric_df.shape[1] == 0:
+        return None, {}, "All numeric columns are entirely empty — nothing to analyze."
+
+    # Standardize — LOF/DBSCAN are distance-based and would otherwise let a
+    # large-scale column dominate every neighbor computation.
+    X = StandardScaler().fit_transform(numeric_df.values)
+
+    votes = pd.DataFrame(index=df.index)
+    votes["isolation_forest"] = IsolationForest(contamination=contamination, random_state=42).fit_predict(X) == -1
+
+    n_neighbors = max(2, min(20, len(X) - 1))
+    votes["local_outlier_factor"] = (
+        LocalOutlierFactor(n_neighbors=n_neighbors, contamination=contamination).fit_predict(X) == -1
+    )
+
+    min_samples = max(2, min(5, len(X) - 1))
+    eps = _dbscan_eps_heuristic(X, min_samples)
+    votes["dbscan"] = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(X) == -1
+
+    method_cols = list(_ENSEMBLE_METHOD_LABELS.keys())
+    votes["consensus_count"] = votes[method_cols].sum(axis=1)
+    summary = {m: int(votes[m].sum()) for m in method_cols}
+
+    flagged_idx = votes.index[votes["consensus_count"] >= 1]
+    if len(flagged_idx) == 0:
+        empty = df.iloc[0:0].copy()
+        empty["consensus_count"] = pd.Series(dtype=int)
+        empty["methods_flagged"] = pd.Series(dtype=str)
+        return empty, summary, None
+
+    medians = numeric_df.median()
+    flagged = df.loc[flagged_idx].copy()
+    flagged["consensus_count"] = votes.loc[flagged_idx, "consensus_count"]
+    flagged["methods_flagged"] = [
+        ", ".join(_ENSEMBLE_METHOD_LABELS[m] for m in method_cols if votes.loc[idx, m]) for idx in flagged_idx
+    ]
+    flagged["anomaly_reason"] = [
+        _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
+    ]
+    return flagged.sort_values("consensus_count", ascending=False), summary, None
 
 
 def fingerprint_flagged(flagged: Optional[pd.DataFrame]) -> str:

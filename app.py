@@ -132,6 +132,9 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "anomaly_ensemble_result_df": None,  # last "Run Ensemble Detection" result (IsolationForest+LOF+DBSCAN)
+    "anomaly_ensemble_summary": None,  # per-method flag counts from the last ensemble run
+    "anomaly_ensemble_error": None,  # error from the last ensemble-detection attempt, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -1786,6 +1789,59 @@ elif st.session_state.active_section == "Overview":
                         st.session_state.anomaly_result_df = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
+
+            st.divider()
+            st.caption(
+                "**Ensemble mode** — a single detector can be fooled by its own blind spots. "
+                "Run three independent algorithms (IsolationForest, Local Outlier Factor, DBSCAN) "
+                "and rank rows by how many agree."
+            )
+            if st.button("🔬 Run Ensemble Detection (3 algorithms)", key="find_anomalies_ensemble_btn"):
+                with st.spinner("Running IsolationForest + LOF + DBSCAN…"):
+                    ens_flagged, ens_summary, ens_err = anomaly.find_anomalies_ensemble(df, column_types)
+                st.session_state.anomaly_ensemble_result_df = ens_flagged
+                st.session_state.anomaly_ensemble_summary = ens_summary
+                st.session_state.anomaly_ensemble_error = ens_err
+
+            if st.session_state.anomaly_ensemble_error:
+                st.error(st.session_state.anomaly_ensemble_error)
+            elif st.session_state.anomaly_ensemble_result_df is not None:
+                ens_flagged = st.session_state.anomaly_ensemble_result_df
+                ens_summary = st.session_state.anomaly_ensemble_summary or {}
+                if ens_flagged.empty:
+                    st.info("No anomalies detected by any method.")
+                else:
+                    n_high_conf = int((ens_flagged["consensus_count"] >= 2).sum())
+                    sc1, sc2, sc3 = st.columns(3)
+                    sc1.metric("IsolationForest", ens_summary.get("isolation_forest", 0))
+                    sc2.metric("LOF", ens_summary.get("local_outlier_factor", 0))
+                    sc3.metric("DBSCAN", ens_summary.get("dbscan", 0))
+                    st.write(
+                        f"**{len(ens_flagged)} row(s) flagged by at least one method "
+                        f"({n_high_conf} flagged by 2+ methods — high confidence).**"
+                    )
+                    only_high_conf = st.checkbox(
+                        "Show only high-confidence rows (2+ methods agree)", key="ensemble_high_conf_only"
+                    )
+                    display_df = ens_flagged[ens_flagged["consensus_count"] >= 2] if only_high_conf else ens_flagged
+                    st.dataframe(display_df, use_container_width=True)
+
+                    if st.button("Exclude high-confidence rows from active dataset", key="exclude_ensemble_btn"):
+                        high_conf_idx = ens_flagged[ens_flagged["consensus_count"] >= 2].index
+                        if len(high_conf_idx) == 0:
+                            st.warning("No high-confidence rows (2+ methods) to exclude.")
+                        else:
+                            push_undo_snapshot()
+                            new_df = df.drop(index=high_conf_idx)
+                            st.session_state.working_df = new_df
+                            st.session_state.column_types = data_engine.detect_column_types(new_df)
+                            log_step(
+                                f"Excluded {len(high_conf_idx)} high-confidence anomalous row(s) (ensemble: 2+ of 3 methods)",
+                                cleaning.anomaly_exclude_code(len(high_conf_idx)),
+                            )
+                            st.session_state.anomaly_ensemble_result_df = None
+                            st.toast(f"Excluded {len(high_conf_idx)} high-confidence anomalous row(s). 🚨")
+                            st.rerun()
 
 # --------------------------------------------------------------------------
 # Clean tab — before/after comparison + cleaned dataset download
