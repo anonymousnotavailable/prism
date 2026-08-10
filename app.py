@@ -46,6 +46,7 @@ from modules import (
     hellmode,
     hypothesis_sweep,
     india,
+    insight_orchestrator,
     insight_verifier,
     join_engine,
     mllab,
@@ -98,6 +99,8 @@ _DEFAULTS = {
     "causal_narration": None,  # cached Gemini narration of causal_result, avoids re-spending a call per rerun
     "cate_result": None,  # last causal_inference.estimate_cate_by_subgroup() result dict (kept across reruns so the panel doesn't collapse)
     "cate_narration": None,  # cached Gemini narration of cate_result, avoids re-spending a call per rerun
+    "orchestration_narration": None,  # cached Gemini narration of the Agent Summary panel's ranked "what matters most" list
+    "orchestration_narration_fingerprint": None,  # insight_orchestrator.fingerprint_result() covered by the narration above
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -711,6 +714,38 @@ def _cmd_generate_dictionary(target) -> None:
     st.session_state.data_dictionary_rows = data_dictionary.build_dictionary(df_, column_types_, quality_, descriptions)
     st.session_state.pending_active_section = "Overview"
     atlas.say_only(f"Documented all {df_.shape[1]} columns — see the Data Dictionary on the Overview tab.")
+
+
+def _anomaly_orchestrator_summary() -> Optional[dict]:
+    """Reduce the last "Find Anomalies" result (a DataFrame, possibly from
+    either the single-method or ensemble detector) down to the small,
+    pandas-free summary modules.insight_orchestrator's anomaly adapter
+    expects — the orchestrator never touches a DataFrame directly."""
+    flagged = st.session_state.anomaly_result_df
+    if flagged is None or flagged.empty:
+        return None
+    working = st.session_state.working_df
+    total_rows = len(working) if working is not None else len(flagged)
+    reasons = flagged["anomaly_reason"].tolist() if "anomaly_reason" in flagged.columns else []
+    return {"count": int(len(flagged)), "total_rows": int(total_rows), "reasons": reasons}
+
+
+def _build_orchestration_input() -> dict:
+    """Assemble the already-computed findings from every detector Overview
+    surfaces into the dict shape modules.insight_orchestrator.orchestrate_
+    insights() expects. Nothing here re-runs detection — auto_insights and
+    confounder_scan are computed once on upload (set_active_dataset()); the
+    causal/anomaly/drift entries are whatever the user has already triggered
+    via their own panels this session (None until then, which is fine —
+    the orchestrator stays silent below the detector-count threshold)."""
+    return {
+        "auto_insights": st.session_state.auto_insights,
+        "confounder": st.session_state.confounder_scan,
+        "causal_att": st.session_state.causal_result,
+        "causal_cate": st.session_state.cate_result,
+        "anomaly": _anomaly_orchestrator_summary(),
+        "drift": st.session_state.drift_result,
+    }
 
 
 def _cmd_auto_clean(target) -> None:
@@ -1510,6 +1545,63 @@ elif st.session_state.active_section == "Overview":
     # Atlas's proactive alert HUD (announce_ambient_insights() -> raise_alert())
     # — clear it so the orb doesn't keep pulsing for something already read.
     atlas.clear_alert()
+
+    # ------------------------------------------------------------------
+    # Agent Summary — the orchestration layer over every detector panel
+    # below. Pure synthesis, no detection of its own: collects whatever
+    # Auto-Insights, Confounder Check, the Causal Effect Estimator (ATT +
+    # CATE), Anomaly Detection, and Drift have already computed this
+    # session, de-duplicates overlapping claims about the same variable
+    # pair, flags cross-detector agreement (higher confidence) and the
+    # one specific "check this" contradiction pattern (a causal estimate
+    # that didn't adjust for a confounder Confounder Check just flagged
+    # on the same pair), and ranks the result into a top-N list. Stays
+    # silent — same convention as every panel below it — until at least
+    # two detectors have actually fired this session.
+    # ------------------------------------------------------------------
+    orchestration = insight_orchestrator.orchestrate_insights(_build_orchestration_input())
+    if not orchestration.silent:
+        with st.container(border=True):
+            n_contradictions = len(orchestration.contradictions)
+            flag_note = f"  •  {n_contradictions} to double-check" if n_contradictions else ""
+            st.markdown(
+                f"#### 🧠 Agent Summary  •  what matters most across "
+                f"{orchestration.n_detectors_fired} detectors{flag_note}"
+            )
+            st.caption(
+                "Synthesized from every check that's run this session — the same findings shown "
+                "in the panels below, cross-checked against each other and ranked."
+            )
+            fingerprint = insight_orchestrator.fingerprint_result(orchestration)
+            if (
+                st.session_state.orchestration_narration
+                and st.session_state.orchestration_narration_fingerprint == fingerprint
+            ):
+                st.info(st.session_state.orchestration_narration)
+            elif st.button(
+                "✨ Generate Executive Summary", key="orchestration_narrate",
+                help="Ask Gemini to synthesize the ranked list below into one paragraph",
+            ):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is synthesizing the top findings…"):
+                    narration, narr_error = insight_orchestrator.narrate_orchestration(model, orchestration)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.orchestration_narration = narration
+                    st.session_state.orchestration_narration_fingerprint = fingerprint
+                    st.rerun()
+
+            for group in orchestration.top:
+                if group.contradiction:
+                    badge = "🟠 Check this"
+                elif group.agreement:
+                    badge = f"✅ Confirmed by {len(group.detectors)} detectors"
+                else:
+                    badge = f"{insight_orchestrator.severity_icon(group.severity)} {group.severity.title()}"
+                subj = ", ".join(sorted(group.subjects)) if group.subjects else "Dataset-wide"
+                st.markdown(f"**{badge}** — *{subj}*  \n{group.headline}")
+
     if st.session_state.auto_insights:
         insights_list = st.session_state.auto_insights
         n_high = sum(1 for i in insights_list if i["severity"] == "high")
@@ -1629,6 +1721,12 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.causal_narration = None
                 st.session_state.cate_result = None
                 st.session_state.cate_narration = None
+                # Agent Summary renders earlier in this same script pass (by
+                # design — it's the top-line synthesis, above the detail
+                # panels) so it would otherwise show the *pre-click* causal
+                # state for this one rerun; force a fresh pass so it picks
+                # up the result just computed above.
+                st.rerun()
 
             result = st.session_state.causal_result
             if result is not None:
@@ -1705,6 +1803,7 @@ elif st.session_state.active_section == "Overview":
                                     covariates=covariates,
                                 )
                             st.session_state.cate_narration = None
+                            st.rerun()  # see the Agent Summary same-pass-staleness note above
 
                         cate_result = st.session_state.cate_result
                         if cate_result is not None:
@@ -1998,6 +2097,7 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.anomaly_error = anomaly_err
                 st.session_state.anomaly_narration = None
                 st.session_state.anomaly_narration_fingerprint = None
+                st.rerun()  # see the Agent Summary same-pass-staleness note above
 
             if st.session_state.anomaly_error:
                 st.error(st.session_state.anomaly_error)
