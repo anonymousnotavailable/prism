@@ -2,7 +2,42 @@
 
 All notable changes to Prism are logged here, newest first.
 
-## 2026-08-10
+## 2026-08-10 (Run 4)
+
+### Added
+- **Exportable Data Quality Scorecard** (`modules/data_quality.py`) —
+  closes the "Data Quality Score with exportable scorecard" backlog item
+  flagged, unbuilt, across three prior runs. The 0-100 Data Health Score
+  and its 5-component breakdown already existed
+  (`data_engine.get_health_breakdown()`) and weren't rebuilt; this adds
+  what was missing — a JSON-exportable scorecard (download button on
+  Overview), a Data Health Score section in the standalone HTML report,
+  and an "✨ Explain this score with AI" narration button (same
+  detector-then-interpreter, fingerprint-cached pattern as anomaly
+  narration) that names which component is dragging the score down and
+  what to fix first. This cycle's required agentic-AI-theme pick. 10 new
+  tests (8 for the new module, 2 first-time coverage for `report.py`).
+
+### Fixed
+- Overview's "Missing Values by Column" / "Outliers (IQR method)" tables
+  stayed dark-styled under the Arctic (Light) theme. Root cause:
+  `st.dataframe` paints onto a `<canvas>` via glide-data-grid, which reads
+  its colors from a JS theme object sourced from Streamlit's own React
+  theme context (fixed dark, from `config.toml`) — a CSS `--gdg-*`
+  override wins the cascade (confirmed via `getComputedStyle`) but never
+  reaches the canvas pixels, and a theme-suffixed widget `key=` remount
+  doesn't help either, for the same reason. Fixed by swapping these two
+  tables to `st.table` (plain HTML, correctly themed), which surfaced a
+  second bug — `st.table`'s own text color also doesn't inherit the
+  active theme by default — fixed alongside.
+- Mobile Atlas panel overlap at ~390px viewport width, flagged by two
+  prior runs' screenshots and never fixed: the fixed-position side panel
+  (328px wide, full height, no responsive breakpoint) covered nearly the
+  entire phone screen. Now docks to the bottom edge and caps at 40vh
+  below a 768px breakpoint instead of covering the viewport.
+- 4 new tests (first coverage for `modules/theme.py`).
+
+## 2026-08-10 (Run 3)
 
 ### Added
 - **Anomaly narration** (`modules/anomaly.py`) — Gemini explains the

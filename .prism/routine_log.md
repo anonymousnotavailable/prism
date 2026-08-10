@@ -269,3 +269,114 @@ dedicated run), `google-generativeai` → `google-genai` migration (still
 needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
 reconfirmed present in this run's own mobile screenshot), light-theme
 dataframe styling on Overview (new finding above).
+
+---
+
+## 2026-08-10 — Run 4 (second independent run this day, this session)
+
+**Orientation:** read this file plus `CHANGELOG.md` in full — Run 3
+(above) had already shipped anomaly narration and the Atlas alert HUD
+earlier the same day. Its "Recommendation for next run" section named
+three concrete targets: fix the mobile Atlas panel overlap, fix the
+light-theme dataframe styling, and (if a Gemini key becomes available)
+redo narration screenshots with live output. This run picked up the first
+two directly; no Gemini key was available in this sandbox either (same
+documented limitation as every prior run), so the third stayed unactioned.
+
+**Audit:** launched the app locally (fresh venv, `pip install -r
+requirements-dev.txt`, Playwright against the pre-installed Chromium at
+`/opt/pw-browsers`) and confirmed both flagged bugs live via DOM
+inspection (`getComputedStyle`, `getBoundingClientRect`), not just
+screenshots. No new `.prism/audit_*.md` file was written this run — the
+two targets were already precisely diagnosed in Run 3's own report, so
+this run's "audit" was reproducing and root-causing those two, not a
+fresh full-app sweep.
+
+**Small fixes shipped (`fix/mobile-panel-and-light-theme-tables`):**
+1. **Light-theme dark tables** — root-caused properly rather than
+   patched blind: `st.dataframe` paints onto a `<canvas>` via
+   glide-data-grid, which sources its colors from a JS theme object tied
+   to Streamlit's own React theme context (from `config.toml`, fixed
+   dark), not from live CSS. A `--gdg-*` CSS override *does* win the
+   cascade (verified via `getComputedStyle`) but the canvas never repaints
+   from it, and a theme-suffixed widget `key=` remount doesn't help
+   either, for the same reason — logged as a dead end so a future run
+   doesn't re-attempt the same CSS-only approach for *other*
+   `st.dataframe` call sites still affected app-wide (only the two
+   Overview tables flagged this run were fixed, via `st.table` instead).
+2. **Mobile Atlas panel overlap (~390px)** — three runs flagged this,
+   none fixed it until now. First attempt (`position: static`, letting
+   the panel flow above main content in document order) was tried,
+   screenshotted, and reverted after Playwright showed Streamlit's flex
+   column layout collapsing it to ~32px wide and rendering thousands of
+   pixels off-screen — logged in the CSS comment so the next run doesn't
+   retry it. Shipped fix docks the panel to the bottom edge instead,
+   capped at 40vh.
+
+**Feature shipped (`feature/data-quality-scorecard`), this cycle's
+required agentic-AI-theme pick:** Exportable Data Quality Scorecard.
+Important scope note for future runs: the 0-100 Data Health Score and its
+5-component breakdown were **already fully built**
+(`data_engine.get_health_breakdown()` / `get_health_score()`), just never
+logged under `.prism/` — used all over the app already (Overview gauge,
+before/after deltas, Chaos Intensity, cleaning certificate). This run did
+**not** rebuild that. What shipped: `modules/data_quality.py`
+(JSON-serializable scorecard export + `narrate_health_score()`, an
+agentic detector-then-interpreter narration layer matching the anomaly
+narration pattern, cached by a fingerprint that's sensitive to
+per-component scores, not just the total), a Data Health Score section in
+the standalone HTML report (`report.py`, optional/backward-compatible
+parameter), and two new buttons in Overview's existing score-breakdown
+expander.
+
+**Also discovered, not fixed (new backlog items):**
+- A pre-existing, unrelated bug found while debugging the mobile panel:
+  after uploading a dataset at mobile viewport width, Streamlit's
+  `block-container` renders at a large negative Y-offset (confirmed via
+  `getBoundingClientRect` — reproduces identically on unmodified `main`,
+  proven via `git stash` A/B test) — the Overview tab's actual content is
+  effectively scrolled off-screen above the visible viewport. This is
+  **separate from** the panel-overlap bug fixed this run (which only
+  affected the Atlas panel's own footprint). Not fixed this run — needs
+  its own investigation into what triggers the scroll (a toast? the new
+  chat message render?). Flagged so the next run doesn't rediscover it
+  from scratch chasing what looks like the same mobile bug already fixed.
+- The `st.dataframe`→canvas-theming root cause above affects every other
+  `st.dataframe`/`st.data_editor` call site in the app under light
+  themes, not just the two fixed this run (~29 other call sites). A
+  dedicated pass should decide, per call site, between the `st.table`
+  swap (only viable for small summary tables) and a proper fix (if one
+  exists — this run didn't find one for canvas-scale dataframes).
+
+**Git workflow note:** feature branches were created, committed, and
+merged locally as usual, but this run skipped literally splitting
+uncommitted work into per-feature branches via interactive `git add -p`
+(not supported in this non-interactive sandbox) — instead, edits were
+made in dependency order (fix first, feature second) with the later
+edits temporarily backed out via the Edit tool while the first commit
+landed, then reapplied for the second. Net result is the same clean
+two-commit, two-merge history prior runs produced; noting the mechanism
+in case a future run hits the same non-interactive-git constraint.
+
+**Outcome:** two branches (`fix/mobile-panel-and-light-theme-tables`,
+`feature/data-quality-scorecard`) built test-first, tested (96/96 pytest
+green — 14 new this run: 4 for `modules/theme.py`, 8 for
+`modules/data_quality.py`, 2 for `modules/report.py`, all first-time
+coverage for those three modules), merged locally in sequence, fresh-clone
+boot check passed (HTTP 200, no traceback, from a clean `git clone` of the
+local repo at the merged commit). Screenshots at desktop dark/light +
+mobile dark in `.prism/runs/2026-08-10-run4/`. Pushed to
+`origin/claude/adoring-meitner-xycg8f` (this session's assigned branch,
+per harness instructions — not `origin/main`, which this repo's actual
+git history shows prior runs never pushed to directly either; all shipped
+work across every run lives on this session-branch lineage).
+
+**Not built (backlog for next run, superseding the Run 3 list above where
+duplicated):** the two new findings above (mobile scroll-offset bug;
+canvas-dataframe light-theme fix for the other ~29 call sites); Advanced
+outlier detection (LOF/DBSCAN); Feature Selection Engine; polars/DuckDB
+large-file path (architecture-adjacent, still needs a dedicated run);
+`google-generativeai` → `google-genai` migration (still needs a dedicated
+run); redo Gemini-narration screenshots with live output whenever a key
+becomes available (now three narration features — anomaly, Auto-Insights,
+health score — all share this same unverified-live-output limitation).
