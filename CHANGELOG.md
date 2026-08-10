@@ -2,6 +2,38 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 6)
+
+### Added
+- **Confounder / Simpson's Paradox Detector** (`modules/confounder_detection.py`)
+  — a new "Confounder Check" panel in Overview, directly below Auto-Insights,
+  that automatically stress-tests the dataset's strongest correlations
+  against every other column: stratified per-group Pearson correlation for
+  categorical confounders, closed-form partial correlation for numeric
+  ones. Flags when a relationship reverses sign once you control for a
+  third variable (a true Simpson's Paradox) or collapses/weakens
+  materially, ranked worst-first. Runs automatically on every dataset
+  load — no button click, no Gemini call needed for detection — with an
+  optional one-click Gemini narration that follows the same cached,
+  graceful-fallback pattern as every other narration helper in the app.
+  16 new tests.
+
+### Fixed / Maintenance
+- **Migrated off the deprecated `google-generativeai` SDK** to
+  `google-genai` (`modules/ai_analyst.py`, `modules/atlas.py`) — the old
+  package ended upstream support and raised a `FutureWarning` on every
+  import. A new `_GeminiModel` adapter keeps every call site's
+  `model.generate_content(contents) -> response.text` interface
+  unchanged, so the migration stayed contained to the two files that
+  build model instances (`get_model`/`get_sql_model`/`build_model` in
+  `ai_analyst.py`, Atlas's router `_client()`) instead of touching the
+  ~15 call sites that use `call_gemini()`. Also updates the
+  conversational-turn builders for the new SDK's stricter `contents`
+  shape (Part dicts, not bare strings) and `call_gemini()`'s error
+  mapping (the new SDK reports errors via `.code`, and returns `None`
+  rather than raising for an empty/safety-filtered response). 16 new
+  tests. Closes a backlog item flagged by four consecutive prior runs.
+
 ## 2026-08-10 (Run 5)
 
 ### Added
