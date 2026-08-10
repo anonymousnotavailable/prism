@@ -337,27 +337,45 @@ def _dedupe_exact(claims: list) -> list:
 # ── Cross-detector agreement / contradiction ────────────────────────────
 
 
-def _detect_contradiction(claims: list) -> Optional[str]:
+def _contradiction_for_causal_claim(causal_claim: Claim, all_claims: list) -> Optional[str]:
     """The one specific "check this" pattern this module knows how to spot:
-    a confounder-detection warning on (x, y) whose flagged confounder was
-    never included among the covariates a causal ATT estimate on the same
-    (x, y) pair adjusted for. Surfaced as a flag to double-check, not a
-    hard error — the causal estimate may still be directionally right."""
-    confounder_claims = [c for c in claims if c.detector == "confounder"]
-    causal_claims = [c for c in claims if c.detector == "causal_att"]
-    if not confounder_claims or not causal_claims:
+    a causal ATT estimate whose outcome column is one side of a relationship
+    Confounder Check flagged (paradox/attenuated) against some third
+    variable, where that flagged confounder was never included among the
+    causal estimate's covariates. Deliberately checked against *every*
+    confounder claim in the whole run, not just ones sharing the exact
+    (treatment, outcome) pair — in practice a causal treatment column is
+    categorical and a confounder pair is numeric/numeric, so they can never
+    be literally identical, but "the estimate's own outcome variable has an
+    unaddressed confound" is exactly the situation worth a second look.
+    Surfaced as a flag, not a hard error — the causal estimate may still be
+    directionally right."""
+    covariates = causal_claim.meta.get("covariates") or set()
+    outcome = causal_claim.meta.get("outcome")
+    if not outcome:
         return None
-    for cc in causal_claims:
-        covariates = cc.meta.get("covariates") or set()
-        for fc in confounder_claims:
-            confounder_col = fc.meta.get("confounder")
-            if confounder_col and confounder_col not in covariates:
-                verb = "reverses" if fc.kind.endswith("paradox") else "weakens"
-                subj = " and ".join(sorted(cc.subjects))
-                return (
-                    f"Check this: the causal estimate between {subj} doesn't adjust for "
-                    f"'{confounder_col}', which Confounder Check found {verb} this relationship."
-                )
+    for fc in all_claims:
+        if fc.detector != "confounder" or outcome not in fc.subjects:
+            continue
+        confounder_col = fc.meta.get("confounder")
+        if not confounder_col or confounder_col in covariates or confounder_col in causal_claim.subjects:
+            continue
+        other = next(iter(fc.subjects - {outcome}), outcome)
+        verb = "reverses" if fc.kind.endswith("paradox") else "weakens"
+        return (
+            f"Check this: the causal estimate for '{outcome}' doesn't adjust for "
+            f"'{confounder_col}', which Confounder Check found {verb} '{outcome}'’s "
+            f"relationship with '{other}'."
+        )
+    return None
+
+
+def _detect_contradiction(claims: list, all_claims: list) -> Optional[str]:
+    for c in claims:
+        if c.detector == "causal_att":
+            found = _contradiction_for_causal_claim(c, all_claims)
+            if found:
+                return found
     return None
 
 
@@ -371,11 +389,11 @@ def _build_headline(claims_sorted: list, detectors: list, agreement: bool, contr
     return primary
 
 
-def _build_group(subjects: frozenset, claims: list) -> ClaimGroup:
+def _build_group(subjects: frozenset, claims: list, all_claims: list) -> ClaimGroup:
     claims_sorted = sorted(claims, key=lambda c: -_SEVERITY_WEIGHT.get(c.severity, 0))
     detectors = sorted({c.detector for c in claims_sorted})
     top_severity = claims_sorted[0].severity
-    contradiction = _detect_contradiction(claims_sorted)
+    contradiction = _detect_contradiction(claims_sorted, all_claims)
     agreement = len(detectors) >= 2
 
     score = float(_SEVERITY_WEIGHT.get(top_severity, 0))
@@ -414,7 +432,7 @@ def group_claims(claims: list) -> list:
             key = frozenset({f"__singleton_{singleton_i}__"})
         buckets.setdefault(key, []).append(c)
 
-    groups = [_build_group(subjects, group_claims_) for subjects, group_claims_ in buckets.items()]
+    groups = [_build_group(subjects, group_claims_, claims) for subjects, group_claims_ in buckets.items()]
     groups.sort(key=lambda g: (-g.score, -_SEVERITY_WEIGHT.get(g.severity, 0)))
     return groups
 
