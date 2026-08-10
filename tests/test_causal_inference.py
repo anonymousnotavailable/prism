@@ -11,8 +11,10 @@ import pandas as pd
 import pytest
 
 from modules.causal_inference import (
+    estimate_cate_by_subgroup,
     estimate_causal_effect,
     narrate_causal_effect,
+    narrate_cate_heterogeneity,
     nearest_neighbor_match,
     standardized_mean_diff,
 )
@@ -227,3 +229,140 @@ def test_narrate_causal_effect_calls_gemini():
     text, error = narrate_causal_effect(_FakeModel(), result)
     assert error is None
     assert "lift" in text.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# estimate_cate_by_subgroup — Conditional Average Treatment Effect: does the
+# effect vary by subgroup? (heterogeneous treatment effects / "qualitative
+# interaction" detection, the natural agentic follow-on to the pooled ATT).
+# ─────────────────────────────────────────────────────────────────────────
+def _subgroup_df(n_per_group=250, seed=0):
+    """Two segments with genuinely different, opposite-signed treatment
+    effects (a real "qualitative interaction" — not just different
+    magnitudes): segment "A" benefits (+6), segment "B" is actively hurt
+    (-6). The pooled ATT should land near the middle-ish, but per-segment
+    CATE should recover both signs distinctly.
+    """
+    rng = np.random.default_rng(seed)
+    rows = []
+    for segment, effect in [("A", 6.0), ("B", -6.0)]:
+        z = rng.normal(50, 10, n_per_group)
+        propensity = 1 / (1 + np.exp(-(z - 50) / 8))
+        treated = rng.random(n_per_group) < propensity
+        outcome = 2 * z + effect * treated + rng.normal(0, 3, n_per_group)
+        rows.append(pd.DataFrame({
+            "treatment": np.where(treated, "yes", "no"),
+            "outcome": outcome,
+            "z": z,
+            "segment": segment,
+        }))
+    return pd.concat(rows, ignore_index=True)
+
+
+def _homogeneous_df(n_per_group=250, seed=0):
+    """Same +5 effect in every segment — CATE should find no heterogeneity."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for segment in ["A", "B"]:
+        z = rng.normal(50, 10, n_per_group)
+        propensity = 1 / (1 + np.exp(-(z - 50) / 8))
+        treated = rng.random(n_per_group) < propensity
+        outcome = 2 * z + 5.0 * treated + rng.normal(0, 3, n_per_group)
+        rows.append(pd.DataFrame({
+            "treatment": np.where(treated, "yes", "no"),
+            "outcome": outcome,
+            "z": z,
+            "segment": segment,
+        }))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_cate_detects_sign_reversal_across_subgroups():
+    df = _subgroup_df()
+    result = estimate_cate_by_subgroup(
+        df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1
+    )
+    assert result["ok"] is True
+    assert result["sign_reversal"] is True
+    levels = {s["level"]: s for s in result["subgroups"] if s.get("ok")}
+    assert levels["A"]["att"] > 0
+    assert levels["B"]["att"] < 0
+
+
+def test_cate_no_heterogeneity_when_effect_is_uniform():
+    df = _homogeneous_df()
+    result = estimate_cate_by_subgroup(
+        df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1
+    )
+    assert result["ok"] is True
+    assert result["sign_reversal"] is False
+    assert result["heterogeneity_detected"] is False
+
+
+def test_cate_missing_subgroup_column():
+    df, _ = _confounded_df()
+    result = estimate_cate_by_subgroup(df, "treatment", "yes", "outcome", "nonexistent_col", covariates=["z"])
+    assert result["ok"] is False
+    assert "nonexistent_col" in result["error"]
+
+
+def test_cate_propagates_pooled_failure():
+    df = pd.DataFrame({"t": ["a", "b", "c"] * 10, "y": range(30), "z": range(30), "seg": ["x", "y"] * 15})
+    result = estimate_cate_by_subgroup(df, "t", "a", "y", "seg", covariates=["z"])
+    assert result["ok"] is False
+
+
+def test_cate_skips_undersized_subgroup_without_crashing():
+    df = _subgroup_df(n_per_group=250)
+    # Add a third, tiny segment that can't support matching (min_group_size=5).
+    tiny = pd.DataFrame({
+        "treatment": ["yes", "no"],
+        "outcome": [1.0, 2.0],
+        "z": [50.0, 51.0],
+        "segment": ["C", "C"],
+    })
+    df = pd.concat([df, tiny], ignore_index=True)
+    result = estimate_cate_by_subgroup(
+        df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1
+    )
+    assert result["ok"] is True
+    skipped = [s for s in result["subgroups"] if s["level"] == "C"]
+    assert skipped and skipped[0]["ok"] is False
+    # The two well-populated segments still produced usable estimates.
+    assert sum(1 for s in result["subgroups"] if s.get("ok")) == 2
+
+
+def test_cate_requires_at_least_two_usable_subgroups_for_heterogeneity_flags():
+    df = _subgroup_df(n_per_group=250)
+    df = df[df["segment"] == "A"].copy()  # only one segment present
+    result = estimate_cate_by_subgroup(
+        df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1
+    )
+    assert result["ok"] is True
+    assert result["heterogeneity_detected"] is False
+    assert result["sign_reversal"] is False
+    assert any("not enough" in w.lower() for w in result["warnings"])
+
+
+def test_narrate_cate_heterogeneity_no_model():
+    df = _subgroup_df()
+    result = estimate_cate_by_subgroup(df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1)
+    text, error = narrate_cate_heterogeneity(None, result)
+    assert text == ""
+    assert error
+
+
+def test_narrate_cate_heterogeneity_calls_gemini():
+    df = _subgroup_df()
+    result = estimate_cate_by_subgroup(df, "treatment", "yes", "outcome", "segment", covariates=["z"], random_state=1)
+
+    class _FakeResponse:
+        text = "The treatment helps segment A but actively hurts segment B — a one-size-fits-all rollout would be a mistake."
+
+    class _FakeModel:
+        def generate_content(self, contents):
+            return _FakeResponse()
+
+    text, error = narrate_cate_heterogeneity(_FakeModel(), result)
+    assert error is None
+    assert "segment" in text.lower()

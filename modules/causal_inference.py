@@ -293,6 +293,152 @@ def estimate_causal_effect(
     }
 
 
+def estimate_cate_by_subgroup(
+    df: pd.DataFrame,
+    treatment_col: str,
+    treated_value,
+    outcome_col: str,
+    subgroup_col: str,
+    covariates: Optional[list] = None,
+    column_types: Optional[dict] = None,
+    caliper: float = 0.2,
+    n_bootstrap: int = 200,
+    random_state: int = 42,
+    min_group_size: int = _MIN_GROUP_SIZE,
+) -> dict:
+    """Conditional Average Treatment Effect (CATE) by subgroup — the natural
+    follow-on question after estimate_causal_effect() gives one pooled ATT:
+    "does the effect actually vary depending on who you look at?" A single
+    pooled number can mask a treatment that helps one segment and hurts
+    another (a "qualitative interaction" — the treatment-effect analogue of
+    Simpson's Paradox), which is exactly the kind of finding a one-size-
+    fits-all rollout decision would miss.
+
+    Re-runs estimate_causal_effect() once on the full data (the pooled
+    estimate) and once per level of `subgroup_col` (T-learner style: same
+    matching procedure, just restricted to each subgroup's rows), then
+    compares. Never raises — every subgroup that can't support its own
+    propensity match (too few units, degenerate fit, no matches within the
+    caliper) is reported as its own ok=False entry rather than aborting the
+    whole comparison, so one thin subgroup doesn't hide the others' results.
+
+    Returns a dict, always with an "ok" key:
+      ok=False: {"ok": False, "error": "<why>"}  — subgroup_col invalid, or
+                 the pooled estimate itself failed (same failure reasons as
+                 estimate_causal_effect).
+      ok=True:  {"ok": True, "pooled": <estimate_causal_effect result>,
+                 "subgroup_col", "subgroups": [{"level", "ok", ...} per
+                 level — either the full estimate_causal_effect fields plus
+                 "level", or {"level", "ok": False, "error"}],
+                 "sign_reversal": bool, "heterogeneity_detected": bool,
+                 "warnings": [str, ...]}
+
+      sign_reversal=True means at least one subgroup's ATT point estimate
+      has the opposite sign from the pooled ATT — the strongest, most
+      actionable form of heterogeneity. heterogeneity_detected=True means
+      at least one subgroup's 95% CI doesn't overlap the pooled estimate's
+      95% CI (real statistical evidence the effect differs by segment, not
+      just a milder form of "the numbers aren't identical").
+    """
+    if df is None or df.empty:
+        return {"ok": False, "error": "No data to analyze."}
+    if subgroup_col not in df.columns:
+        return {"ok": False, "error": f"Subgroup column '{subgroup_col}' not found in the dataset."}
+
+    pooled = estimate_causal_effect(
+        df, treatment_col, treated_value, outcome_col,
+        covariates=covariates, column_types=column_types, caliper=caliper,
+        n_bootstrap=n_bootstrap, random_state=random_state, min_group_size=min_group_size,
+    )
+    if not pooled["ok"]:
+        return {"ok": False, "error": pooled["error"]}
+    # Reuse whichever covariates the pooled run actually settled on (handles
+    # the covariates=None / column_types auto-selection path) so every
+    # subgroup is matched on the identical covariate set as the pooled run.
+    covariates = pooled["covariates"]
+
+    levels = sorted(df[subgroup_col].dropna().unique().tolist(), key=str)
+    subgroups = []
+    for level in levels:
+        sub_df = df[df[subgroup_col] == level]
+        sub_result = estimate_causal_effect(
+            sub_df, treatment_col, treated_value, outcome_col,
+            covariates=covariates, caliper=caliper, n_bootstrap=n_bootstrap,
+            random_state=random_state, min_group_size=min_group_size,
+        )
+        sub_result["level"] = level
+        subgroups.append(sub_result)
+
+    usable = [s for s in subgroups if s["ok"]]
+    warnings = []
+    skipped = [s["level"] for s in subgroups if not s["ok"]]
+    if skipped:
+        warnings.append(
+            f"{len(skipped)} subgroup(s) couldn't support their own estimate (too few units or no "
+            f"match found): {', '.join(str(l) for l in skipped)}."
+        )
+
+    if len(usable) < 2:
+        warnings.append("Not enough subgroups with a usable estimate to compare heterogeneity.")
+        return {
+            "ok": True,
+            "pooled": pooled,
+            "subgroup_col": subgroup_col,
+            "subgroups": subgroups,
+            "sign_reversal": False,
+            "heterogeneity_detected": False,
+            "warnings": warnings,
+        }
+
+    pooled_sign = np.sign(pooled["att"])
+    sign_reversal = any(np.sign(s["att"]) != 0 and np.sign(s["att"]) != pooled_sign for s in usable if pooled_sign != 0)
+    heterogeneity_detected = sign_reversal or any(
+        s["ci_high"] < pooled["ci_low"] or s["ci_low"] > pooled["ci_high"] for s in usable
+    )
+
+    return {
+        "ok": True,
+        "pooled": pooled,
+        "subgroup_col": subgroup_col,
+        "subgroups": subgroups,
+        "sign_reversal": sign_reversal,
+        "heterogeneity_detected": heterogeneity_detected,
+        "warnings": warnings,
+    }
+
+
+def narrate_cate_heterogeneity(model, result: dict) -> tuple[str, Optional[str]]:
+    """Ask Gemini to explain one estimate_cate_by_subgroup() result in plain
+    English. Returns (narration, error) — never raises. Same caching
+    convention as narrate_causal_effect: callers should cache the result
+    rather than re-calling this on every rerun.
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+    if not result.get("ok"):
+        return "", "No result to narrate."
+
+    from modules.ai_analyst import call_gemini
+
+    usable = [s for s in result["subgroups"] if s["ok"]]
+    lines = [f"  - {s['level']}: ATT {s['att']:.3g}, 95% CI [{s['ci_low']:.3g}, {s['ci_high']:.3g}]" for s in usable]
+    pooled = result["pooled"]
+    prompt = (
+        f"A causal analysis estimated the pooled effect of '{pooled['treatment_col']} = {pooled['treated_value']}' "
+        f"on '{pooled['outcome_col']}' as ATT {pooled['att']:.3g} (95% CI [{pooled['ci_low']:.3g}, {pooled['ci_high']:.3g}]), "
+        f"then re-estimated it separately within each level of '{result['subgroup_col']}':\n" + "\n".join(lines) +
+        f"\nSign reversal across subgroups: {result['sign_reversal']}. "
+        f"Statistically meaningful heterogeneity (non-overlapping CIs): {result['heterogeneity_detected']}.\n\n"
+        "In 2-4 plain-English sentences for a non-technical stakeholder, explain whether the effect is "
+        "consistent across these subgroups or varies meaningfully, and what that implies for a rollout "
+        "decision (e.g. targeting vs. a blanket rollout). Do not repeat every raw number verbatim."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
+
+
 def narrate_causal_effect(model, result: dict) -> tuple[str, Optional[str]]:
     """Ask Gemini to explain one estimate_causal_effect() result in plain
     English. Returns (narration, error) — never raises. Callers should cache
