@@ -2,6 +2,27 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10
+
+### Added
+- **Ensemble Anomaly Detection** (`modules/anomaly.py`) — the Overview tab's
+  anomaly scan now runs three independent detectors instead of one:
+  IsolationForest (existing), Local Outlier Factor (catches local-density
+  anomalies a global detector like IsolationForest can miss), and DBSCAN
+  (density-based, no contamination-rate assumption at all — eps picked via
+  a k-distance-elbow heuristic). Flagged rows are ranked by how many of the
+  three agree (`agreement_count`, 0–3), which is a far stronger signal than
+  any single method's raw output. The Overview UI shows a per-method +
+  high-confidence metric row, and a "Narrate Anomalies" button asks Gemini
+  to summarize the pattern in plain English (reusing the app's shared
+  rate-limit/quota/auth handling — no new failure modes). Serves this
+  cycle's agentic-AI priority theme (anomaly narration). 12 new unit tests
+  (28 total in the module).
+
+### Fixed
+- Truncated "High-Confidence" metric label in the new Anomaly Detection
+  panel.
+
 ## 2026-08-07
 
 ### Added

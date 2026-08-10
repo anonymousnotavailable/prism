@@ -177,3 +177,139 @@ breakpoint is closer to ~640-768px than a true phone width today.
 `feature/regression-diagnostics`, `feature/stl-decomposition`) built, tested
 (82/82 new unit tests green across the three modules, no regressions in the
 existing autocleaner eval), merged to `main` in sequence, pushed.
+
+---
+
+## 2026-08-10 — Run 3
+
+**Orientation:** read this log + `CHANGELOG.md` + repo structure before
+touching anything. A `git fetch origin main` early on showed `origin/main`
+at an older commit (`dd20c29`, pre-dating this session's designated branch)
+than the branch's own local history — looked like a real divergence
+(`origin/main` was missing `auto_insights.py`, `insight_verifier.py`,
+`regression_diagnostics.py` entirely). A second fetch minutes later showed
+`origin/main` had caught up to exactly the branch tip — a concurrent
+process pushed in between the two fetches. **Not a real divergence, just a
+stale-cache scare** — logging it so a future run that sees the same
+transient mismatch doesn't panic and attempt an unnecessary reconciliation
+merge. Also confirmed via `mcp__github__list_pull_requests` that no PR has
+ever been opened for this session's designated branch — prior runs'
+"merged to main and pushed" claims check out against the real remote.
+
+**Audit:** skipped a full from-scratch UI walkthrough (Runs 1–2 already
+covered breadth; `.prism/audit_2026-08-07*.md` still applies) and instead
+targeted the open backlog items from Run 2's notes to see which were still
+real. Findings:
+- "Data Quality Score with Exportable Scorecard" — **already fully shipped**,
+  just not under that name: `data_engine.get_health_breakdown()` +
+  `report.py`/`report_writer.py` (HTML+PDF export with executive summary)
+  cover it end to end. Removed from backlog below — don't re-propose this.
+- "Cross-Column Correlation Intelligence" — still genuinely partial
+  (auto-insights correlation pairs + regression-diagnostics VIF, no
+  standalone view). Still open.
+- Advanced Outlier Detection (LOF/DBSCAN) and Feature Selection Engine —
+  confirmed neither exists yet (`grep` for `LocalOutlierFactor`, `DBSCAN`,
+  `mutual_info`, `RFE` across `modules/` came up empty before this run).
+  Picked the anomaly-detection one (see below).
+- The mobile Atlas-panel overlay bug Run 2 flagged (squished/unreadable
+  main content at ~390px) is **still present and worse than described** —
+  see "Also investigated" below for a full re-diagnosis.
+- `google-generativeai` is now **fully deprecated** (not just "not urgent"
+  — pytest now prints a `FutureWarning` on every run: "All support... has
+  ended"). Still not touched this run (architecture-adjacent per the
+  routine's own no-rewrites guardrail, deserves a dedicated pass), but the
+  urgency has gone up a notch since Run 2 logged it.
+
+**Research:** two targeted web searches rather than a full four-source
+sweep (this run's time budget went into the repo-state investigation
+above instead). Confirmed via search that (1) automated data-quality
+scorecards (Great Expectations, ydata-profiling) are the current
+open-source EDA standard — validated that the already-shipped report
+export covers this ground, and (2) 2026 data-analyst hiring guidance
+still rates "data quality war story" and portfolio depth over
+certifications, which supports investing in test coverage + narration
+quality over new surface area.
+
+**Selected feature (1, this run — see rationale below):**
+1. **Ensemble Anomaly Detection** (`modules/anomaly.py`) — extends the
+   existing single-method (IsolationForest) Overview scan into a 3-detector
+   ensemble (+ Local Outlier Factor, + DBSCAN with a k-distance eps
+   heuristic), ranks flagged rows by cross-method agreement, and adds a
+   Gemini "Narrate Anomalies" pass. Serves this cycle's required agentic-AI
+   theme via the "anomaly narration" item specifically. 12 new unit tests.
+
+**Why only one feature this run, against the routine's "2–3" guidance:**
+the git-history investigation above and the mobile-bug re-diagnosis (below)
+consumed real time that would otherwise have gone to a second/third
+feature. One well-tested, fully-verified feature was judged better than a
+third rushed one — consistent with the routine's own "conservative where
+damage is possible" instruction. Next run should be able to skip both time
+sinks (this log now has the answer to each) and ship the full 2–3.
+
+**Also fixed alongside the feature (small, audit-sourced):** a truncated
+"High-Confidence" metric label (was "High-confidence (2+/3)", too long for
+its column).
+
+**Also investigated, NOT shipped — mobile Atlas-panel bug (Phase 6 failure
+protocol):** attempted a fix for the mobile-overlay bug Run 2 flagged.
+Root-caused the overlay itself to `.st-key-atlas_side_panel`'s
+`position: fixed; width: 328px` in `modules/theme.py` (no responsive
+breakpoint at all) and added a `@media (max-width: 900px)` rule to make it
+flow inline below the main content instead of covering it. Screenshot
+verification then revealed this only unmasks a **second, separate,
+pre-existing bug**: at ≤390px, `stMainBlockContainer`'s own block children
+collapse to ~22–32px wide (confirmed via `getBoundingClientRect()` on the
+live DOM — not a guess), independent of the Atlas panel entirely. The
+fixed-position overlay was accidentally *hiding* this deeper collapse, not
+causing it. Fixing the overlay alone would ship a "different kind of
+broken" mobile experience, not a working one, so **the CSS change was
+reverted** (`git checkout -- modules/theme.py`) rather than merged
+half-working. **For the next run that picks this up:** the real fix needs
+both (a) the responsive Atlas-panel rule above and (b) finding why
+`stMainBlockContainer`'s block/flex children shrink to fit-content width
+instead of filling it on narrow viewports — likely a Streamlit
+emotion-cache flex-sizing interaction, not a simple CSS override. Budget a
+dedicated run for this; it's now diagnosed enough to start straight into a
+fix instead of re-discovering the overlay as the only symptom.
+
+**Verification:** 39/39 tests green (27 baseline + 12 new), no regressions.
+Desktop dark + light screenshots of the Overview tab's new panel (Stocks
+sample dataset — 40 rows flagged, 13 high-confidence) reviewed for
+contrast/overflow/glass consistency — both clean. Mobile screenshot not
+captured for this feature specifically (blocked by the pre-existing bug
+above, same limitation Run 2 hit with Regression Diagnostics); correctness
+rests on the unit tests instead, per that same precedent.
+
+**Ship note — branch, not `main`:** this run's harness-level git
+instructions pinned all commits and the final push to the session's
+designated branch (`claude/adoring-meitner-<id>`), not `main` directly,
+overriding this routine's own Phase 7 instructions. Feature branch was
+still merged locally (`--no-ff`) exactly as Phase 7 describes — only the
+very last step (push target) differs from Runs 1–2. **The branch as pushed
+is not yet on `main`** and needs a manual merge/PR from here. Flagging
+explicitly so the next run doesn't assume this run's commit is already
+live on `main` the way Runs 1–2's were.
+
+**Not built (backlog for future runs, updated):**
+- Cross-Column Correlation Intelligence & Multicollinearity Detection —
+  still partial, still no standalone view (see Audit above).
+- Feature Selection Engine (mutual info, RFE, L1) for ML Lab — confirmed
+  not yet built.
+- Mobile Atlas-panel layout (two-part bug — overlay + main-content
+  collapse) — see "Also investigated" above for the full diagnosis and
+  what's still needed.
+- `google-generativeai` → `google-genai` migration — now fully deprecated
+  upstream, not just "will be." Still architecture-adjacent/out of scope
+  per-run, but should be the next dedicated-run candidate given the
+  upstream urgency change.
+- Polars/DuckDB large-file path — Run 1/2 item. Partially addressed by a
+  separate (non-routine) branch that upgraded SQL Lab to a full DuckDB
+  workbench — re-check `modules/sql_lab.py`'s scope before re-proposing
+  this from scratch.
+- Atlas Proactive Insights (JARVIS copilot track) — a separate (non-routine)
+  branch already shipped Atlas persona + voice + neuron-background styling;
+  "proactive insights without being asked" specifically still doesn't
+  exist. Still eligible as next run's one copilot-track pick.
+- Natural Language Summary of Every Tab.
+- ~~Data Quality Score with Exportable Scorecard~~ — **removed**, already
+  shipped (see Audit above).
