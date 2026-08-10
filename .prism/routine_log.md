@@ -642,3 +642,31 @@ post-load cleaning operations, worth re-checking once a genuinely huge
 500MB+ file is tested), light-theme repaint-lag precise-repro (documented
 above, not attempted — cosmetic/timing-only, three prior sessions already
 invested).
+
+---
+
+## 2026-08-10 — Run 9 (seventh independent session, same day)
+
+**Orientation:** local checkout was stale (behind by 49 commits); fast-
+forwarded to `origin/main` tip (`77e1d9d`, Run 8) before any work started.
+Reused Run 8's standing research/backlog rather than re-running a full
+four-source-class web sweep, per this cycle's "use fewer tokens"
+directive — see `.prism/research_2026-08-10-run9.md`.
+
+**Selected feature (1, scope narrowed for token efficiency):** Agentic
+Insight Orchestrator (`modules/insight_orchestrator.py`) — Prism has
+seven standalone detector modules (auto_insights, anomaly, confounder,
+causal ATT/CATE, drift, insight_verifier) that each render independently
+with no cross-detector synthesis. This adds an orchestration layer that
+runs after the individual detectors, collects their structured findings,
+flags cross-detector agreement/contradiction (e.g. a confounder warning
+and a causal ATT on the same variable pair), de-duplicates overlapping
+claims, and severity-ranks the result into one "What matters most" panel.
+Satisfies this cycle's mandatory agentic-AI-analysis theme via genuine
+multi-agent orchestration (planner/executor/critic pattern) rather than
+a single new detector. Selection reasoning and rejected alternatives
+(PyGWalker chart builder, DuckDB Auto Cleaner follow-on — both deferred,
+not agentic-themed) logged in the research file above.
+
+**Status:** build in progress — see the follow-up log entry / RUN_REPORT
+for outcome, test counts, and screenshots.
