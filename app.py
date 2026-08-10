@@ -29,6 +29,7 @@ from modules import (
     auto_analyst,
     auto_insights,
     autocleaner,
+    causal_inference,
     cleaning,
     clustering,
     confounder_detection,
@@ -93,6 +94,8 @@ _DEFAULTS = {
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
     "confounder_scan": None,  # confounder_detection.auto_scan_for_confounding() result (run on upload)
     "confounder_narrations": {},  # (x, y, confounder) -> cached Gemini narration text, avoids re-spending a call per rerun
+    "causal_result": None,  # last causal_inference.estimate_causal_effect() result dict (kept across reruns so the panel doesn't collapse)
+    "causal_narration": None,  # cached Gemini narration of causal_result, avoids re-spending a call per rerun
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -324,6 +327,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_insights_narration = None
     st.session_state.confounder_scan = confounder_detection.auto_scan_for_confounding(working_df, st.session_state.column_types)
     st.session_state.confounder_narrations = {}
+    st.session_state.causal_result = None
+    st.session_state.causal_narration = None
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
@@ -1573,6 +1578,93 @@ elif st.session_state.active_section == "Overview":
                             else:
                                 st.session_state.confounder_narrations[cache_key] = narration
                                 st.rerun()
+
+    # ------------------------------------------------------------------
+    # Causal Effect Estimator — the next agentic step after Confounder
+    # Check: that panel diagnoses "this correlation might be confounded";
+    # this one treats it, via propensity score matching (see
+    # modules/causal_inference.py). Only rendered when the dataset has at
+    # least one binary column to treat as "treatment" and enough numeric
+    # columns to serve as an outcome plus covariates — otherwise there's
+    # nothing meaningful to offer, same "stay silent rather than force it"
+    # convention as Confounder Check and Auto-Insights.
+    # ------------------------------------------------------------------
+    _causal_binary_cols = [
+        c for c, t in st.session_state.column_types.items()
+        if t in ("categorical", "text", "boolean") and c in working_df.columns and working_df[c].nunique(dropna=True) == 2
+    ]
+    _causal_numeric_cols = [c for c, t in st.session_state.column_types.items() if t == "numeric" and c in working_df.columns]
+    if _causal_binary_cols and len(_causal_numeric_cols) >= 2:
+        with st.container(border=True):
+            st.markdown("#### 🔬 Causal Effect Estimator")
+            st.caption(
+                "A correlation says two things move together. This estimates what actually happens to the "
+                "outcome *because of* the treatment — matching each treated row to its most similar untreated "
+                "row (propensity score matching) before comparing outcomes, so the estimate isn't just picking "
+                "up a confound."
+            )
+            c1, c2, c3 = st.columns(3)
+            treatment_col = c1.selectbox("Treatment column", _causal_binary_cols, key="causal_treatment_col")
+            treated_options = sorted(working_df[treatment_col].dropna().unique().tolist(), key=str)
+            treated_value = c2.selectbox("Treated = ", treated_options, key="causal_treated_value")
+            outcome_options = [c for c in _causal_numeric_cols if c != treatment_col]
+            outcome_col = c3.selectbox("Outcome column", outcome_options, key="causal_outcome_col")
+            default_covariates = [c for c in outcome_options if c != outcome_col]
+            covariates = st.multiselect(
+                "Adjust for (covariates)", default_covariates, default=default_covariates, key="causal_covariates"
+            )
+
+            if st.button("Estimate causal effect", key="causal_estimate_btn"):
+                if not covariates:
+                    st.session_state.causal_result = {"ok": False, "error": "Pick at least one covariate to adjust for."}
+                else:
+                    with st.spinner("Matching treated and control units…"):
+                        st.session_state.causal_result = causal_inference.estimate_causal_effect(
+                            working_df, treatment_col, treated_value, outcome_col, covariates=covariates
+                        )
+                st.session_state.causal_narration = None
+
+            result = st.session_state.causal_result
+            if result is not None:
+                if not result["ok"]:
+                    st.warning(result["error"])
+                else:
+                    m1, m2 = st.columns(2)
+                    m1.metric(
+                        f"ATT on {result['outcome_col']}",
+                        f"{result['att']:.3g}",
+                        help="Average Treatment effect on the Treated — the mean outcome difference within matched pairs.",
+                    )
+                    m2.metric("Match rate", f"{result['match_rate']:.0%}")
+                    st.caption(
+                        f"95% CI: [{result['ci_low']:.3g}, {result['ci_high']:.3g}]  •  "
+                        f"Matched pairs: {result['n_matched']} of {result['n_treated']} treated units"
+                    )
+
+                    for w in result["warnings"]:
+                        st.warning(w)
+
+                    balance_df = pd.DataFrame(
+                        {
+                            "covariate": [b["covariate"] for b in result["balance_before"]],
+                            "SMD before matching": [b["smd"] for b in result["balance_before"]],
+                            "SMD after matching": [b["smd"] for b in result["balance_after"]],
+                        }
+                    )
+                    st.caption("Covariate balance — |SMD| under 0.1 is conventionally considered well-matched.")
+                    st.dataframe(balance_df, use_container_width=True, hide_index=True)
+
+                    if st.session_state.causal_narration:
+                        st.info(st.session_state.causal_narration)
+                    elif st.button("✨ Explain this", key="causal_narrate_btn"):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is interpreting this…"):
+                            narration, narr_error = causal_inference.narrate_causal_effect(model, result)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.causal_narration = narration
+                            st.rerun()
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
