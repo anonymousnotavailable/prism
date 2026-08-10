@@ -31,6 +31,7 @@ from modules import (
     autocleaner,
     cleaning,
     clustering,
+    confounder_detection,
     dashboard_builder,
     data_dictionary,
     data_engine,
@@ -90,6 +91,8 @@ _DEFAULTS = {
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
     "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
+    "confounder_scan": None,  # confounder_detection.auto_scan_for_confounding() result (run on upload)
+    "confounder_narrations": {},  # (x, y, confounder) -> cached Gemini narration text, avoids re-spending a call per rerun
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -319,6 +322,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.data_dictionary_rows = None
     st.session_state.auto_insights = auto_insights.generate_insights(working_df, st.session_state.column_types)
     st.session_state.auto_insights_narration = None
+    st.session_state.confounder_scan = confounder_detection.auto_scan_for_confounding(working_df, st.session_state.column_types)
+    st.session_state.confounder_narrations = {}
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
@@ -1521,6 +1526,53 @@ elif st.session_state.active_section == "Overview":
                 icon = auto_insights.severity_icon(ins["severity"])
                 cat = auto_insights.category_label(ins["category"])
                 st.markdown(f"{icon} **{cat}** — {ins['message']}")
+
+    # ------------------------------------------------------------------
+    # Confounder Check — the agentic follow-up to a strong correlation:
+    # "...but does it hold up once you control for a third variable?" Runs
+    # automatically alongside Auto-Insights (deterministic, no Gemini call
+    # for detection itself — see modules/confounder_detection.py), only
+    # renders when it actually found something worth a second look.
+    # ------------------------------------------------------------------
+    if st.session_state.confounder_scan:
+        with st.container(border=True):
+            n_pairs = len(st.session_state.confounder_scan)
+            st.markdown(f"#### 🧭 Confounder Check  •  {n_pairs} correlation{'s' if n_pairs != 1 else ''} worth a second look")
+            st.caption("A strong correlation can flip sign or vanish once you control for a third variable (Simpson's Paradox). These held up worse than they looked at first glance.")
+            for scan in st.session_state.confounder_scan:
+                x_col, y_col = scan["x"], scan["y"]
+                for finding in scan["findings"]:
+                    verdict = finding["verdict"]
+                    badge = "🔴 Paradox" if verdict == "paradox" else "🟡 Confounded"
+                    label = (
+                        f"{badge} — **{x_col}** vs **{y_col}**, controlling for **{finding['confounder']}**"
+                    )
+                    with st.expander(label, expanded=False):
+                        st.caption(
+                            f"Pooled correlation: r = {finding['overall_r']:.2f}  •  "
+                            f"Adjusted: r = {finding['adjusted_r']:.2f}"
+                        )
+                        if finding["type"] == "categorical":
+                            group_df = pd.DataFrame(finding["detail"])[["group", "r", "n"]]
+                            group_df.columns = [finding["confounder"], "r within group", "n"]
+                            st.dataframe(group_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.caption(f"n = {finding['detail']['n']}")
+                        cache_key = (x_col, y_col, finding["confounder"])
+                        cached = st.session_state.confounder_narrations.get(cache_key)
+                        if cached:
+                            st.info(cached)
+                        elif st.button("✨ Explain this", key=f"confounder_narrate_{x_col}_{y_col}_{finding['confounder']}"):
+                            model = ai_analyst.get_model()
+                            with st.spinner("Gemini is interpreting this…"):
+                                narration, narr_error = confounder_detection.narrate_confounder_finding(
+                                    model, x_col, y_col, finding
+                                )
+                            if narr_error:
+                                st.warning(narr_error)
+                            else:
+                                st.session_state.confounder_narrations[cache_key] = narration
+                                st.rerun()
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
