@@ -9,6 +9,12 @@ from typing import Optional
 
 import pandas as pd
 
+# Cap how many individual row reasons go into the Gemini prompt — a wide
+# anomaly set (hundreds of flagged rows) would otherwise blow up the request
+# for no narration benefit; the model only needs enough examples to spot
+# the pattern, not the full list.
+_MAX_ROWS_IN_NARRATION_PROMPT = 15
+
 try:
     from sklearn.ensemble import IsolationForest
 except ImportError:  # the app should still load even if the package isn't installed yet
@@ -84,3 +90,58 @@ def find_anomalies(
         _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
     ]
     return flagged, None
+
+
+def format_anomalies_text(flagged: pd.DataFrame, total_rows: int) -> str:
+    """Render flagged anomaly rows as a compact text block for Gemini
+    narration input — count, share of the dataset, and each row's reason
+    (capped, see _MAX_ROWS_IN_NARRATION_PROMPT). Never includes raw cell
+    values, only the already-computed plain-English reason string, so no
+    extra PII surface is opened up beyond what find_anomalies already returns.
+    """
+    if flagged.empty:
+        return "No anomalies were flagged."
+    pct = len(flagged) / total_rows * 100 if total_rows else 0.0
+    lines = [f"{len(flagged)} of {total_rows} rows flagged as anomalous ({pct:.1f}%)."]
+    for i, reason in enumerate(flagged["anomaly_reason"].head(_MAX_ROWS_IN_NARRATION_PROMPT), 1):
+        lines.append(f"{i}. {reason}")
+    remaining = len(flagged) - _MAX_ROWS_IN_NARRATION_PROMPT
+    if remaining > 0:
+        lines.append(f"...and {remaining} more row(s) with similar flags.")
+    return "\n".join(lines)
+
+
+_NARRATION_PROMPT = (
+    "You are a senior data analyst. An automated anomaly detector (IsolationForest) "
+    "just flagged some rows in a dataset as statistical outliers. Below is a summary of "
+    "what it found. Write a 2-4 sentence plain-English narration for a non-technical "
+    "stakeholder: what pattern the flagged rows share (if any), how concerning it looks, "
+    "and one concrete suggested next action (e.g. investigate a specific column, exclude "
+    "the rows, or treat it as expected). Do not invent numbers not given below.\n\n"
+    "{findings_text}"
+)
+
+
+def narrate_anomalies(model, flagged: pd.DataFrame, total_rows: int) -> tuple[str, Optional[str]]:
+    """Ask Gemini to narrate the flagged anomaly rows in plain English with a
+    suggested next action — the agentic-EDA layer on top of find_anomalies()'s
+    deterministic detection.
+
+    Returns (narration, error). Never calls Gemini when there's nothing to
+    narrate (empty flagged set) or when no model is available — both are
+    handled with a deterministic message instead, same fallback shape as
+    modules.auto_insights.narrate_insights().
+    """
+    if flagged.empty:
+        return "No anomalies were flagged — this dataset looks clean.", None
+    if model is None:
+        return "", "No Gemini model available for narration."
+
+    from modules.ai_analyst import call_gemini
+
+    findings_text = format_anomalies_text(flagged, total_rows)
+    prompt = _NARRATION_PROMPT.format(findings_text=findings_text)
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
