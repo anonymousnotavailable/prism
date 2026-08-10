@@ -367,8 +367,8 @@ def _contradiction_for_causal_claim(causal_claim: Claim, all_claims: list) -> Op
         verb = "reverses" if fc.kind.endswith("paradox") else "weakens"
         return (
             f"Check this: the causal estimate for '{outcome}' doesn't adjust for "
-            f"'{confounder_col}', which Confounder Check found {verb} '{outcome}'’s "
-            f"relationship with '{other}'."
+            f"'{confounder_col}', which Confounder Check found {verb} the relationship "
+            f"between '{outcome}' and '{other}'."
         )
     return None
 
