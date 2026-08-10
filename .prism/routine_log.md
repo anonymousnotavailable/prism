@@ -269,3 +269,129 @@ dedicated run), `google-generativeai` → `google-genai` migration (still
 needs a dedicated run), mobile Atlas panel overlap at ~390px (still open —
 reconfirmed present in this run's own mobile screenshot), light-theme
 dataframe styling on Overview (new finding above).
+
+---
+
+## 2026-08-10 — Run 4
+
+**Orientation:** read this file plus `CHANGELOG.md`. Confirmed via
+`get_health_breakdown`/`render_health_ring` in `modules/data_engine.py`
+that a "Data Quality Score" already ships (0-100, 5 weighted components) —
+crossed it off the candidate list before writing any code so it wasn't
+rebuilt under a different name. Also confirmed `suggest_followup_hypothesis`
+(hypothesis suggestion) already ships from Run 1, not orphaned as one
+might guess from the test file alone.
+
+**Important operational note for the next run:** at session start, the
+designated branch `claude/adoring-meitner-a28q0n` existed both locally and
+on origin. Partway through this run, `git fetch origin claude/adoring-
+meitner-a28q0n` started failing with "couldn't find remote ref" — the
+branch had been deleted from origin mid-session (direct-pushed into
+`main` and cleaned up, per this repo's actual convention — pushes here go
+through PRs merged into `main`, not the routine's literal "push main
+directly" instruction). `origin/main`'s tip turned out to be an exact
+match for this branch's pre-this-run tip. Recovered by recreating
+`claude/adoring-meitner-a28q0n` from fresh `origin/main` and cherry-
+picking this run's one work commit onto it — no work lost, verified via
+`git merge-base --is-ancestor` before trusting either ref. **If a future
+run's designated branch is ever missing from origin mid-session, this is
+recoverable, not a corruption — fetch the default branch fresh, diff it
+against the local designated-branch tip, and reapply only the genuinely
+new commits, exactly as done here.**
+
+**Selected features (1 feature + 1 bundled bug fix, deliberately smaller
+than the routine's usual 2-3 — see reasoning below):**
+1. **ML Lab Feature Selection Engine** (`modules/feature_selection.py`) —
+   mutual-information ranking + correlation-redundancy + VIF
+   multicollinearity flagging against a chosen target, wired into ML Lab
+   with a "Use recommended features" handoff and cached Gemini narration.
+   Chose this over the alternative candidate (LOF/DBSCAN ensemble outlier
+   detection) because it's a genuinely new capability (existing anomaly
+   detection answers "which rows are wrong"; this answers "which columns
+   matter") rather than an extension of something that already ships, and
+   VIF-based multicollinearity is a stronger, less-commonly-implemented
+   interview signal than a second outlier-detection algorithm layered on
+   the first. Does not itself serve the mandatory agentic-AI theme through
+   auto-EDA, but does through its optional AI-narrated rationale (same
+   cached-narration pattern the theme's prior features established) —
+   logged here explicitly since it's a lighter agentic touch than some
+   past runs' picks.
+2. **Bundled small fix**: `st.dataframe()` tables stay dark-themed in
+   Light mode (flagged in `.prism/audit_2026-08-10.md` by Run 3). Fixed
+   with a themed HTML-table helper (`modules/ui.py`); applied to both the
+   flagged Overview tables and this run's new ranking table.
+
+**Why only one feature this run, not 2-3:** by orientation time this was
+already the 4th run against this repo today; building a second full
+feature (the LOF/DBSCAN candidate) inside the same run without cutting
+corners on its own tests/UI wiring/Phase 5 verification would have meant
+rushing one of the two — chose one feature done properly plus the branch-
+recovery incident above (which cost real time) over two done quickly.
+LOF/DBSCAN ensemble outlier detection carried forward as the top backlog
+pick for the next run.
+
+**Bug found and fixed during Phase 5 verification (not in the original
+selection):** `feature_selection.fingerprint_ranking()` and
+`narrate_selection()` built row text via `ranking.itertuples()` then
+indexed rows with `r['MI Score']` — itertuples renames non-identifier
+column names (ones containing spaces) to positional fields, so this raised
+`TypeError: tuple indices must be integers or slices, not str` the first
+time "Rank Features" was actually clicked in the running app (caught via
+the Playwright screenshot, not by the original unit tests — those only
+exercised the empty-ranking and no-model early-return paths). Fixed by
+switching both to `ranking.to_dict("records")`; added two regression
+tests using a realistic ranking shape (including a mocked `call_gemini`)
+so this class of bug can't silently return. Take-away logged here since
+it applies broadly: **a helper's own unit tests can all pass while still
+missing the exact code path Phase 5's live-app click exercises — itertuples
++ bracket-indexing on a real dataframe is a trap worth grep-checking for
+elsewhere in the codebase in a future audit.**
+
+**New finding, not fixed this run (backlog, escalated in severity):** the
+mobile Atlas panel overlap flagged by two prior runs as "needs a focused
+CSS reflow pass" is worse than previously described — at 390px width the
+Atlas side panel doesn't just overlap content, it's fixed/sticky and
+squeezes the entire main content column to roughly 30px wide, making the
+nav bar (and therefore every tab past Overview) unreachable on mobile
+without first collapsing or scrolling past the panel. Screenshot:
+`.prism/runs/2026-08-10-run4/05_overview_tables_mobile_dark.png`. This
+should be the next run's top priority — it currently blocks mobile PWA
+usability entirely, not just a visual nit.
+
+**New finding, not fixed this run (backlog):** the "Ask Atlas about your
+data…" chat input bar at the bottom of the page keeps a black background
+in Light theme (visible in
+`.prism/runs/2026-08-10-run4/03_overview_tables_desktop_light.png` and
+`04_feature_selection_desktop_light.png`) — likely the same canvas/fixed-
+theme-source class of bug as the dataframe fix above, but in a different
+component; out of scope for this run.
+
+**New finding, not fixed this run (backlog):** ML Lab's "Class
+Distribution" chart (Plotly) keeps a dark background in Light theme —
+Plotly's template is set once at import time in `modules/visualization.py`
+and doesn't re-apply on the runtime theme toggle. Broader than just this
+chart; worth a dedicated pass across every Plotly chart in the app, not a
+one-off fix.
+
+**Outcome:** one feature branch (`feature/feature-selection-engine`,
+cherry-picked onto the recreated designated branch after the origin
+branch-deletion incident above) built, tested (100/100 pytest green, 16
+new tests), verified via Playwright screenshots at desktop dark/light
+(both changes) and mobile dark (Overview fix only — ML Lab unreachable on
+mobile due to the escalated Atlas-panel finding above, not a regression
+from this run's own change). Fresh-clone boot check passed (HTTP 200, no
+traceback) before and after this run's changes. Per this session's fixed
+branch policy, pushed to `claude/adoring-meitner-a28q0n` and opened a PR
+into `main` rather than pushing `main` directly — see PR link in this
+run's `RUN_REPORT_2026-08-10.md` addendum.
+
+**Not built (backlog for next run, priority order):** mobile Atlas panel
+overlap (escalated above — now top priority), Advanced outlier detection
+ensemble (LOF/DBSCAN alongside IsolationForest — this run's runner-up
+pick), light-theme chat-input black background (new), Plotly chart
+light-theme background (new), Data Dictionary/Feature-Selection-style
+narration reuse audit (opportunistic — several tabs could share the same
+cached-narration pattern), polars/DuckDB large-file path (still needs a
+dedicated run), `google-generativeai` → `google-genai` migration (still
+needs a dedicated run — the deprecation FutureWarning now fires on every
+single test run).

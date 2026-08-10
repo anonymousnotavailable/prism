@@ -180,3 +180,170 @@ highest depth first:
 4. Consider the polars/DuckDB large-file backend as a **dedicated**
    run (not squeezed alongside feature work) given its architecture-wide
    blast radius — it's the highest-depth item still on the backlog.
+
+---
+
+# Addendum — Run 4 (same day)
+
+A fourth automated pass against this repo, later the same day. One
+feature plus one bundled bug fix, deliberately smaller in scope than the
+routine's usual 2-3 features — see reasoning below and in
+`.prism/routine_log.md`'s Run 4 entry.
+
+## 1. What shipped
+
+### ML Lab Feature Selection Engine
+
+**What it does:** A new "Feature Selection Engine" section in ML Lab,
+between the existing Feature Engineering Assistant and Baseline Model
+Runner. Pick a target, click "Rank Features", and every other column gets
+scored by mutual information against it (catches non-linear relevance a
+correlation coefficient alone would miss entirely), cross-checked for
+near-duplicate pairs via pairwise correlation, and flagged for
+multicollinearity via VIF (variance inflation factor) — the standard
+statistical diagnostic that catches a feature being a linear combination
+of several others even when it isn't highly correlated with any single
+one (see `tests/test_feature_selection.py::test_flags_high_multicollinearity_via_vif`
+for a worked example a plain correlation check would miss). A "Use
+recommended features" button hands the non-redundant subset straight to
+the Baseline Model Runner's feature multiselect below, and an optional
+"✨ Explain this ranking with AI" button gets a cached Gemini narration of
+the result (same fingerprint-caching pattern as anomaly narration — no
+repeat Gemini calls on re-view).
+
+**Why chosen:** ML Lab's existing Feature Engineering Assistant answers
+"how should I treat each feature" (encode/scale/expand); nothing in the
+app answered the earlier question, "which features are actually worth
+keeping." Runner-up candidate was an LOF/DBSCAN outlier-detection
+ensemble layered onto the existing IsolationForest anomaly detector —
+rejected in favor of this because it's a genuinely new analytical
+capability rather than a second algorithm answering a question Prism
+already answers; carried forward as next run's top feature-backlog pick.
+
+**Technical-depth argument:** Mutual information (not correlation) as the
+primary relevance signal, VIF as the multicollinearity diagnostic, and
+correlation-based redundancy pruning are all standard feature-selection
+tooling straight out of a data scientist's actual pre-modeling workflow —
+exactly what a hiring panel would expect someone to reach for before
+training a model, not just a nice-to-have UI addition. 16 new tests,
+including one that specifically demonstrates VIF catching a
+multicollinear feature that pairwise correlation alone misses.
+
+### Bundled small fix: light-theme dataframe styling
+
+**What it does:** Overview's "Missing Values by Column" and "Outliers
+(IQR method)" tables — plus this run's new Feature Selection ranking
+table — now render via a new `ui.render_html_table()` helper instead of
+`st.dataframe()`, so they correctly re-theme when the user switches to
+Light mode.
+
+**Why chosen:** Flagged as an open finding in the previous run's own
+audit (`.prism/audit_2026-08-10.md`); root-caused this run: `st.dataframe()`
+renders through a canvas-based grid (glide-data-grid) that only reads
+`.streamlit/config.toml`'s static `base = "dark"` setting — Prism's
+runtime light/dark toggle just injects CSS on top of the DOM, which a
+canvas grid never sees. A plain HTML table styled with the app's own
+`--prism-*` CSS custom properties sidesteps the problem entirely for
+tables small enough not to need native sort/resize.
+
+## 2. Bug found and fixed during Phase 5 verification
+
+`feature_selection.fingerprint_ranking()` and `narrate_selection()`
+originally built row text via `ranking.itertuples()` then indexed rows
+with `r['MI Score']` — but `itertuples()` renames non-identifier column
+names (ones containing spaces, like `"MI Score"`) to positional fields, so
+this raised `TypeError: tuple indices must be integers or slices, not str`
+the moment "Rank Features" was actually clicked in the running app. The
+original unit tests all passed regardless, because they only exercised
+the empty-ranking and no-model early-return paths — neither touches the
+buggy line. Caught by the Playwright screenshot in Phase 5 (see
+`02_feature_selection_desktop_dark.png`'s first capture, which showed a
+raw Streamlit traceback instead of the ranking table). Fixed by switching
+both functions to `ranking.to_dict("records")`; added two regression
+tests using a realistic ranking shape (one with a mocked `call_gemini`)
+so this exact class of bug — unit tests all green while the live-app path
+crashes — can't silently return.
+
+## 3. Screenshots
+
+All in `.prism/runs/2026-08-10-run4/`:
+
+- `01_overview_tables_desktop_dark.png` / `02_feature_selection_desktop_dark.png` — desktop, dark theme
+- `03_overview_tables_desktop_light.png` / `04_feature_selection_desktop_light.png` — desktop, light theme (confirms the styling fix — tables are readable light-on-dark-text instead of stuck dark)
+- `05_overview_tables_mobile_dark.png` — mobile, dark theme
+
+**Mobile ML Lab screenshot not obtained** — see the escalated Atlas-panel
+finding below; this is a pre-existing app limitation, not a regression
+introduced by this run's changes.
+
+## 4. New findings (not fixed this run, backlog)
+
+1. **Mobile Atlas panel overlap — escalated.** Two prior runs flagged
+   this as "needs a focused CSS reflow pass." At 390px width it's worse
+   than described: the Atlas side panel is fixed/sticky and squeezes the
+   entire main content column to roughly 30px wide, making the nav bar —
+   and therefore every tab past Overview — unreachable on mobile without
+   first collapsing the panel. This currently blocks mobile PWA usability
+   outright, not just a visual nit. **Recommended as next run's top
+   priority.**
+2. The "Ask Atlas about your data…" chat input bar keeps a black
+   background in Light theme (visible in this run's light-theme
+   screenshots) — likely the same canvas/fixed-theme-source class of bug
+   as the dataframe fix above, in a different component.
+3. ML Lab's "Class Distribution" Plotly chart keeps a dark background in
+   Light theme — `modules/visualization.py` sets the Plotly template once
+   at import time and it doesn't re-apply on the runtime theme toggle.
+   Worth a dedicated pass across every chart in the app, not a one-off.
+
+## 5. Interview notes (STAR-style, verbatim-usable)
+
+**Feature Selection Engine:**
+> "I added a feature-selection step to the ML Lab using mutual information
+> rather than plain correlation, specifically because correlation misses
+> non-linear relationships and can't catch a feature that's a linear
+> combination of several others — for that I added a VIF check, the same
+> multicollinearity diagnostic you'd use in a real modeling workflow. I
+> wrote a test that constructs exactly that case — a feature built as
+> `0.5*a + 0.5*b` — to prove VIF flags it even though it isn't strongly
+> correlated with `a` or `b` individually."
+
+**Bug caught in my own Phase 5 review:**
+> "My unit tests for a new caching function all passed, but they only
+> exercised the early-return paths — empty input, missing model. When I
+> actually clicked the feature in the running app during screenshot
+> verification, it crashed: I'd used `itertuples()` then indexed a column
+> with a space in its name using bracket syntax, which only works on
+> `to_dict('records')`, not positional namedtuples. Rather than just
+> patching the line, I added a regression test using a realistic shape of
+> the actual data so the specific gap in my original tests — passing
+> green while missing the one path that mattered — can't recur silently."
+
+## 6. Operational note: branch-policy recovery
+
+Mid-run, the designated development branch was found deleted from origin
+(its content had already reached `main`, matching this repo's actual
+merge-via-PR convention rather than the routine's generic "push main
+directly" instruction). Recovered by recreating the branch from a fresh
+`origin/main` fetch and cherry-picking this run's one work commit onto
+it — verified via `git merge-base --is-ancestor` before trusting either
+ref, so no work was at risk of being lost or silently discarded. Per this
+session's fixed branch policy (never push to a branch other than the
+designated one), this run's work was pushed to `claude/adoring-meitner-a28q0n`
+and a pull request opened into `main`, rather than pushing `main` directly
+as the routine's Phase 7 literally describes — the two conflict, and the
+stricter, more conservative branch policy was treated as authoritative.
+Full account in `.prism/routine_log.md`'s Run 4 entry, written so a future
+run recognizes this as a recoverable situation rather than a corruption.
+
+## 7. Recommendation for next run
+
+1. **Fix the mobile Atlas panel overlap** — now confirmed to make the app
+   effectively unusable on a real phone below ~400px, not just visually
+   inconsistent. Top priority.
+2. **Advanced outlier detection ensemble (LOF/DBSCAN)** — this run's
+   runner-up candidate, carried forward.
+3. Light-theme fixes for the chat input bar and Plotly chart backgrounds
+   (both new findings above) — likely small, self-contained.
+4. Still open from prior runs: polars/DuckDB large-file backend (dedicated
+   run), `google-generativeai` → `google-genai` migration (dedicated run —
+   the deprecation warning now fires on every single test invocation).
