@@ -547,3 +547,98 @@ modeling as a follow-on to this run's ATT estimator — "does the effect
 vary by subgroup" (new candidate, effort L, depth 5), live-Gemini
 screenshot verification (seventh consecutive run with no API key in the
 sandbox).
+
+---
+
+## 2026-08-10 — Run 8 (sixth independent session, same day)
+
+**Orientation:** `origin/main` at Run 7's tip (`f585a54`). Local `main` in
+this sandbox was stale (several commits behind, pre-dating the SQL Lab
+DuckDB upgrade) — caught and fast-forwarded via `git merge --ff-only
+origin/main` before any branch work started; the feature branches had
+already been correctly based on the real tip via `claude/adoring-meitner-
+pgrsau`, so no work was lost, just a local-checkout staleness issue. Full
+audit in `.prism/audit_2026-08-10-run8.md`, research in
+`.prism/research_2026-08-10-run8.md`. Baseline: 187/187 pytest green.
+
+**Selected work (2 items, both built):**
+1. **CATE by subgroup — heterogeneous treatment effects**
+   (`modules/causal_inference.py`) — this cycle's required agentic-AI-
+   analysis pick, and the direct follow-on to Run 7's pooled ATT
+   estimator: "does the effect actually hold for everyone, or does the
+   pooled number hide a treatment that helps one segment and hurts
+   another?" `estimate_cate_by_subgroup()` reuses `estimate_causal_effect()`
+   per subgroup level rather than duplicating the matching logic, then
+   flags sign reversal (opposite-signed ATT in different subgroups) or
+   non-overlapping-CI heterogeneity against the pooled estimate. New
+   "Does the effect vary by subgroup?" section inside the existing Causal
+   Effect Estimator panel (gated on a 2-10-level categorical column being
+   available), plus a red/green bar chart with CI error bars in
+   `modules/visualization.py`. 8 new tests, including a synthetic-data
+   fixture with an injected opposite-signed effect across two segments
+   (Metro +8, Rural -6, Tier2 +1) verified end-to-end via Playwright — the
+   panel correctly surfaced the "⚠️ Sign reversal detected" callout.
+2. **DuckDB out-of-core ingestion for large CSV uploads**
+   (`modules/data_engine.py`) — closes the polars/DuckDB large-file-path
+   backlog item seven consecutive prior runs flagged as needing a
+   dedicated session, without violating the routine's no-architecture-
+   rewrite guardrail: rather than replacing pandas as the analysis engine,
+   this adds a size-gated (>=15MB) ingestion path where DuckDB's
+   `read_csv_auto()` counts rows and pulls a random reservoir sample
+   directly from disk — pandas never materializes the full file, and the
+   rest of the app still receives the exact same kind of DataFrame it
+   always has. Falls back silently to the pre-existing pandas path on any
+   failure (DuckDB missing, or a parse quirk it handles worse than the
+   existing banner/header-recovery heuristics) — including a guard added
+   after catching DuckDB's own degenerate-parse failure mode in testing
+   (a malformed banner row producing a technically-valid but useless
+   all-null single-row frame under `ignore_errors=true`). `duckdb` was
+   already a requirements.txt dependency (SQL Lab) but never wired into
+   ingestion. 10 new tests. Verified end-to-end via Playwright against a
+   synthetic 500,000-row/16.6MB CSV: Smart Sampling correctly reported the
+   full row count, and the resulting 50,000-row sample showed visibly
+   shuffled (non-sequential) transaction IDs, confirming true random
+   sampling across the whole file rather than the old first-N truncation.
+
+**Bug caught and fixed during Phase 4 (not shipped as a separate item):**
+DuckDB's `read_csv_auto(..., ignore_errors=true)` doesn't always fail
+loudly on malformed input — on a banner-row CSV it mistook the banner for
+the header and silently produced a "successful" 1-row, all-null
+DataFrame (which then vanished entirely after `dropna(how="all")`,
+returning an empty-but-"ok" result). Fixed by treating an all-null
+DuckDB parse as a failure and falling back to the pandas path, which
+already has dedicated banner-row recovery. Caught by
+`test_load_data_falls_back_to_pandas_if_duckdb_cant_parse` before this
+ever reached the UI.
+
+**New finding, refined not fixed (backlog):** re-confirmed Run 6's
+light-theme dataframe/chart repaint-lag finding with more precise repro
+steps than Run 7 found: it only reproduces when a panel is interacted
+with (rendering a dataframe/chart under the active theme) *before*
+switching themes, not on a theme switch that happens first. This is a
+Streamlit/Plotly component lifecycle quirk (stale canvas on an
+already-mounted widget), not app logic, and not chased further this run
+given three prior sessions' investigation already sunk into it — see
+`.prism/audit_2026-08-10-run8.md` for the full repro.
+
+**Outcome:** two feature branches (`feature/cate-subgroup-heterogeneity`,
+`feature/duckdb-large-file-ingestion`), each tested independently and
+merged to `main` (`--no-ff`) in sequence — 205/205 pytest green (187
+baseline + 8 CATE + 10 DuckDB ingestion). Playwright screenshots at
+desktop dark/light and mobile dark for the CATE panel, plus a live
+500k-row large-file ingestion walkthrough — see
+`.prism/runs/2026-08-10-run8/`. Fresh-clone-from-scratch install + test +
+boot check on `main` passed (205/205 pytest, HTTP 200, no traceback).
+Pushed both `main` and this session's designated branch
+(`claude/adoring-meitner-pgrsau`, fast-forwarded to match).
+
+**Not built (backlog for next run):** PyGWalker-style drag-and-drop chart
+builder (effort L, competitor-parity, now the longest-standing
+unaddressed item), live-Gemini screenshot verification (eighth
+consecutive run with no API key in the sandbox), a DuckDB/polars-backed
+path for Auto Cleaner operations themselves on very large sampled-down
+datasets (new candidate — today's fix only covers the read path, not
+post-load cleaning operations, worth re-checking once a genuinely huge
+500MB+ file is tested), light-theme repaint-lag precise-repro (documented
+above, not attempted — cosmetic/timing-only, three prior sessions already
+invested).

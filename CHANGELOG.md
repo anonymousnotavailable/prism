@@ -2,6 +2,44 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 8)
+
+### Added
+- **CATE by subgroup — heterogeneous treatment effects**
+  (`modules/causal_inference.py`) — extends the Causal Effect Estimator
+  with a "Does the effect vary by subgroup?" section. Re-runs the same
+  propensity-score-matching estimate within each level of a chosen
+  categorical column (2-10 groups) and compares against the pooled ATT,
+  flagging a **sign reversal** (the treatment helps one segment and hurts
+  another — a blanket rollout would be the wrong call) or **statistically
+  meaningful heterogeneity** (non-overlapping confidence intervals) versus
+  a homogeneous effect. New bar chart (`modules/visualization.py`) plots
+  per-subgroup ATT with 95% CI error bars against a pooled-ATT reference
+  line, colored red/green by effect sign. This cycle's required agentic-
+  AI-analysis pick — the direct follow-on to Run 7's pooled ATT estimator,
+  answering "okay, but does that effect actually hold for everyone?" 8 new
+  tests, including recovery of an injected sign reversal on synthetic data
+  and correct handling of undersized subgroups that can't support their
+  own match. Optional Gemini narration via the existing `call_gemini()`
+  plumbing.
+- **DuckDB out-of-core ingestion for large CSV uploads**
+  (`modules/data_engine.py`) — closes the "polars/DuckDB large-file path"
+  backlog item flagged in every routine run since 2026-08-07 (7
+  consecutive runs). For CSV uploads at or above 15MB, DuckDB's
+  `read_csv_auto()` counts rows and pulls a random reservoir sample
+  directly from disk, without pandas ever loading the full file into
+  memory. Below the threshold — or on any DuckDB failure, including a
+  guard against its own degenerate-parse edge case on malformed banner
+  rows — behavior falls back to the pre-existing pandas path unchanged.
+  Also a real accuracy improvement over the old behavior: the sample is
+  now a genuine random draw across the whole file, not "keep the first N
+  rows" (which silently over-represents whatever a file happens to be
+  sorted by). `duckdb` was already a dependency (used by SQL Lab) — no new
+  dependency added. 10 new tests. Verified end-to-end against a synthetic
+  500,000-row/16.6MB upload: Smart Sampling correctly reported the row
+  count, and the resulting 50,000-row sample showed visibly shuffled
+  (non-sequential) IDs, confirming true random sampling.
+
 ## 2026-08-10 (Run 7)
 
 ### Added
