@@ -31,18 +31,23 @@ except ImportError:  # the app should still load even if the package isn't insta
 
 try:
     from statsmodels.stats.outliers_influence import variance_inflation_factor
+    from statsmodels.tools.tools import add_constant
 except ImportError:
-    variance_inflation_factor = None
+    variance_inflation_factor = add_constant = None
+
+from modules.mllab import detect_task_type
+from modules.profiling import is_id_like
 
 MIN_ROWS_REQUIRED = 20
 HIGH_CORRELATION_THRESHOLD = 0.85
 HIGH_VIF_THRESHOLD = 10.0
 MAX_VIF_CANDIDATE_COLUMNS = 30  # VIF is O(n_cols^2); guard against pathologically wide datasets
+LOW_RELEVANCE_MI_THRESHOLD = 1e-6  # effectively-zero MI (e.g. a constant or pure-noise column)
 
 
 def is_available() -> bool:
     """Whether scikit-learn and statsmodels are both installed."""
-    return mutual_info_classif is not None and variance_inflation_factor is not None
+    return mutual_info_classif is not None and variance_inflation_factor is not None and add_constant is not None
 
 
 def _encode_for_mi(series: pd.Series, column_types: dict[str, str], col: str) -> tuple[np.ndarray, bool]:
@@ -70,8 +75,9 @@ def rank_features(
     flag redundant near-duplicate pairs, and flag multicollinearity via VIF.
 
     Returns (ranking_df, error). ranking_df has one row per candidate
-    feature, columns: Feature, MI Score, Correlation Peak, VIF,
-    Recommendation ("Keep" | "Redundant" | "High multicollinearity").
+    feature (identifier-like columns excluded — see is_id_like below),
+    columns: Feature, MI Score, Correlation Peak, VIF, Recommendation
+    ("Keep" | "Redundant" | "High multicollinearity" | "Low relevance").
     Sorted by MI Score descending. error is set only when ranking couldn't
     run at all (missing deps, missing target, too few rows, no candidates).
     """
@@ -82,8 +88,17 @@ def rank_features(
         return None, f"'{target_col}' is not a column in this dataset."
 
     candidate_cols = [c for c in df.columns if c != target_col]
+    # Identifier-like columns (customer_id, order_id, ...) are almost-unique
+    # per row — label-encoding one and scoring it discrete lets mutual
+    # information assign it close to the target's full entropy (it can
+    # "predict" the target as well as memorizing the row can), which reads
+    # as maximally informative and would get recommended straight into the
+    # model. Same is_id_like() heuristic Overview already uses to exclude
+    # these from auto-charts.
+    id_like_excluded = [c for c in candidate_cols if is_id_like(df[c])]
+    candidate_cols = [c for c in candidate_cols if c not in id_like_excluded]
     if not candidate_cols:
-        return None, "No candidate feature columns — the dataset has only the target column."
+        return None, "No candidate feature columns — the dataset has only the target column and identifier-like columns."
 
     valid_rows = df[target_col].notna()
     if valid_rows.sum() < MIN_ROWS_REQUIRED:
@@ -91,7 +106,13 @@ def rank_features(
 
     work = df.loc[valid_rows]
 
-    is_classification = column_types.get(target_col) != "numeric"
+    # Reuse ML Lab's own classification/regression call, not just "is the
+    # column typed numeric" — a numeric column with a handful of distinct
+    # values (e.g. a 0/1/2 class code) is a classification target even
+    # though data_engine types it "numeric", and mutual_info_regression
+    # treats those repeated values as a continuous target, which produces
+    # unreliable scores for exactly the low-cardinality-numeric case.
+    is_classification = detect_task_type(work[target_col]) == "classification"
     y, _ = _encode_for_mi(work[target_col], column_types, target_col)
 
     X_cols, discrete_mask = [], []
@@ -135,9 +156,15 @@ def rank_features(
         # constant columns (zero variance) make VIF singular/undefined — drop them from the design matrix
         vif_matrix = vif_matrix.loc[:, vif_matrix.nunique(dropna=True) > 1]
         if vif_matrix.shape[1] >= 2:
+            # add_constant: variance_inflation_factor's auxiliary regressions need an
+            # intercept. Without one, ordinary positive-mean columns (e.g. two
+            # independent "100 + noise" columns) fit through the origin instead of
+            # their own means, which can inflate VIF into the thousands for columns
+            # that are actually uncorrelated once centered — a false multicollinearity flag.
+            design = add_constant(vif_matrix.to_numpy(dtype=float), has_constant="add")
             try:
                 for i, col in enumerate(vif_matrix.columns):
-                    vif_by_col[col] = float(variance_inflation_factor(vif_matrix.to_numpy(dtype=float), i))
+                    vif_by_col[col] = float(variance_inflation_factor(design, i + 1))  # +1 skips the intercept column
             except (np.linalg.LinAlgError, ValueError):
                 pass  # singular design matrix — leave VIF as None for all rather than fail the whole ranking
 
@@ -149,6 +176,14 @@ def rank_features(
             recommendation = "Redundant"
         elif vif is not None and vif > HIGH_VIF_THRESHOLD:
             recommendation = "High multicollinearity"
+        elif mi_score <= LOW_RELEVANCE_MI_THRESHOLD:
+            # Redundancy/VIF only diagnose a feature against OTHER features — a
+            # column with essentially no relationship to the target at all (a
+            # constant, or noise) passes both checks and would otherwise get
+            # labeled "Keep" and handed straight to the model by
+            # recommended_features(), despite being exactly what this engine
+            # exists to screen out.
+            recommendation = "Low relevance"
         else:
             recommendation = "Keep"
         rows.append(
@@ -167,13 +202,14 @@ def rank_features(
 
 def recommended_features(ranking: Optional[pd.DataFrame]) -> list[str]:
     """The subset of ranked features worth keeping — excludes anything
-    flagged Redundant, keeps everything else (High multicollinearity is
-    still surfaced to the user, not silently dropped, since VIF alone
-    doesn't say which of several collinear features to cut).
+    flagged Redundant or Low relevance, keeps everything else (High
+    multicollinearity is still surfaced to the user, not silently dropped,
+    since VIF alone doesn't say which of several collinear features to cut).
     """
     if ranking is None or ranking.empty:
         return []
-    return ranking.loc[ranking["Recommendation"] != "Redundant", "Feature"].tolist()
+    excluded = {"Redundant", "Low relevance"}
+    return ranking.loc[~ranking["Recommendation"].isin(excluded), "Feature"].tolist()
 
 
 def fingerprint_ranking(ranking: Optional[pd.DataFrame], target_col: str) -> str:

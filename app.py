@@ -137,6 +137,8 @@ _DEFAULTS = {
     "feature_selection_error": None,  # error from the last feature-ranking attempt, if any
     "feature_selection_narration": None,  # Gemini-narrated explanation of the last ranking
     "feature_selection_narration_fingerprint": None,  # feature_selection.fingerprint_ranking() it covers
+    "feature_selection_ranking_target": None,  # target column the ranking above was computed against
+    "feature_selection_ranking_df_fp": None,  # (df.shape, columns) fingerprint the ranking above was computed against
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -310,6 +312,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.feature_selection_error = None
     st.session_state.feature_selection_narration = None
     st.session_state.feature_selection_narration_fingerprint = None
+    st.session_state.feature_selection_ranking_target = None
+    st.session_state.feature_selection_ranking_df_fp = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
     st.session_state.enrichment_report = None
@@ -3885,6 +3889,27 @@ elif st.session_state.active_section == "ML Lab":
         if not feature_selection.is_available():
             st.warning("scikit-learn and statsmodels are required. Run `pip install -r requirements.txt` and restart.")
         else:
+            # A ranking computed against a previous target (or before a cleaning
+            # action changed the working dataset) is stale — displaying it under
+            # the new target would badge the wrong columns as recommended, and
+            # "Use recommended features" could even hand the newly-selected
+            # target back to itself as a feature. Cheap (df.shape, columns)
+            # fingerprint, not a full value hash — catches target changes and
+            # any column-adding/dropping cleaning action, which covers the
+            # actual leakage risk without hashing every cell on every rerun.
+            current_df_fp = (df.shape, tuple(df.columns))
+            ranking_is_stale = st.session_state.feature_selection_ranking is not None and (
+                st.session_state.feature_selection_ranking_target != mllab_target_col
+                or st.session_state.feature_selection_ranking_df_fp != current_df_fp
+            )
+            if ranking_is_stale:
+                st.session_state.feature_selection_ranking = None
+                st.session_state.feature_selection_error = None
+                st.session_state.feature_selection_narration = None
+                st.session_state.feature_selection_narration_fingerprint = None
+                st.session_state.feature_selection_ranking_target = None
+                st.session_state.feature_selection_ranking_df_fp = None
+
             if st.button("Rank Features", key="rank_features_btn"):
                 with st.spinner(ui.get_loading_message()):
                     ranking, fs_err = feature_selection.rank_features(df, column_types, mllab_target_col)
@@ -3892,6 +3917,8 @@ elif st.session_state.active_section == "ML Lab":
                 st.session_state.feature_selection_error = fs_err
                 st.session_state.feature_selection_narration = None
                 st.session_state.feature_selection_narration_fingerprint = None
+                st.session_state.feature_selection_ranking_target = mllab_target_col
+                st.session_state.feature_selection_ranking_df_fp = current_df_fp
 
             if st.session_state.feature_selection_error:
                 st.error(st.session_state.feature_selection_error)

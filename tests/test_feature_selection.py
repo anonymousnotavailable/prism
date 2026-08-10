@@ -190,6 +190,115 @@ def test_fingerprint_ranking_handles_real_column_names_with_spaces():
     assert fp == feature_selection.fingerprint_ranking(_sample_ranking(), "target")
 
 
+def test_excludes_id_like_columns_from_ranking():
+    # Regression test for a Codex review finding: label-encoding a
+    # near-unique identifier column and scoring it as an ordinary discrete
+    # feature lets mutual information assign it close to the target's full
+    # entropy (it "predicts" the target as well as memorizing the row
+    # does) — reads as maximally informative and would get recommended
+    # straight into the model. customer_id should never appear at all.
+    rng = _rng()
+    n = 200
+    x = rng.normal(size=n)
+    target = x * 2 + rng.normal(scale=0.3, size=n)
+    df = pd.DataFrame(
+        {
+            "customer_id": [f"CUST-{i:05d}" for i in range(n)],
+            "x": x,
+            "target": target,
+        }
+    )
+    column_types = {"customer_id": "categorical", "x": "numeric", "target": "numeric"}
+    ranking, error = feature_selection.rank_features(df, column_types, "target")
+    assert error is None
+    assert "customer_id" not in ranking["Feature"].tolist()
+    assert "x" in ranking["Feature"].tolist()
+
+
+def test_returns_error_when_only_id_like_candidates_remain():
+    n = 200
+    df = pd.DataFrame({"customer_id": [f"CUST-{i:05d}" for i in range(n)], "target": list(range(n))})
+    column_types = {"customer_id": "categorical", "target": "numeric"}
+    ranking, error = feature_selection.rank_features(df, column_types, "target")
+    assert ranking is None
+    assert error is not None
+
+
+def test_vif_not_inflated_by_uncentered_positive_mean_columns():
+    # Regression test for a Codex review finding: variance_inflation_factor
+    # needs an intercept in the design matrix. Two independent columns with
+    # large positive means (not centered near zero) get wildly inflated
+    # VIFs without one, despite having near-zero correlation once centered.
+    rng = _rng()
+    n = 300
+    a = 100 + rng.normal(size=n)
+    b = 100 + rng.normal(size=n)
+    target = rng.normal(size=n)  # unrelated to a/b — VIF is about the FEATURES' relationship to each other
+    df = pd.DataFrame({"a": a, "b": b, "target": target})
+    column_types = {"a": "numeric", "b": "numeric", "target": "numeric"}
+    ranking, error = feature_selection.rank_features(df, column_types, "target")
+    assert error is None
+    vif_values = ranking.set_index("Feature")["VIF"]
+    assert vif_values.notna().all()
+    assert (vif_values < feature_selection.HIGH_VIF_THRESHOLD).all()
+    assert not (ranking["Recommendation"] == "High multicollinearity").any()
+
+
+def test_uses_classification_mi_for_low_cardinality_numeric_target():
+    # Regression test for a Codex review finding: a numeric column with a
+    # handful of distinct values (e.g. a 0/1/2 class code) is a
+    # classification target even though data_engine types it "numeric" —
+    # mutual_info_regression should not be used for it.
+    calls = []
+    original_classif = feature_selection.mutual_info_classif
+    original_regression = feature_selection.mutual_info_regression
+
+    def spy_classif(*args, **kwargs):
+        calls.append("classif")
+        return original_classif(*args, **kwargs)
+
+    def spy_regression(*args, **kwargs):
+        calls.append("regression")
+        return original_regression(*args, **kwargs)
+
+    feature_selection.mutual_info_classif = spy_classif
+    feature_selection.mutual_info_regression = spy_regression
+    try:
+        rng = _rng()
+        n = 200
+        x = rng.normal(size=n)
+        target = pd.Series(np.where(x > 0, 1, 0))  # numeric-coded binary class, low cardinality
+        df = pd.DataFrame({"x": x, "target": target})
+        column_types = {"x": "numeric", "target": "numeric"}  # data_engine would type this "numeric"
+        ranking, error = feature_selection.rank_features(df, column_types, "target")
+    finally:
+        feature_selection.mutual_info_classif = original_classif
+        feature_selection.mutual_info_regression = original_regression
+
+    assert error is None
+    assert calls == ["classif"]
+
+
+def test_excludes_zero_mi_constant_column_from_recommendation():
+    # Regression test for a Codex review finding: a feature with zero
+    # relevance to the target (no variation at all, in this case) is
+    # neither Redundant nor High-multicollinearity, so it used to fall
+    # through to "Keep" and get handed straight to the model by
+    # recommended_features() — exactly what this engine exists to screen out.
+    rng = _rng()
+    n = 200
+    x = rng.normal(size=n)
+    target = x * 2 + rng.normal(scale=0.2, size=n)
+    df = pd.DataFrame({"x": x, "constant_col": [5.0] * n, "target": target})
+    column_types = {"x": "numeric", "constant_col": "numeric", "target": "numeric"}
+    ranking, error = feature_selection.rank_features(df, column_types, "target")
+    assert error is None
+    constant_row = ranking.loc[ranking["Feature"] == "constant_col"].iloc[0]
+    assert constant_row["MI Score"] <= feature_selection.LOW_RELEVANCE_MI_THRESHOLD
+    assert constant_row["Recommendation"] == "Low relevance"
+    assert "constant_col" not in feature_selection.recommended_features(ranking)
+
+
 def test_narrate_selection_builds_table_text_with_real_ranking():
     calls = {}
 

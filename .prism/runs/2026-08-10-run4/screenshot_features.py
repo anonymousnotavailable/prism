@@ -5,7 +5,7 @@
 """
 from playwright.sync_api import sync_playwright
 
-BASE_URL = "http://localhost:8518"
+BASE_URL = "http://localhost:8519"
 SCREENSHOT_DIR = "/home/user/prism/.prism/runs/2026-08-10-run4"
 CHROME_PATH = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 
