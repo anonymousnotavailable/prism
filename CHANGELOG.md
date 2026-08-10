@@ -2,6 +2,32 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 5)
+
+### Added
+- **Feature Selection Engine** (`modules/feature_selection.py`) — new
+  section in ML Lab, between Feature Engineering and the Baseline Model
+  Runner. Ranks every candidate column's relevance to the chosen target
+  using three methods with genuinely different assumptions — mutual
+  information (nonparametric, catches nonlinear dependence), an
+  L1-regularized model (Lasso for regression, L1-penalized logistic
+  regression for classification), and recursive feature elimination —
+  then combines them into a 0-1 consensus score plus a "votes" count
+  (how many methods placed the feature in their own top 5). Same
+  self-verifying-ensemble pattern as `anomaly.find_anomalies_ensemble()`:
+  a feature all three agree on is a much stronger signal than any single
+  method's opinion. If one method's fit fails outright (small/degenerate
+  data), the ranking still ships from the surviving methods instead of
+  crashing — recorded in `method_errors` and surfaced as a caption, not
+  a fatal error. Constant, entirely-empty, and high-cardinality
+  (id-like) columns are auto-excluded with a stated reason. A grouped
+  bar chart shows per-method scores, a one-click "Use top N" button
+  pre-populates the Baseline Model Runner's feature multiselect, and a
+  cached Gemini narration step interprets the (already deterministic)
+  ranking — detection and scoring are never delegated to the LLM. Closes
+  the "Feature Selection Engine (mutual info/RFE/L1)" backlog item open
+  since 2026-08-10 Run 3/4. 19 new tests.
+
 ## 2026-08-10 (Run 4)
 
 ### Added

@@ -334,3 +334,61 @@ screenshot verification (fourth consecutive run with no API key in the
 sandbox — anomaly narration, ensemble disagreement narration, and
 Auto-Insights narration are all still only verified via unit tests + the
 graceful-fallback-message screenshot).
+
+---
+
+## 2026-08-10 — Run 5 (third independent session, same day)
+
+**Orientation:** `origin/main` was at Run 4's tip (`699e97a`) with no
+drift. Full audit in `.prism/audit_2026-08-10-run5.md`; research in
+`.prism/research_2026-08-10-run5.md`.
+
+**Note on this session's git setup:** this run's designated working
+branch (`claude/adoring-meitner-kamrg9`) had already been merged to
+`main` by an earlier session and its remote copy deleted — standard
+post-merge state, not an error. Restarted it from fresh `origin/main`
+per the merged-PR protocol before building anything, so no work was
+lost or duplicated. Per this session's git policy, work was pushed to
+that designated branch rather than directly to `main` — functionally
+equivalent to prior runs' "merge to main" (same commits, same tests,
+same verification), just landing on a branch for the standard review
+path instead of main directly.
+
+**Selected feature (this run):** Feature Selection Engine
+(`modules/feature_selection.py`) — ranks candidate columns by relevance
+to a chosen ML Lab target using three methods with different assumptions
+(mutual information, L1-regularized model, recursive feature
+elimination), combined into a consensus score + vote count. Same
+self-verifying-ensemble pattern as Run 4's Ensemble Anomaly Consensus;
+research this run confirmed that pattern is the right shape to keep
+reusing for 2026 agentic-EDA work (see research file). Closes the
+"Feature Selection Engine (mutual info/RFE/L1)" backlog item open since
+Run 3/4. Degrades gracefully if one method fails outright (small/
+degenerate data) instead of crashing — covered by a dedicated test.
+Cached Gemini narration interprets the ranking; detection/scoring stays
+fully deterministic. 19 new tests, 117/117 pytest green (98 baseline +
+19 new).
+
+**Verification:** Playwright screenshots at desktop dark, desktop light,
+and mobile dark confirm the new section renders correctly (glass styling
+consistent, chart + excluded-columns expander + narration button all
+readable, no overflow). Mobile+light was not separately captured — the
+sidebar-drawer toggle's test id turned out to be `stExpandSidebarButton`
+(not `stSidebarCollapsedControl`, used successfully for desktop), and
+even after finding it the post-open click stayed flaky against a
+pointer-event-interception issue not chased further; low risk since
+contrast (light theme) and layout (mobile viewport) were each already
+confirmed independently in the other three screenshots. Fresh app boot
+check (HTTP 200, no traceback) passed both before and after this run's
+changes.
+
+**Not built (backlog for next run):** `google-generativeai` →
+`google-genai` migration (now the strongest candidate — the deprecation
+warning is explicit and this is the fourth run flagging it; recommended
+as next run's sole focus given it touches every Gemini call site and
+needs its own regression pass, not a bundle-in), polars/DuckDB
+large-file ingestion path (five consecutive runs now), live-Gemini
+screenshot verification (fifth consecutive run with no API key in the
+sandbox), mobile+light Playwright capture for the Feature Selection
+Engine section specifically (see Verification above — not a product bug,
+a test-tooling gap).
