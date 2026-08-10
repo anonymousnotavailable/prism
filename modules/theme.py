@@ -684,6 +684,25 @@ h1, h2, h3, h4, .prism-heading {
     font-size: 11.5px !important; padding: 4px 10px !important; border-radius: 999px !important;
 }
 
+/* Mobile-PWA breakpoint: the panel above is `position: fixed; width: 328px`
+   which is wider than most phone viewports (~360-430px) — left as a fixed
+   overlay it covers the entire screen and squeezes/hides main content into
+   an unreadable strip underneath. Below 768px, drop it back into normal
+   document flow as a bounded, scrollable block instead of an overlay, so
+   Overview/AI Analyst/etc. stay fully readable above it and the Atlas
+   transcript is still reachable by scrolling down to it. */
+@media (max-width: 768px) {
+    .st-key-atlas_side_panel {
+        position: static;
+        top: auto; right: auto; bottom: auto;
+        width: 100%;
+        max-height: 260px;
+        border-left: none;
+        border-top: 1px solid var(--prism-border);
+        margin-top: 16px;
+    }
+}
+
 /* Pipeline navigation — restyles st.segmented_control (app.py's step
    router) to read as HUD nav pills instead of generic Streamlit chips.
    The selected pill gets the beam as its underline, matching the sidebar
