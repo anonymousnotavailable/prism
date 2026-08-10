@@ -138,6 +138,10 @@ _DEFAULTS = {
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
+    "auto_verify_outcome": None,  # last auto_analyst.auto_verify_hypothesis() result ("Auto-verify now" button)
+    "auto_verify_hypothesis_ref": None,  # the hypothesis dict the outcome above belongs to, to detect staleness
+    "auto_verify_narration": None,  # Gemini's plain-English phrasing of the auto-verify verdict
+    "auto_verify_narration_error": None,  # error from the last auto-verify narration attempt, if any
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -281,6 +285,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
     st.session_state.auto_analyst_findings_error = None
+    st.session_state.auto_verify_outcome = None
+    st.session_state.auto_verify_hypothesis_ref = None
+    st.session_state.auto_verify_narration = None
+    st.session_state.auto_verify_narration_error = None
     st.session_state.stats_lab_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
@@ -3227,14 +3235,53 @@ elif st.session_state.active_section == "Auto Analyst":
                 hypothesis = auto_analyst.suggest_followup_hypothesis(df, column_types)
                 if hypothesis:
                     st.info(f"🔬 **Suggested next step:** {hypothesis['reason']}")
-                    if st.button(
-                        f"Test '{hypothesis['col_a']}' vs '{hypothesis['col_b']}' in Stats Lab",
-                        use_container_width=True, key="jump_to_stats_lab_hypothesis",
-                    ):
-                        st.session_state.stats_col_a = hypothesis["col_a"]
-                        st.session_state.stats_col_b = hypothesis["col_b"]
-                        st.session_state.pending_active_section = "Stats Lab"
-                        st.rerun()
+                    hyp_col1, hyp_col2 = st.columns(2)
+                    with hyp_col1:
+                        if st.button(
+                            f"Test '{hypothesis['col_a']}' vs '{hypothesis['col_b']}' in Stats Lab",
+                            use_container_width=True, key="jump_to_stats_lab_hypothesis",
+                        ):
+                            st.session_state.stats_col_a = hypothesis["col_a"]
+                            st.session_state.stats_col_b = hypothesis["col_b"]
+                            st.session_state.pending_active_section = "Stats Lab"
+                            st.rerun()
+                    with hyp_col2:
+                        if st.button(
+                            "⚡ Auto-verify now", use_container_width=True, key="auto_verify_hypothesis_btn",
+                        ):
+                            st.session_state.auto_verify_outcome = auto_analyst.auto_verify_hypothesis(
+                                df, column_types, hypothesis
+                            )
+                            st.session_state.auto_verify_hypothesis_ref = hypothesis
+                            st.session_state.auto_verify_narration = None
+                            st.session_state.auto_verify_narration_error = None
+
+                    outcome = st.session_state.get("auto_verify_outcome")
+                    ref = st.session_state.get("auto_verify_hypothesis_ref")
+                    # Only show the result if it still matches the current hypothesis —
+                    # a fresh Auto Analyst run can surface a different pair.
+                    if outcome and ref == hypothesis:
+                        result = outcome["result"]
+                        if result.get("error"):
+                            st.warning(f"Couldn't auto-verify: {result['error']}")
+                        else:
+                            st.markdown(f"**🔬 Verified: {outcome['verdict']}**")
+                            vc1, vc2, vc3 = st.columns(3)
+                            vc1.metric("Test", stats_lab.TEST_LABELS.get(outcome["suggestion"]["test"], "—"))
+                            vc2.metric("p-value", f"{result['p_value']:.4g}")
+                            vc3.metric(result["effect_size_name"], f"{result['effect_size']:.4f}")
+
+                            if st.session_state.auto_verify_narration is None and auto_model is not None:
+                                with st.spinner("Asking Gemini to explain what this means..."):
+                                    text, error = auto_analyst.narrate_hypothesis_verdict(
+                                        auto_model, hypothesis, outcome["verdict"]
+                                    )
+                                    st.session_state.auto_verify_narration = text
+                                    st.session_state.auto_verify_narration_error = error
+                            if st.session_state.auto_verify_narration:
+                                st.caption(f"💬 {st.session_state.auto_verify_narration}")
+                            elif st.session_state.auto_verify_narration_error:
+                                st.caption(f"_Narration unavailable: {st.session_state.auto_verify_narration_error}_")
 
                 if st.button("🎬 Story Mode", type="primary", use_container_width=True, key="enter_story_mode"):
                     # Story Mode (modules/story_mode.py) narrates

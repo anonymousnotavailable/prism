@@ -279,3 +279,55 @@ def suggest_followup_hypothesis(df: pd.DataFrame, column_types: dict[str, str]) 
         }
 
     return None
+
+
+def auto_verify_hypothesis(df: pd.DataFrame, column_types: dict[str, str], hypothesis: dict) -> dict:
+    """Close the suggest -> verify loop: take a suggest_followup_hypothesis()
+    result and actually run the matching scipy.stats significance test right
+    away, instead of only handing the user a column pair to go test manually
+    in Stats Lab.
+
+    Detection stays fully deterministic (the same scipy.stats machinery Stats
+    Lab uses) — this is a self-verifying step, not an LLM guess. Gemini's job
+    (see narrate_hypothesis_verdict below) is strictly to phrase the verdict
+    that was already computed, never to decide it.
+
+    Returns {"suggestion": stats_lab.suggest_test() output,
+             "result": stats_lab.run_test() output,
+             "verdict": stats_lab.interpret_result() output}.
+    Never raises: an unrunnable pair still returns a dict with an error
+    baked into "verdict" via the same error-handling suggest_test/run_test
+    already use.
+    """
+    from modules.stats_lab import interpret_result, run_test, suggest_test
+
+    suggestion = suggest_test(df, column_types, hypothesis["col_a"], hypothesis["col_b"])
+    result = run_test(df, suggestion)
+    return {"suggestion": suggestion, "result": result, "verdict": interpret_result(result)}
+
+
+_HYPOTHESIS_NARRATION_PROMPT = (
+    "You are a data analyst explaining a just-completed statistical test to a "
+    "non-technical stakeholder in 2-3 sentences. Be direct about whether the "
+    "result is statistically significant and what it practically means for "
+    "the business — do not hedge, and do not just repeat the raw numbers.\n\n"
+    "Hypothesis tested: {reason}\n"
+    "Statistical verdict: {verdict}"
+)
+
+
+def narrate_hypothesis_verdict(model, hypothesis: dict, verdict: str) -> tuple[str, Optional[str]]:
+    """Ask Gemini to phrase an already-computed statistical verdict in plain
+    English. Returns (narration, error) — falls back gracefully, same shape
+    as narrate_insights/narrate_ensemble_disagreement elsewhere in the app.
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+
+    from modules.ai_analyst import call_gemini
+
+    prompt = _HYPOTHESIS_NARRATION_PROMPT.format(reason=hypothesis.get("reason", ""), verdict=verdict)
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
