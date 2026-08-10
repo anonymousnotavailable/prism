@@ -2,6 +2,31 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-10 (Run 5)
+
+### Added
+- **Automated Hypothesis Sweep** (`modules/hypothesis_suite.py`, surfaced
+  in Stats Lab) — instead of a user picking one column pair at a time (or
+  the app suggesting a single top pair via
+  `auto_analyst.suggest_followup_hypothesis()`), a "Run full sweep" button
+  enumerates every viable numeric/numeric, numeric/categorical, and
+  categorical/categorical pair, runs the matching test on each via Stats
+  Lab's existing `suggest_test()`/`run_test()`, and corrects the resulting
+  multiple-comparisons problem with Benjamini-Hochberg FDR before ranking
+  findings — reporting raw-significant vs. FDR-surviving counts side by
+  side so a spurious p<0.05 hit doesn't read as a real discovery. An
+  optional Gemini pass narrates only the findings that survive correction,
+  cached per result fingerprint to avoid re-spending a call on an unchanged
+  sweep. Wide datasets are bounded (12 numeric / 8 categorical columns, 40
+  pairs max) with the truncation reported in the UI rather than silently
+  dropped. Closes the "Automated Hypothesis Testing Suite" backlog item
+  open since 2026-08-07 Run 2 (the prior single-suggestion feature covered
+  discovery, not the actual battery-of-tests-plus-correction agentic
+  pattern) and serves this cycle's required agentic-AI-analysis theme. 16
+  new tests (statistical correctness of the BH procedure against a known
+  worked example, pair-enumeration caps/cardinality filtering, sweep
+  ranking/counts, and the narration cache/skip paths).
+
 ## 2026-08-10 (Run 4)
 
 ### Added
