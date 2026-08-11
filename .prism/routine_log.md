@@ -2284,3 +2284,17 @@ JARVIS copilot track this run (0/1), logged above as the reasoned choice, not an
 Plan: branch `feature/bayesian-ab-testing` and `feature/power-analysis` off
 `claude/adoring-meitner-7xxgfq`, tests first, then implement, full suite must stay green, merge
 both with `--no-ff`, push.
+
+## Run 31 — 2026-08-11 — result
+
+Shipped both: Bayesian A/B Testing (`modules/bayesian_ab.py`, 31 tests — beta-binomial posterior,
+exact + Monte Carlo P(B>A), expected loss, lift) and Power/Sample-Size Planning
+(`modules/power_analysis.py`, 38 tests — statsmodels.stats.power wrapper, solve-n/solve-power x
+manual/pilot-data, explicitly avoids the post-hoc-power fallacy per Hoenig & Heisey 2001), both new
+Stats Lab panels. Suite 669 -> 738, zero regressions. One expected conflict (app.py +
+visualization.py, both branches added at the same insertion point) resolved by keeping both
+additions. AppTest confirmed the "any second .run() throws" quirk is broader than Run 30 scoped it
+(not just active_section switches) — reproduced on the untouched base branch first; worked around
+with the pre-set-result-then-single-run pattern. Found and fixed a real same-column-selection crash
+bug in both new modules during AppTest verification (3 regression tests added) before merging.
+Pushed. Full detail in `RUN_REPORT_2026-08-11-run31.md`.
