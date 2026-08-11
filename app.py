@@ -703,6 +703,134 @@ def _cmd_demo_mode(target) -> None:
     st.session_state.story_mode_active = False
 
 
+def _cmd_run_bayesian_ab(target) -> None:
+    """Atlas voice/typed entry point for the Bayesian A/B Test panel (Stats
+    Lab). Read-only compute — no push_undo_snapshot()/guarded() needed,
+    same as every other stats-panel command Atlas doesn't mutate data
+    through. Auto-picks a variant/outcome column pair via
+    bayesian_ab.auto_select_columns() (same eligibility rule as the panel's
+    own selectboxes) since a spoken command has no column pickers to fall
+    back on; navigates there either way so the user sees the picked columns
+    (or the manual selectors, if nothing obvious was found).
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    _cmd_navigate("Stats Lab")
+    df = st.session_state.working_df
+    picked = bayesian_ab.auto_select_columns(df, st.session_state.column_types)
+    if picked is None:
+        atlas.say_only(
+            "I don't see an obvious variant-plus-outcome column pairing for a Bayesian A/B test — "
+            "pick the columns yourself in Stats Lab."
+        )
+        return
+    st.session_state.bayesian_variant_col = picked["variant_col"]
+    st.session_state.bayesian_success_col = picked["success_col"]
+    result = bayesian_ab.bayesian_ab_test(df, picked["variant_col"], picked["success_col"])
+    st.session_state.bayesian_ab_result = result
+    st.session_state.bayesian_ab_narration = None
+    if not result["ok"]:
+        atlas.say_only(f"Couldn't run it: {result['error']}")
+        return
+    p = result["prob_treatment_beats_control"]["value"]
+    atlas.say_only(
+        f"Using '{picked['variant_col']}' as the variant and '{picked['success_col']}' as the outcome — "
+        f"P(treatment beats control) is {p:.0%}."
+    )
+
+
+def _cmd_explain_bayesian_ab(target) -> None:
+    """Atlas voice/typed counterpart to the Bayesian A/B panel's "Explain
+    this" button — same narrate_bayesian_ab() call and narration cache, just
+    triggered by an utterance instead of a click.
+    """
+    result = st.session_state.bayesian_ab_result
+    if result is None:
+        atlas.say_only('No Bayesian A/B test yet — say "run a bayesian ab test" first.')
+        return
+    if not result["ok"]:
+        atlas.say_only(f"That test didn't run cleanly: {result['error']}")
+        return
+    if st.session_state.bayesian_ab_narration:
+        atlas.say_only(st.session_state.bayesian_ab_narration)
+        return
+    model = ai_analyst.get_model()
+    narration, narr_error = bayesian_ab.narrate_bayesian_ab(model, result)
+    if narr_error:
+        atlas.say_only(f"Couldn't reach Gemini to explain it: {narr_error}")
+        return
+    st.session_state.bayesian_ab_narration = narration
+    atlas.say_only(narration)
+
+
+def _cmd_run_power_analysis(target) -> None:
+    """Atlas voice/typed entry point for the Power / Sample-Size Planning
+    panel (Stats Lab). Read-only compute, same as _cmd_run_bayesian_ab.
+    Auto-picks pilot-data columns via power_analysis.auto_select_inputs()
+    and always plans "required sample size for 80% power" (mode="solve_n",
+    the panel's own default) since a spoken command has no mode/metric
+    pickers to fall back on — solve_power (achieved power for a stated N)
+    still requires an explicit planned N the user hasn't given, so it's
+    left to the manual UI.
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    _cmd_navigate("Stats Lab")
+    df = st.session_state.working_df
+    picked = power_analysis.auto_select_inputs(df, st.session_state.column_types)
+    if picked is None:
+        atlas.say_only(
+            "I don't see usable columns to estimate an effect size from — configure it yourself in Stats Lab, "
+            "or give me a Cohen's d or a pair of rates."
+        )
+        return
+    if picked["metric_type"] == "mean":
+        result = power_analysis.plan_power_means(
+            mode="solve_n", effect_size_source="data", df=df,
+            value_col=picked["value_col"], group_col=picked["group_col"],
+        )
+    else:
+        result = power_analysis.plan_power_proportions(
+            mode="solve_n", effect_size_source="data", df=df,
+            success_col=picked["success_col"], group_col=picked["group_col"],
+        )
+    st.session_state.power_analysis_result = result
+    st.session_state.power_analysis_narration = None
+    if not result["ok"]:
+        atlas.say_only(f"Couldn't run it: {result['error']}")
+        return
+    atlas.say_only(
+        f"Estimating the effect size from '{picked['group_col']}' — you'd need "
+        f"{result['required_n_per_group']:.0f} samples per group for 80% power."
+    )
+
+
+def _cmd_explain_power_analysis(target) -> None:
+    """Atlas voice/typed counterpart to the Power Analysis panel's "Explain
+    this" button — same narrate_power_analysis() call and narration cache,
+    just triggered by an utterance instead of a click.
+    """
+    result = st.session_state.power_analysis_result
+    if result is None:
+        atlas.say_only('No power analysis yet — say "run a power analysis" first.')
+        return
+    if not result["ok"]:
+        atlas.say_only(f"That plan didn't run cleanly: {result['error']}")
+        return
+    if st.session_state.power_analysis_narration:
+        atlas.say_only(st.session_state.power_analysis_narration)
+        return
+    model = ai_analyst.get_model()
+    narration, narr_error = power_analysis.narrate_power_analysis(model, result)
+    if narr_error:
+        atlas.say_only(f"Couldn't reach Gemini to explain it: {narr_error}")
+        return
+    st.session_state.power_analysis_narration = narration
+    atlas.say_only(narration)
+
+
 def _cmd_next(target) -> None:
     if st.session_state.story_mode_active:
         story_mode.advance_slide(1)
@@ -925,6 +1053,10 @@ for _action, _fn in {
     "generate_dictionary": _cmd_generate_dictionary,
     "next": _cmd_next,
     "previous": _cmd_previous,
+    "run_bayesian_ab": _cmd_run_bayesian_ab,
+    "explain_bayesian_ab": _cmd_explain_bayesian_ab,
+    "run_power_analysis": _cmd_run_power_analysis,
+    "explain_power_analysis": _cmd_explain_power_analysis,
 }.items():
     atlas.register_command(_action, _fn)
 

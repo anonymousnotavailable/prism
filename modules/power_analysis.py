@@ -236,6 +236,50 @@ def _build_power_curve(achieved_power_fn, required_n: float, n_points: int = _PO
     return [{"n": n, "power": achieved_power_fn(n)} for n in ns]
 
 
+def auto_select_inputs(df: pd.DataFrame, column_types: dict[str, str]) -> Optional[dict]:
+    """Best-guess pilot-data inputs for a zero-configuration invocation —
+    e.g. Atlas's voice/typed "run a power analysis" command, which has no
+    metric-type/column pickers to fall back on. Mirrors the Stats Lab UI's
+    own column-eligibility rules (a numeric column + a 2-8-level group
+    column for means; a 2-level outcome column + a 2-8-level group column
+    for proportions), resolved to a single deterministic pick: means are
+    preferred when both are available (matching the UI's own default
+    "Means" radio selection), falling back to proportions.
+
+    Returns a dict shaped either
+    {"metric_type": "mean", "value_col": ..., "group_col": ...} or
+    {"metric_type": "proportion", "success_col": ..., "group_col": ...},
+    or None (never raises) when neither pairing exists — the caller should
+    fall back to "navigate there and let the user configure it" rather
+    than guess further. Pure function of `df`/`column_types`.
+    """
+    if df is None or df.empty or not column_types:
+        return None
+    group_candidates = [
+        c for c in df.columns
+        if column_types.get(c) in ("categorical", "text", "boolean") and 2 <= df[c].nunique(dropna=True) <= 8
+    ]
+    if not group_candidates:
+        return None
+
+    numeric_candidates = [c for c in df.columns if column_types.get(c) == "numeric"]
+    for group_col in group_candidates:
+        value_candidates = [c for c in numeric_candidates if c != group_col]
+        if value_candidates:
+            return {"metric_type": "mean", "value_col": value_candidates[0], "group_col": group_col}
+
+    binary_candidates = [
+        c for c in df.columns
+        if column_types.get(c) in ("categorical", "text", "boolean") and df[c].nunique(dropna=True) == 2
+    ]
+    for group_col in group_candidates:
+        success_candidates = [c for c in binary_candidates if c != group_col]
+        if success_candidates:
+            return {"metric_type": "proportion", "success_col": success_candidates[0], "group_col": group_col}
+
+    return None
+
+
 def _validate_common(alpha: float, mode: str) -> Optional[str]:
     if mode not in ("solve_n", "solve_power"):
         return f"mode must be 'solve_n' or 'solve_power' (got '{mode}')."

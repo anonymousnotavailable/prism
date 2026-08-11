@@ -15,6 +15,7 @@ import pytest
 from modules.power_analysis import (
     achieved_power_means,
     achieved_power_proportions,
+    auto_select_inputs,
     cohens_d,
     effect_size_from_means,
     effect_size_from_proportions,
@@ -344,3 +345,42 @@ def test_plot_power_curve_solve_power_returns_figure():
 def test_plot_power_curve_none_for_failed_result():
     fig = plot_power_curve({"ok": False, "error": "boom"})
     assert fig is None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# auto_select_inputs — Atlas's zero-configuration voice/typed invocation
+# ─────────────────────────────────────────────────────────────────────────
+def test_auto_select_inputs_prefers_means_when_both_available():
+    df = pd.DataFrame({
+        "group": ["a", "b"] * 20,
+        "revenue": list(range(40)),
+        "converted": ["yes", "no"] * 20,
+    })
+    picked = auto_select_inputs(df, {"group": "categorical", "revenue": "numeric", "converted": "categorical"})
+    assert picked == {"metric_type": "mean", "value_col": "revenue", "group_col": "group"}
+
+
+def test_auto_select_inputs_falls_back_to_proportions_when_no_numeric_column():
+    df = pd.DataFrame({"group": ["a", "b"] * 20, "converted": ["yes", "no"] * 20})
+    picked = auto_select_inputs(df, {"group": "categorical", "converted": "categorical"})
+    assert picked == {"metric_type": "proportion", "success_col": "converted", "group_col": "group"}
+
+
+def test_auto_select_inputs_none_when_no_eligible_group_column():
+    df = pd.DataFrame({"revenue": list(range(10)), "user_id": [f"u{i}" for i in range(10)]})
+    picked = auto_select_inputs(df, {"revenue": "numeric", "user_id": "text"})
+    assert picked is None
+
+
+def test_auto_select_inputs_none_for_empty_or_missing_types():
+    assert auto_select_inputs(pd.DataFrame(), {}) is None
+    assert auto_select_inputs(None, {}) is None
+
+
+def test_auto_select_inputs_group_column_excluded_from_its_own_pairing():
+    # A binary column can itself look like a valid group column (2 levels
+    # falls within the 2-8 range) — must never be paired with itself as
+    # both the group and the outcome.
+    df = pd.DataFrame({"flag": ["yes", "no"] * 20})
+    picked = auto_select_inputs(df, {"flag": "categorical"})
+    assert picked is None
