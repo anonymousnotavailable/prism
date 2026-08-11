@@ -9,11 +9,15 @@ from modules.anomaly import (
     ENSEMBLE_METHODS,
     ENSEMBLE_MIN_ROWS,
     MIN_ROWS_REQUIRED,
+    SHAP_MAX_ROWS_TO_EXPLAIN,
+    aggregate_top_drivers,
+    build_driver_chart,
     find_anomalies,
     find_anomalies_ensemble,
     fingerprint_flagged,
     narrate_anomalies,
     narrate_ensemble_disagreement,
+    shap_is_available,
 )
 
 
@@ -187,6 +191,131 @@ def test_find_anomalies_ensemble_returns_empty_when_nothing_flagged():
     assert error is None
     assert consensus is not None and consensus.empty
     assert summary is not None
+
+
+# --- SHAP-based per-feature anomaly attribution -----------------------------
+# `find_anomalies` upgrades its naive "largest deviation from median" reason
+# with real SHAP TreeExplainer attribution when the library is available and
+# the flagged set is small enough — these tests pin that behavior without
+# requiring every environment to have shap installed (they skip gracefully).
+
+def _multi_feature_outlier_df(n: int = 100) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    df = pd.DataFrame(
+        {
+            "revenue": rng.normal(loc=1000, scale=50, size=n),
+            "headcount": rng.normal(loc=20, scale=3, size=n),
+            "noise": rng.normal(size=n),
+        }
+    )
+    # row 0 is extreme on revenue AND headcount, ordinary on noise —
+    # a real multi-feature driver should surface both, not just one.
+    df.loc[0, "revenue"] = 100_000.0
+    df.loc[0, "headcount"] = 500.0
+    return df
+
+
+def test_shap_is_available_matches_import():
+    import importlib.util
+
+    assert shap_is_available() == (importlib.util.find_spec("shap") is not None)
+
+
+def test_find_anomalies_reason_mentions_multiple_top_drivers_when_shap_available():
+    if not shap_is_available():
+        import pytest
+
+        pytest.skip("shap not installed in this environment")
+    df = _multi_feature_outlier_df()
+    flagged, error = find_anomalies(
+        df, {"revenue": "numeric", "headcount": "numeric", "noise": "numeric"}
+    )
+    assert error is None
+    assert 0 in flagged.index
+    reason = flagged.loc[0, "anomaly_reason"]
+    # both planted drivers should be named — a naive single-feature heuristic
+    # would only ever mention one of them.
+    assert "revenue" in reason and "headcount" in reason
+
+
+def test_find_anomalies_top_drivers_column_present_when_shap_available():
+    if not shap_is_available():
+        import pytest
+
+        pytest.skip("shap not installed in this environment")
+    df = _multi_feature_outlier_df()
+    flagged, _ = find_anomalies(
+        df, {"revenue": "numeric", "headcount": "numeric", "noise": "numeric"}
+    )
+    assert "anomaly_top_drivers" in flagged.columns
+    drivers = flagged.loc[0, "anomaly_top_drivers"]
+    assert isinstance(drivers, list) and len(drivers) >= 1
+    assert {"feature", "shap_abs", "direction"} <= drivers[0].keys()
+    # ranked descending by |shap value|
+    magnitudes = [d["shap_abs"] for d in drivers]
+    assert magnitudes == sorted(magnitudes, reverse=True)
+
+
+def test_find_anomalies_still_works_when_shap_explanation_fails(monkeypatch):
+    # Simulate a shap failure (e.g. incompatible version) — find_anomalies
+    # must fall back to the naive single-feature reason, never raise.
+    import modules.anomaly as anomaly_mod
+
+    monkeypatch.setattr(anomaly_mod, "_shap_matrix_for_rows", lambda *a, **k: None)
+    df = _clean_df_with_one_outlier()
+    flagged, error = find_anomalies(df, {"value": "numeric", "label": "categorical"})
+    assert error is None
+    assert "anomaly_reason" in flagged.columns
+    assert "anomaly_top_drivers" not in flagged.columns or flagged["anomaly_top_drivers"].isna().all()
+
+
+def test_find_anomalies_skips_shap_above_row_cap(monkeypatch):
+    # Enrichment is bounded so a huge flagged set can't blow up runtime —
+    # verify the cap is actually respected rather than just documented.
+    import modules.anomaly as anomaly_mod
+
+    calls = []
+    monkeypatch.setattr(
+        anomaly_mod,
+        "_shap_matrix_for_rows",
+        lambda *a, **k: calls.append(1) or None,
+    )
+    monkeypatch.setattr(anomaly_mod, "SHAP_MAX_ROWS_TO_EXPLAIN", 0)
+    df = _clean_df_with_one_outlier()
+    flagged, error = find_anomalies(df, {"value": "numeric", "label": "categorical"})
+    assert error is None
+    assert not calls  # never attempted — the cap short-circuits before calling shap
+
+
+def test_aggregate_top_drivers_ranks_by_frequency_then_magnitude():
+    flagged = pd.DataFrame(
+        {
+            "anomaly_top_drivers": [
+                [{"feature": "revenue", "shap_abs": 5.0, "direction": "above"}],
+                [{"feature": "revenue", "shap_abs": 3.0, "direction": "above"}],
+                [{"feature": "headcount", "shap_abs": 9.0, "direction": "below"}],
+            ]
+        }
+    )
+    agg = aggregate_top_drivers(flagged)
+    assert agg[0]["feature"] == "revenue"  # flagged as the #1 driver twice
+    assert agg[0]["count"] == 2
+    assert agg[1]["feature"] == "headcount"
+    assert agg[1]["count"] == 1
+
+
+def test_aggregate_top_drivers_empty_without_column():
+    assert aggregate_top_drivers(pd.DataFrame({"value": [1, 2]})) == []
+
+
+def test_build_driver_chart_none_when_no_drivers():
+    assert build_driver_chart([]) is None
+
+
+def test_build_driver_chart_returns_figure_for_real_drivers():
+    agg = [{"feature": "revenue", "count": 3, "avg_abs_shap": 4.2}]
+    fig = build_driver_chart(agg)
+    assert fig is not None
 
 
 # --- narrate_ensemble_disagreement -----------------------------------------

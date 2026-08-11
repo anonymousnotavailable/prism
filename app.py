@@ -2184,6 +2184,21 @@ elif st.session_state.active_section == "Overview":
                         )
                     st.dataframe(flagged, use_container_width=True)
 
+                    # SHAP-based driver chart — only renders when find_anomalies()
+                    # was able to enrich the flagged set with real per-feature
+                    # attribution (shap installed + flagged set within the cap);
+                    # aggregate_top_drivers/build_driver_chart both degrade to
+                    # "nothing to show" cleanly otherwise, so this is safe to
+                    # always attempt.
+                    driver_chart = anomaly.build_driver_chart(anomaly.aggregate_top_drivers(flagged))
+                    if driver_chart is not None:
+                        st.plotly_chart(driver_chart, use_container_width=True)
+                        st.caption(
+                            "Ranks which column most often drove a row's anomaly score "
+                            "(SHAP TreeExplainer over the IsolationForest model) — a real "
+                            "attribution, not just 'furthest from the median'."
+                        )
+
                     # AI narration — cached per fingerprint of this exact flagged
                     # set so re-viewing it (tab switch, etc.) doesn't re-spend a
                     # Gemini call; only a genuinely different detection result

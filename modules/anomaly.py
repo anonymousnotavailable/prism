@@ -24,6 +24,14 @@ except ImportError:  # the app should still load even if the package isn't insta
 
 MIN_ROWS_REQUIRED = 10
 
+# SHAP TreeExplainer attribution upgrades the naive single-feature reason
+# below into real multi-feature ranking, but it costs one explainer pass per
+# flagged row — bounded so a dataset with a huge flagged set (large N,
+# generous contamination) can't turn a detection click into a multi-second
+# hang. Above the cap, find_anomalies() silently keeps the naive reason
+# rather than partially explaining an arbitrary subset.
+SHAP_MAX_ROWS_TO_EXPLAIN = 300
+
 # Multi-method ensemble — three detectors with genuinely different
 # assumptions, so a row every method agrees on is a much stronger signal
 # than any single model's opinion:
@@ -68,6 +76,72 @@ def _reason_for_row(row: pd.Series, numeric_cols: list[str], medians: pd.Series)
     return f"{best_col} is {best_ratio:.1f}x {direction} the column median."
 
 
+def shap_is_available() -> bool:
+    """Whether the `shap` package can be imported. Checked lazily (not at
+    module import time) since it's a heavier optional dependency than
+    scikit-learn — anomaly detection itself must keep working without it.
+    """
+    try:
+        import shap  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _shap_matrix_for_rows(model, numeric_df: pd.DataFrame) -> Optional["np.ndarray"]:
+    """Per-feature SHAP attribution for every row in numeric_df, using
+    shap's TreeExplainer against the fitted IsolationForest.
+
+    Returns an (n_rows, n_features) array, or None if shap isn't installed
+    or the explanation fails for any reason (version mismatch, degenerate
+    input, ...) — this is a best-effort enrichment, never a hard dependency,
+    so any failure here must fall back to the naive median-ratio reason
+    rather than propagate.
+    """
+    try:
+        import shap
+
+        explainer = shap.TreeExplainer(model)
+        values = explainer.shap_values(numeric_df)
+        values = np.asarray(values)
+        if values.ndim != 2 or values.shape != (len(numeric_df), numeric_df.shape[1]):
+            return None
+        return values
+    except Exception:
+        return None
+
+
+def _shap_reason_and_drivers(
+    shap_row: "np.ndarray", columns: list[str], row: pd.Series, medians: pd.Series, top_k: int = 3
+) -> tuple[str, list[dict]]:
+    """Turn one row's SHAP vector into (reason string, ranked driver list).
+
+    Ranks features by |SHAP value| — how much each one actually pushed this
+    row's anomaly score, not just which is numerically furthest from the
+    median (the naive heuristic conflates "far from median" with "why the
+    model flagged it," which are the same thing only when a single feature
+    dominates). Direction (above/below median) is still reported the same
+    way as the naive reason for readability.
+    """
+    order = np.argsort(-np.abs(shap_row))[:top_k]
+    drivers: list[dict] = []
+    parts: list[str] = []
+    for i in order:
+        col = columns[i]
+        value, median = row[col], medians[col]
+        shap_abs = float(abs(shap_row[i]))
+        if pd.isna(value) or pd.isna(median) or median == 0:
+            direction = "unusual"
+            parts.append(f"{col} (unusual value)")
+        else:
+            direction = "above" if value > median else "below"
+            ratio = abs(value / median)
+            parts.append(f"{col} is {ratio:.1f}x {direction} median")
+        drivers.append({"feature": col, "shap_abs": shap_abs, "direction": direction})
+    reason = "; ".join(parts) if parts else "Unusual combination of values across numeric columns."
+    return reason, drivers
+
+
 def find_anomalies(
     df: pd.DataFrame, column_types: dict[str, str], contamination: float = 0.05
 ) -> tuple[Optional[pd.DataFrame], Optional[str]]:
@@ -78,6 +152,14 @@ def find_anomalies(
     "no anomalies found" result, not an error. error is set only when
     detection couldn't run at all (no numeric columns, missing dependency,
     or too few rows).
+
+    When `shap` is installed and the flagged set is within
+    SHAP_MAX_ROWS_TO_EXPLAIN, 'anomaly_reason' is upgraded from a naive
+    single-feature heuristic to real multi-feature SHAP attribution, and an
+    'anomaly_top_drivers' column is added (ranked [{feature, shap_abs,
+    direction}, ...] per row) for the aggregate driver chart. Falls back to
+    the naive reason with no extra column when shap is unavailable, the
+    flagged set is too large, or the explanation fails for any reason.
     """
     if IsolationForest is None:
         return None, "scikit-learn isn't installed. Run `pip install -r requirements.txt` and restart the app."
@@ -105,11 +187,79 @@ def find_anomalies(
         return df.iloc[0:0].copy(), None  # empty frame — a valid "no anomalies" result
 
     medians = numeric_df.median()
+    columns = list(numeric_df.columns)
     flagged = df.loc[flagged_idx].copy()
     flagged["anomaly_reason"] = [
-        _reason_for_row(numeric_df.loc[idx], list(numeric_df.columns), medians) for idx in flagged_idx
+        _reason_for_row(numeric_df.loc[idx], columns, medians) for idx in flagged_idx
     ]
+
+    if len(flagged_idx) <= SHAP_MAX_ROWS_TO_EXPLAIN:
+        shap_matrix = _shap_matrix_for_rows(model, numeric_df.loc[flagged_idx])
+        if shap_matrix is not None:
+            reasons, drivers_col = [], []
+            for pos, idx in enumerate(flagged_idx):
+                reason, drivers = _shap_reason_and_drivers(
+                    shap_matrix[pos], columns, numeric_df.loc[idx], medians
+                )
+                reasons.append(reason)
+                drivers_col.append(drivers)
+            flagged["anomaly_reason"] = reasons
+            flagged["anomaly_top_drivers"] = drivers_col
+
     return flagged, None
+
+
+def aggregate_top_drivers(flagged: Optional[pd.DataFrame], top_n: int = 8) -> list[dict]:
+    """Roll up per-row SHAP driver lists (from `find_anomalies`'s
+    'anomaly_top_drivers' column) into "which features drive anomalies
+    across this whole flagged set" — how many rows named this feature as a
+    top driver, and its average |SHAP value| when it did.
+
+    Returns [] if the column is missing (SHAP enrichment wasn't available
+    for this result) rather than raising — the aggregate chart is optional
+    polish, not a hard requirement of anomaly detection.
+    """
+    if flagged is None or "anomaly_top_drivers" not in flagged.columns:
+        return []
+
+    counts: dict[str, int] = {}
+    magnitude_sums: dict[str, float] = {}
+    for drivers in flagged["anomaly_top_drivers"]:
+        if not isinstance(drivers, list) or not drivers:
+            continue
+        top = drivers[0]  # each row's single strongest driver
+        feature = top["feature"]
+        counts[feature] = counts.get(feature, 0) + 1
+        magnitude_sums[feature] = magnitude_sums.get(feature, 0.0) + top["shap_abs"]
+
+    rows = [
+        {"feature": feature, "count": count, "avg_abs_shap": magnitude_sums[feature] / count}
+        for feature, count in counts.items()
+    ]
+    rows.sort(key=lambda r: (r["count"], r["avg_abs_shap"]), reverse=True)
+    return rows[:top_n]
+
+
+def build_driver_chart(agg_drivers: list[dict]):
+    """Horizontal bar chart: how often each feature was a flagged row's
+    top SHAP driver. None when there's nothing to show — callers should
+    skip rendering the chart entirely rather than showing an empty plot.
+    """
+    if not agg_drivers:
+        return None
+
+    import plotly.express as px
+
+    ordered = sorted(agg_drivers, key=lambda r: r["count"])
+    fig = px.bar(
+        x=[r["count"] for r in ordered],
+        y=[r["feature"] for r in ordered],
+        orientation="h",
+        labels={"x": "Rows where this was the top driver", "y": "Feature"},
+        title="Anomaly Detection — top contributing features (SHAP)",
+    )
+    fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+    return fig
 
 
 def fingerprint_flagged(flagged: Optional[pd.DataFrame]) -> str:
