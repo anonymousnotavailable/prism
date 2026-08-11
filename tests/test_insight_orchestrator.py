@@ -19,6 +19,7 @@ from modules.insight_orchestrator import (
     proactive_alert_text,
     proactive_alert_text_tier2,
     severity_icon,
+    suggest_next_step,
     verify_narration,
 )
 
@@ -894,3 +895,143 @@ def test_format_top_text_empty():
 def test_severity_icon_covers_known_values():
     assert severity_icon("high") != severity_icon("low")
     assert severity_icon("unknown") == "⚪"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# suggest_next_step — one-click "what to do next" per ranked ClaimGroup
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _auto_insights_raw_binary_pair():
+    return [
+        {
+            "category": "correlation",
+            "severity": "high",
+            "column": "channel ↔ revenue",
+            "metric": "diff=340",
+            "message": "'revenue' differs strongly by 'channel'.",
+        },
+    ]
+
+
+def _causal_att_raw_for_channel_revenue():
+    return {
+        "ok": True, "att": 5.0, "ci_low": 1.0, "ci_high": 9.0,
+        "n_treated": 20, "n_control": 20, "n_matched": 18, "match_rate": 0.9,
+        "treatment_col": "channel", "treated_value": "online", "control_value": "offline",
+        "outcome_col": "revenue", "covariates": ["tenure"],
+        "balance_before": [], "balance_after": [], "warnings": [],
+    }
+
+
+def _group_for(result, subjects):
+    return next(g for g in result.groups if g.subjects == frozenset(subjects))
+
+
+def test_suggest_next_step_causal_followup_for_binary_numeric_pair():
+    result = orchestrate_insights(
+        {"auto_insights": _auto_insights_raw_binary_pair(), "anomaly": _anomaly_raw()}
+    )
+    group = _group_for(result, {"channel", "revenue"})
+    step = suggest_next_step(
+        group,
+        column_types={"channel": "categorical", "revenue": "numeric", "tenure": "numeric"},
+        binary_columns={"channel"},
+    )
+    assert step is not None
+    assert step["tool"] == "Causal Effect Estimator"
+    assert step["location"] == "on_page"
+    assert step["prefill"] == {"causal_treatment_col": "channel", "causal_outcome_col": "revenue"}
+
+
+def test_suggest_next_step_none_once_causal_att_already_covers_the_pair():
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw_binary_pair(),
+            "causal_att": _causal_att_raw_for_channel_revenue(),
+        }
+    )
+    group = _group_for(result, {"channel", "revenue"})
+    step = suggest_next_step(
+        group,
+        column_types={"channel": "categorical", "revenue": "numeric"},
+        binary_columns={"channel"},
+    )
+    assert step is None
+
+
+def test_suggest_next_step_stats_lab_for_hypothesis_sweep_pair():
+    result = orchestrate_insights(
+        {"auto_insights": _auto_insights_raw(), "hypothesis_sweep": _hypothesis_sweep_raw()}
+    )
+    group = _group_for(result, {"spend", "revenue"})
+    step = suggest_next_step(
+        group,
+        column_types={"spend": "numeric", "revenue": "numeric"},
+        binary_columns=set(),
+    )
+    assert step is not None
+    assert step["tool"] == "Stats Lab"
+    assert step["location"] == "Stats Lab"
+    assert step["prefill"] == {"stats_col_a": "revenue", "stats_col_b": "spend"}
+
+
+def _hypothesis_sweep_raw_binary_pair():
+    """The realistic source of a binary/numeric ClaimGroup: auto_insights and
+    confounder only ever compare numeric-numeric pairs (see modules/
+    auto_insights.py's corr() sweep), so a categorical-vs-numeric pair like
+    channel/revenue can only reach the orchestrator via the hypothesis
+    sweep, which does test categorical-vs-numeric combinations (Welch's
+    t-test for a 2-group categorical)."""
+    return {
+        "tested": [
+            {
+                "col_a": "channel", "col_b": "revenue", "test": "ttest",
+                "test_label": "Welch's t-test", "statistic": 18.4, "p_value": 0.0000001,
+                "p_adj": 0.0000004, "significant": True, "effect_size": 1.9,
+                "effect_size_name": "Cohen's d", "effect_size_label": "large", "n": 300,
+            },
+        ],
+    }
+
+
+def test_suggest_next_step_causal_followup_reachable_from_hypothesis_sweep_alone():
+    # Regression guard: the only realistic detector that ever produces a
+    # binary/numeric subject pair is the hypothesis sweep (auto_insights and
+    # confounder are numeric-numeric only) — Rule 1 must not be gated to a
+    # specific source detector or it can never actually fire in the app.
+    result = orchestrate_insights(
+        {"hypothesis_sweep": _hypothesis_sweep_raw_binary_pair(), "anomaly": _anomaly_raw()}
+    )
+    group = _group_for(result, {"channel", "revenue"})
+    step = suggest_next_step(
+        group,
+        column_types={"channel": "categorical", "revenue": "numeric", "tenure": "numeric"},
+        binary_columns={"channel"},
+    )
+    assert step is not None
+    assert step["tool"] == "Causal Effect Estimator"
+    assert step["prefill"] == {"causal_treatment_col": "channel", "causal_outcome_col": "revenue"}
+
+
+def test_suggest_next_step_none_for_single_subject_group():
+    result = orchestrate_insights({"anomaly": _anomaly_raw(), "drift": _drift_raw()})
+    group = result.top[0]
+    assert len(group.subjects) <= 1
+    step = suggest_next_step(group, column_types={}, binary_columns=set())
+    assert step is None
+
+
+def test_suggest_next_step_none_when_pair_has_no_binary_column_and_no_sweep():
+    # Two correlated numeric columns, no hypothesis-sweep coverage and no
+    # binary column in the pair — nothing new to route to.
+    result = orchestrate_insights(
+        {"auto_insights": _auto_insights_raw(), "anomaly": _anomaly_raw()}
+    )
+    group = _group_for(result, {"spend", "revenue"})
+    step = suggest_next_step(
+        group,
+        column_types={"spend": "numeric", "revenue": "numeric"},
+        binary_columns=set(),
+    )
+    assert step is None

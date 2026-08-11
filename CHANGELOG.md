@@ -2,6 +2,40 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 25)
+
+### Added
+- **Agent Summary: one-click "recommended next step"** (`modules/
+  insight_orchestrator.py`, `app.py`) — the Agent Summary panel already
+  ranks "what matters most" across every detector that's fired this
+  session, but until now that ranking was read-only: the user still had
+  to re-navigate and re-pick the same columns by hand to act on it. New
+  `suggest_next_step()` inspects each ranked ClaimGroup and proposes one
+  concrete, rule-based follow-up action — no Gemini call, deterministic
+  and free. Two routes: (1) a binary/numeric pair some detector already
+  flagged as related, with no causal estimate yet, gets a "Prefill Causal
+  Estimator" button that sets `causal_treatment_col`/`causal_outcome_col`
+  before the widget renders (same session-state-preload pattern Run 23's
+  Explore Mode click-through and Auto Analyst's Stats Lab hand-off
+  already established); (2) a pair the automated hypothesis sweep flagged
+  as FDR-significant gets an "Open in Stats Lab" button, prefilling
+  `stats_col_a`/`stats_col_b`. Deliberately detector-agnostic — auto_
+  insights and confounder detection only ever compare numeric-numeric
+  pairs, so in practice the binary/numeric shape is reached through the
+  hypothesis sweep's categorical-vs-numeric tests; a regression test
+  locks in that this path is reachable through a realistic detector
+  combination, not just a hand-built fixture. Mirrors the Causal Effect
+  Estimator panel's own render gate (needs ≥2 numeric columns total)
+  so it never prefills a widget that isn't actually on the page.
+  6 new tests (`tests/test_insight_orchestrator.py`), full suite
+  454 → 460 green. Live-verified end to end with Playwright at desktop
+  1440px and mobile 390px, both dark and Arctic (light) theme: uploaded
+  a synthetic dataset with a genuine binary/numeric relationship, ran the
+  Hypothesis Sweep, returned to Overview, clicked the suggested button,
+  and confirmed the Causal Effect Estimator's Treatment/Outcome selects
+  actually read back `channel` / `revenue` with covariates pre-populated
+  in all four viewport/theme combinations — zero console errors.
+
 ## 2026-08-11 (Run 24)
 
 ### Added

@@ -821,3 +821,98 @@ def proactive_alert_text_tier2(result: Optional[OrchestrationResult], last_alert
 def severity_icon(severity: str) -> str:
     """Emoji icon for UI display — mirrors modules.auto_insights.severity_icon."""
     return {"high": "\U0001F534", "medium": "\U0001F7E1", "low": "\U0001F535"}.get(severity, "⚪")
+
+
+# ── Agentic next-step suggestion ─────────────────────────────────────────
+#
+# The Agent Summary panel (app.py) already ranks "what matters most" across
+# every detector that's fired this session — but a ranked list is still
+# something the user has to read and then go *act on* manually: re-navigate
+# to another tab, re-pick the same two columns from a dropdown, remember
+# which test applies. This turns the top of that list into one concrete,
+# one-click action per group: which of Prism's own tools is the natural
+# next thing to point at these exact columns, and why — mirroring the same
+# "prefill the target widget's session_state, then st.rerun()" pattern
+# app.py's suggest_followup_hypothesis → Stats Lab button already
+# established for Auto Analyst, just generalized to every detector this
+# module already cross-references instead of one.
+#
+# Deliberately conservative: only fires when there's a genuinely different
+# next tool to try, never re-suggests an analysis that's already been run
+# for this exact pair (a causal_att claim on the same subjects means the
+# Causal Effect Estimator already covered it), and returns None — meaning
+# "nothing new to suggest here" — far more often than not. No Gemini call;
+# this is pure rule-based routing over already-computed claims, so it's
+# free, instant, and fully deterministic (same testability argument as the
+# rest of this module).
+
+def suggest_next_step(group: ClaimGroup, column_types: dict, binary_columns) -> Optional[dict]:
+    """Propose one concrete follow-up action for a ranked ClaimGroup, or
+    None if nothing new is worth suggesting.
+
+    column_types: {column_name: "numeric" | "categorical" | ...} for the
+    active dataset (st.session_state.column_types in app.py).
+    binary_columns: iterable of column names with exactly 2 unique values
+    (the same set app.py already computes to gate the Causal Effect
+    Estimator — a column has to be binary to serve as a "treatment").
+
+    Returns a dict shaped {"tool", "location", "reason", "prefill",
+    "button_label"} or None. "location" is either "on_page" (the target
+    widget already renders on the same Overview tab as the Agent Summary,
+    so no tab switch is needed — just prefill and let the user scroll) or
+    a nav tab name to jump to via st.session_state.jump_to_tab.
+    """
+    subjects = sorted(group.subjects)
+    if len(subjects) != 2:
+        return None
+    a, b = subjects
+    detectors = {c.detector for c in group.claims}
+    binary_columns = set(binary_columns)
+
+    # Rule 1 — a binary/numeric pair some detector has already flagged as
+    # related, but nothing has estimated an actual causal effect for it
+    # yet: point at the Causal Effect Estimator (already rendered further
+    # down the same Overview tab), prefilled treatment/outcome. Detector-
+    # agnostic on purpose: auto_insights and confounder only ever compare
+    # numeric-numeric pairs (see modules/auto_insights.py's corr() sweep),
+    # so in practice this pair shape almost always comes from the
+    # hypothesis sweep, which does test categorical-vs-numeric pairs — but
+    # nothing here assumes a specific source, so a future detector that
+    # flags a binary/numeric pair picks this up for free.
+    if "causal_att" not in detectors:
+        binary = [c for c in (a, b) if c in binary_columns]
+        numeric = [c for c in (a, b) if c not in binary and column_types.get(c) == "numeric"]
+        # Mirror the Causal Effect Estimator panel's own render gate (app.py:
+        # needs >=2 numeric columns total, one to serve as outcome and at
+        # least one other available as a covariate) — otherwise this would
+        # prefill a widget that never actually renders.
+        total_numeric = sum(1 for t in column_types.values() if t == "numeric")
+        if len(binary) == 1 and len(numeric) == 1 and total_numeric >= 2:
+            treatment, outcome = binary[0], numeric[0]
+            return {
+                "tool": "Causal Effect Estimator",
+                "location": "on_page",
+                "reason": (
+                    f"'{treatment}' is binary and moves with '{outcome}' — the Causal Effect "
+                    "Estimator below can test whether that's a real effect, not just an association."
+                ),
+                "prefill": {"causal_treatment_col": treatment, "causal_outcome_col": outcome},
+                "button_label": f"Prefill Causal Estimator: {treatment} → {outcome}",
+            }
+
+    # Rule 2 — a pair the automated hypothesis sweep flagged as still
+    # significant after FDR correction: point at Stats Lab for the full
+    # single-pair test detail and assumption-check warnings, prefilled.
+    if "hypothesis_sweep" in detectors:
+        return {
+            "tool": "Stats Lab",
+            "location": "Stats Lab",
+            "reason": (
+                f"The automated hypothesis sweep flagged '{a}' vs '{b}' as significant even after "
+                "correcting for every other test in the sweep — open the full detail in Stats Lab."
+            ),
+            "prefill": {"stats_col_a": a, "stats_col_b": b},
+            "button_label": f"Open in Stats Lab: {a} vs {b}",
+        }
+
+    return None

@@ -1611,3 +1611,89 @@ sandbox). **Recommended for Run 25: a fresh Phase 2 web research sweep**
 (Excel ingestion, open since Run 20), so per this routine's own stated
 rule, reusing the backlog is no longer the right call; Run 25 should
 generate new evidence-backed candidates instead.
+
+## Run 25 — 2026-08-11
+
+Ran a fresh Phase 2 web sweep as Run 24 recommended (`.prism/
+research_2026-08-11-run25.md`). Three independent source classes
+converged on the same point: competitor tools (Hex/Deepnote/Julius/
+ChatGPT-ADA) differentiate on proactively suggesting next actions, not
+just answering what's asked; recent agentic-EDA papers (DataSage, QUIS)
+frame "routing findings into concrete next steps" as the differentiator
+over a flat findings list; and reading Prism's own `insight_orchestrator.py`
+confirmed no such routing existed — the Agent Summary's ranked
+`ClaimGroup` list had no action/next-step field and no button anywhere
+under it.
+
+**Selected: Agent Summary → one-click "recommended next step."** New
+`suggest_next_step()` in `modules/insight_orchestrator.py` proposes one
+concrete follow-up per ranked finding: a binary/numeric pair with no
+causal estimate yet gets a "Prefill Causal Estimator" button (same
+Overview tab, session-state preload before the widget renders); a pair
+the Hypothesis Sweep flagged as FDR-significant gets an "Open in Stats
+Lab" button (cross-tab jump via the existing `jump_to_tab` mechanism).
+Pure rule-based routing over already-computed claims — no Gemini call.
+Satisfies this cycle's mandatory agentic-AI theme.
+
+**Design mistake caught before shipping, logged for future runs to
+avoid repeating**: the first draft gated the causal-estimator rule to
+`auto_insights`/`confounder` claims specifically. Live Playwright
+verification against real synthetic data immediately falsified this —
+both of those detectors only ever compare numeric-numeric pairs (auto_
+insights' `corr()` sweep is numeric-only; confounder_detection stress-
+tests auto_insights' own numeric pairs), so a binary column can only
+reach the orchestrator as a claim subject via the Hypothesis Sweep's
+categorical-vs-numeric tests. The first draft's rule was unreachable
+dead code, and the first hand-built test fixture (which fabricated an
+`auto_insights` claim with a binary/numeric pair) would have shipped it
+silently, since it never exercised the real adapter. Fixed by making the
+rule detector-agnostic (subject *shape*, not source) and adding
+`test_suggest_next_step_causal_followup_reachable_from_hypothesis_sweep_alone`,
+which goes through the real `hypothesis_sweep` adapter path. **Lesson
+for future runs**: when a new rule depends on which detector can produce
+a given claim *shape*, verify that against the actual adapter code (or a
+live browser pass), not just a fixture built to match the rule's own
+assumptions.
+
+**Result**: 6 new tests (`tests/test_insight_orchestrator.py`), full
+suite 454 → 460 green, zero regressions. Live-verified with Playwright
+(raw `chromium.launch()`, `{ force: true }` clicks to work around
+Streamlit's sticky bottom chat-input intercepting pointer events — same
+workaround noted as a standing gap in prior runs, now proven reusable)
+across all 4 required combinations: desktop 1440px and mobile 390px,
+both dark and Arctic (light) theme. Uploaded a synthetic 300-row dataset
+with a genuine binary (`channel`)/numeric (`revenue`) relationship, ran
+the Hypothesis Sweep, returned to Overview, clicked the suggested
+button, and confirmed via the rendered selectbox text (not just DOM
+presence) that Treatment column = `channel`, Outcome column = `revenue`,
+covariates = `tenure` in every combination. Zero console errors.
+Screenshots in `.prism/runs/2026-08-11-run25/`. Wrote
+`RUN_REPORT_2026-08-11-run25.md`, updated `CHANGELOG.md`.
+
+**Branch note**: this sandbox's designated git branch
+(`claude/adoring-meitner-b23s84`) has diverged from `origin/main` — the
+two share a merge-base several runs back but `origin/main` now carries
+unrelated work (SQL Lab DuckDB workbench, Atlas persona/neuron
+background) that never reached this branch, while this branch carries
+all 24 prior routine runs' work that hasn't reached `origin/main` either.
+Despite prior runs' log entries saying "pushed main," the actual `git
+push` target every prior run in this lineage used was this designated
+branch, not `origin/main` — confirmed by `git log` showing zero of the
+prior 24 runs' commits on `origin/main`. This run followed the same
+precedent: committed and pushed to `claude/adoring-meitner-b23s84`, did
+not touch `origin/main`. Reconciling the two branches is a human decision
+(likely via a PR), not something to force through automatically.
+
+**Not built (backlog, updated):** Question-guided insight generation
+(QUIS-style — user names a question, Prism plans and runs the analysis)
+— highest depth of this run's candidates but Large effort, needs a new
+planning layer, good Run 26+ candidate. The "not valid UTF-8"
+false-positive banner on some clean ASCII/UTF-8 CSVs (new this run, small
+and well-scoped — see `.prism/audit_2026-08-11-run25.md`). Light-theme
+repaint lag (cosmetic, app-wide, long-standing). Polars-backed fast path
+for very wide datasets (real ecosystem signal, but no concrete gap
+identified yet, medium risk as a second dataframe engine to maintain).
+Atlas/HUD maturity slice (capped at 1/run, not touched this run).
+**Recommended for Run 26**: either the small UTF-8-banner fix, or start
+scoping question-guided insight generation as a fixed-menu (not
+free-form) slice to keep it inside Gemini free-tier limits.

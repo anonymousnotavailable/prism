@@ -1645,6 +1645,14 @@ elif st.session_state.active_section == "Overview":
     # two detectors have actually fired this session.
     # ------------------------------------------------------------------
     orchestration = _orchestration  # computed once per rerun above, regardless of active tab
+    # Same binary-column shape the Causal Effect Estimator gates itself on
+    # (see below) — computed once here too so the Agent Summary's own
+    # "recommended next step" buttons can tell whether a flagged pair is a
+    # binary/numeric shape worth routing to that estimator.
+    _agent_summary_binary_cols = {
+        c for c, t in column_types.items()
+        if t in ("categorical", "text", "boolean") and c in working_df.columns and working_df[c].nunique(dropna=True) == 2
+    }
     if not orchestration.silent:
         with st.container(border=True):
             n_contradictions = len(orchestration.contradictions)
@@ -1688,7 +1696,7 @@ elif st.session_state.active_section == "Overview":
                     )
                     st.rerun()
 
-            for group in orchestration.top:
+            for _gi, group in enumerate(orchestration.top):
                 if group.contradiction:
                     badge = "🟠 Check this"
                 elif group.agreement:
@@ -1697,6 +1705,26 @@ elif st.session_state.active_section == "Overview":
                     badge = f"{insight_orchestrator.severity_icon(group.severity)} {group.severity.title()}"
                 subj = ", ".join(sorted(group.subjects)) if group.subjects else "Dataset-wide"
                 st.markdown(f"**{badge}** — *{subj}*  \n{group.headline}")
+
+                # Agentic next step: turn "here's what matters" into "here's
+                # the one-click thing to do about it" — prefills the target
+                # tool's own widgets (same session-state-before-instantiation
+                # preload pattern Explore Mode's "Load into Manual Builder"
+                # and Auto Analyst's Stats Lab hand-off already use) rather
+                # than just naming the tool and leaving the user to re-pick
+                # the same two columns themselves.
+                next_step = insight_orchestrator.suggest_next_step(
+                    group, column_types, _agent_summary_binary_cols
+                )
+                if next_step:
+                    st.caption(f"🧭 {next_step['reason']}")
+                    if st.button(next_step["button_label"], key=f"agent_summary_next_step_{_gi}"):
+                        for k, v in next_step["prefill"].items():
+                            st.session_state[k] = v
+                        if next_step["location"] != "on_page":
+                            st.session_state.jump_to_tab = next_step["location"]
+                        st.toast(f"Prefilled {next_step['tool']} with {subj}.")
+                        st.rerun()
 
     if st.session_state.auto_insights:
         insights_list = st.session_state.auto_insights
