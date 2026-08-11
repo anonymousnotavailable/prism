@@ -2375,3 +2375,61 @@ silent no-crash when no column qualifies as prose) all passed with zero exceptio
 
 Full reasoning, verification transcript, and Run 33 recommendation in
 `RUN_REPORT_2026-08-11-run32.md`.
+
+## Run 33 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `4311e42` (Run 32's tip) per this run's git
+constraint. No reinstall needed — 788 tests green before any changes, matching Run 32's final
+count exactly.
+
+**Phase 1 audit finding, fixed first (small, targeted):** confirmed Run 32's flagged bug — the
+Text Analytics panel (and Bayesian A/B, Power Analysis, Survival Analysis) all sat nested inside
+Stats Lab's `if len(testable_cols) < 2: <empty state> else: <everything>` gate, even though Text
+Analytics operates on a free-text column, not numeric/categorical ones, so a dataset with 1
+testable column plus a perfectly good text column couldn't reach it at all. Fixed by moving the
+Text Analytics block (`app.py`) out of that `else` to its own independent
+`text_analytics.eligible_text_columns()`-gated block at the Stats Lab section level, dedented one
+level, with a comment explaining why. Left Bayesian A/B / Power Analysis / Survival Analysis inside
+the gate as-is — they legitimately need numeric/categorical columns, unlike Text Analytics. 788
+tests still green after the fix (pure UI restructuring, no behavior change to any existing test
+path). No separate audit doc needed — this was the only genuinely new bug found; logged here
+directly per the brief's allowance.
+
+**Phase 2/3 research + selection:** full detail in `.prism/research_2026-08-11-run33.md`. Fresh
+gap sweep confirmed the app's stats/ML surface is now very wide (PCA, RFM, PSM, DiD, ensemble
+anomaly detection, SHAP, conformal prediction, survival analysis, Bayesian A/B, power analysis,
+text analytics all already shipped) — most obvious feature ideas are taken. Two genuine zero-hit
+gaps survived the sweep: changepoint/CUSUM detection (carried over from Run 32) and Granger
+causality (newly identified this run — nothing in the app tests whether one time series' past
+predicts another's future, and nothing tests stationarity, despite `statsmodels` already being a
+pinned dependency).
+
+**Selected: (1) Changepoint Detection** (`modules/changepoint.py`, new module) — binary
+segmentation via a max-heap over candidate segments ranked by CUSUM statistic magnitude, with a
+permutation test per candidate split for significance (no `ruptures` dependency — pure numpy,
+matching the app's consistent no-new-deps bias; PELT's pruning is a performance optimization this
+app's row counts don't need, binary segmentation is the tractable-to-verify textbook alternative).
+Placed in the Forecasting tab immediately after STL Decomposition, reusing the same datetime/
+numeric column pickers and `forecasting.prepare_series()` output already there — no new selectors
+needed. **(2) Granger Causality** (`modules/granger_causality.py`, new module) — auto-stationarity
+via Augmented Dickey-Fuller with auto-differencing (capped at 2 diffs), AIC-selected lag order via
+`statsmodels.tsa.api.VAR.select_order()`, bidirectional test (X→Y and Y→X, since Granger causality
+isn't symmetric and a detected feedback loop is itself informative) via
+`statsmodels.tsa.stattools.grangercausalitytests`. Placed in the Forecasting tab alongside
+changepoint detection (needs a regular datetime axis, same family as STL/backtest, not a fit next
+to Overview's binary-treatment PSM/DiD panels) — new "Potential cause (X)" / "Effect (Y)" column
+pickers since it needs two numeric columns, gated on 2+ numeric columns being available.
+
+**Why these over alternatives:** both zero new pip dependencies (statsmodels already pinned for
+Granger; changepoint is pure numpy/scipy), zero Gemini calls in the core compute path (narration
+is the same opt-in click-gated layer every other module uses), M effort each, both confirmed still
+genuinely open by a fresh sweep rather than assumed from carried-over notes alone. Neither touches
+Atlas/JARVIS this run — substantively extended last run (Run 32), and neither pick has an obvious
+single "run the last thing" auto-fill shape the way Bayesian A/B / Power Analysis did (both need a
+user-chosen *pair* of columns with no clear default), so left for a dedicated Atlas-focused run.
+
+Plan: branch `feature/changepoint-detection` and `feature/granger-causality` off
+`claude/adoring-meitner-7xxgfq` (the testable_cols bugfix ships inside `feature/changepoint-
+detection` since it's the more natural home — both land in the Forecasting/Stats Lab area — rather
+than its own tiny branch), tests first, then implement, full suite must stay green, merge both with
+`--no-ff`, push.

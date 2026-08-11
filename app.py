@@ -31,6 +31,7 @@ from modules import (
     autocleaner,
     bayesian_ab,
     causal_inference,
+    changepoint,
     cleaning,
     clustering,
     confounder_detection,
@@ -189,6 +190,11 @@ _DEFAULTS = {
     "stl_decomp_error": None,  # error from the last decomposition attempt, if any
     "forecast_backtest_result": None,  # forecasting.rolling_origin_backtest() output for the Backtest panel
     "forecast_backtest_error": None,  # error from the last backtest attempt, if any
+    "changepoint_result": None,  # changepoint.detect_changepoints() output for the Changepoint Detection panel
+    "changepoint_error": None,  # error from the last changepoint detection attempt, if any
+    "changepoint_narration": None,  # cached Gemini narration of changepoint_result, avoids re-spending a call per rerun
+    "granger_result": None,  # granger_causality.test_granger_causality() output for the Granger Causality panel
+    "granger_narration": None,  # cached Gemini narration of granger_result, avoids re-spending a call per rerun
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -342,6 +348,11 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.stl_decomp_error = None
     st.session_state.forecast_backtest_result = None
     st.session_state.forecast_backtest_error = None
+    st.session_state.changepoint_result = None
+    st.session_state.changepoint_error = None
+    st.session_state.changepoint_narration = None
+    st.session_state.granger_result = None
+    st.session_state.granger_narration = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -4832,85 +4843,94 @@ elif st.session_state.active_section == "Stats Lab":
                     st.session_state.power_analysis_narration = narration
                     st.rerun()
 
-        # ------------------------------------------------------------------
-        # Text Analytics — lexicon sentiment scoring, TF-IDF keyword
-        # extraction, and NMF topic modeling over a free-text column (see
-        # modules/text_analytics.py). Only rendered when the dataset has a
-        # column that reads as actual prose (average >= 3 words/cell), not
-        # just any high-cardinality "text"-typed column — same "stay silent
-        # rather than force it" convention as the panels above.
-        # ------------------------------------------------------------------
-        _text_cols = text_analytics.eligible_text_columns(df, column_types)
-        if _text_cols:
-            st.divider()
-            st.markdown("#### 📝 Text Analytics — sentiment, keywords & topics")
-            st.caption(
-                "Reads a free-text column: a lexicon-based sentiment score per row (positive/neutral/negative, "
-                "with negation and intensifier handling), the most distinctive terms by TF-IDF weight, and a "
-                "handful of latent topics via NMF. All local compute — a fast first read, not a trained "
-                "classifier, so treat it as directional rather than precise."
-            )
-            text_col = st.selectbox("Text column", _text_cols, key="text_analytics_col")
-            if st.button("Analyze Text", key="text_analytics_run_btn"):
-                with st.spinner("Scoring sentiment, extracting terms, and fitting topics…"):
-                    st.session_state.text_analytics_result = text_analytics.analyze_text(df, text_col)
-                st.session_state.text_analytics_narration = None
-                st.rerun()  # same same-pass-staleness reason as the panels above
+    # ----------------------------------------------------------------------
+    # Text Analytics — lexicon sentiment scoring, TF-IDF keyword extraction,
+    # and NMF topic modeling over a free-text column (see
+    # modules/text_analytics.py). Deliberately OUTSIDE the testable_cols
+    # gate above: it reads column *content* via NLP, not numeric/categorical
+    # values, so a dataset with a single text column and no second
+    # numeric/categorical column to pair it with (e.g. one free-text review
+    # column plus an ID) is still a fully valid Text Analytics candidate
+    # even though it can't feed the two-column hypothesis-test picker at
+    # the top of this section. Bug found in Run 33 audit: this panel used
+    # to be nested inside the `else` above and was unreachable whenever
+    # testable_cols < 2, even with a perfectly good text column present.
+    # Only rendered when the dataset has a column that reads as actual
+    # prose (average >= 3 words/cell), not just any high-cardinality
+    # "text"-typed column — same "stay silent rather than force it"
+    # convention as the panels above.
+    # ----------------------------------------------------------------------
+    _text_cols = text_analytics.eligible_text_columns(df, column_types)
+    if _text_cols:
+        st.divider()
+        st.markdown("#### 📝 Text Analytics — sentiment, keywords & topics")
+        st.caption(
+            "Reads a free-text column: a lexicon-based sentiment score per row (positive/neutral/negative, "
+            "with negation and intensifier handling), the most distinctive terms by TF-IDF weight, and a "
+            "handful of latent topics via NMF. All local compute — a fast first read, not a trained "
+            "classifier, so treat it as directional rather than precise."
+        )
+        text_col = st.selectbox("Text column", _text_cols, key="text_analytics_col")
+        if st.button("Analyze Text", key="text_analytics_run_btn"):
+            with st.spinner("Scoring sentiment, extracting terms, and fitting topics…"):
+                st.session_state.text_analytics_result = text_analytics.analyze_text(df, text_col)
+            st.session_state.text_analytics_narration = None
+            st.rerun()  # same same-pass-staleness reason as the panels above
 
-            text_result = st.session_state.text_analytics_result
-            if text_result is None:
-                ui.render_empty_state("📝", "No text analysis yet", 'Click "Analyze Text" above to see sentiment, keywords, and topics.')
-            elif text_result.get("text_col") != text_col:
-                ui.render_empty_state("📝", "Column changed", 'Click "Analyze Text" again to analyze the newly-selected column.')
+        text_result = st.session_state.text_analytics_result
+        if text_result is None:
+            ui.render_empty_state("📝", "No text analysis yet", 'Click "Analyze Text" above to see sentiment, keywords, and topics.')
+        elif text_result.get("text_col") != text_col:
+            ui.render_empty_state("📝", "Column changed", 'Click "Analyze Text" again to analyze the newly-selected column.')
+        else:
+            sentiment_r, keywords_r, topics_r = text_result["sentiment"], text_result["keywords"], text_result["topics"]
+
+            if sentiment_r["ok"]:
+                tm1, tm2 = st.columns(2)
+                tm1.metric("Mean sentiment", f"{sentiment_r['summary']['mean']:+.2f}", help="-1 (very negative) to +1 (very positive).")
+                tm2.metric("Lexicon coverage", f"{sentiment_r['coverage']:.0%}", help="Fraction of rows with at least one recognized sentiment word.")
+                sentiment_fig = visualization.plot_sentiment_distribution(sentiment_r)
+                if sentiment_fig is not None:
+                    st.plotly_chart(sentiment_fig, use_container_width=True)
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    if sentiment_r["most_positive"]:
+                        st.caption("Most positive")
+                        for s in sentiment_r["most_positive"]:
+                            st.caption(f"({s['score']:+.2f}) {s['text']}")
+                with sc2:
+                    if sentiment_r["most_negative"]:
+                        st.caption("Most negative")
+                        for s in sentiment_r["most_negative"]:
+                            st.caption(f"({s['score']:+.2f}) {s['text']}")
             else:
-                sentiment_r, keywords_r, topics_r = text_result["sentiment"], text_result["keywords"], text_result["topics"]
+                st.info(sentiment_r["error"])
 
-                if sentiment_r["ok"]:
-                    tm1, tm2 = st.columns(2)
-                    tm1.metric("Mean sentiment", f"{sentiment_r['summary']['mean']:+.2f}", help="-1 (very negative) to +1 (very positive).")
-                    tm2.metric("Lexicon coverage", f"{sentiment_r['coverage']:.0%}", help="Fraction of rows with at least one recognized sentiment word.")
-                    sentiment_fig = visualization.plot_sentiment_distribution(sentiment_r)
-                    if sentiment_fig is not None:
-                        st.plotly_chart(sentiment_fig, use_container_width=True)
-                    sc1, sc2 = st.columns(2)
-                    with sc1:
-                        if sentiment_r["most_positive"]:
-                            st.caption("Most positive")
-                            for s in sentiment_r["most_positive"]:
-                                st.caption(f"({s['score']:+.2f}) {s['text']}")
-                    with sc2:
-                        if sentiment_r["most_negative"]:
-                            st.caption("Most negative")
-                            for s in sentiment_r["most_negative"]:
-                                st.caption(f"({s['score']:+.2f}) {s['text']}")
+            if keywords_r["ok"]:
+                terms_fig = visualization.plot_top_terms(keywords_r)
+                if terms_fig is not None:
+                    st.plotly_chart(terms_fig, use_container_width=True)
+            else:
+                st.info(keywords_r["error"])
+
+            if topics_r["ok"]:
+                topics_fig = visualization.plot_topic_shares(topics_r)
+                if topics_fig is not None:
+                    st.plotly_chart(topics_fig, use_container_width=True)
+            else:
+                st.info(topics_r["error"])
+
+            if st.session_state.text_analytics_narration:
+                st.info(st.session_state.text_analytics_narration)
+            elif st.button("✨ Explain this", key="text_analytics_narrate_btn"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is interpreting this…"):
+                    narration, narr_error = text_analytics.narrate_text_analytics(model, text_result)
+                if narr_error:
+                    st.warning(narr_error)
                 else:
-                    st.info(sentiment_r["error"])
-
-                if keywords_r["ok"]:
-                    terms_fig = visualization.plot_top_terms(keywords_r)
-                    if terms_fig is not None:
-                        st.plotly_chart(terms_fig, use_container_width=True)
-                else:
-                    st.info(keywords_r["error"])
-
-                if topics_r["ok"]:
-                    topics_fig = visualization.plot_topic_shares(topics_r)
-                    if topics_fig is not None:
-                        st.plotly_chart(topics_fig, use_container_width=True)
-                else:
-                    st.info(topics_r["error"])
-
-                if st.session_state.text_analytics_narration:
-                    st.info(st.session_state.text_analytics_narration)
-                elif st.button("✨ Explain this", key="text_analytics_narrate_btn"):
-                    model = ai_analyst.get_model()
-                    with st.spinner("Gemini is interpreting this…"):
-                        narration, narr_error = text_analytics.narrate_text_analytics(model, text_result)
-                    if narr_error:
-                        st.warning(narr_error)
-                    else:
-                        st.session_state.text_analytics_narration = narration
-                        st.rerun()
+                    st.session_state.text_analytics_narration = narration
+                    st.rerun()
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.
@@ -5069,6 +5089,77 @@ elif st.session_state.active_section == "Forecasting":
             st.markdown(forecasting.decomposition_verdict(decomp_result))
             decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
             st.plotly_chart(decomp_fig, use_container_width=True)
+
+        # --------------------------------------------------------------
+        # Changepoint Detection — where did the series' *level* actually
+        # shift, not just drift (see modules/changepoint.py). Binary
+        # segmentation with a CUSUM statistic, no `ruptures` dependency.
+        # Reuses the same datetime/numeric column pickers as the forecast
+        # above — no new selectors needed.
+        # --------------------------------------------------------------
+        st.divider()
+        st.markdown("#### 🪜 Changepoint Detection")
+        st.caption(
+            "Finds points where the series' mean level abruptly shifted (a pricing change, an "
+            "outage, a policy switch) via binary segmentation on a CUSUM statistic, with a "
+            "permutation test — and a Bonferroni-style correction across the recursive search — "
+            "deciding which candidate breaks are real. Assumes the series is roughly stable "
+            "*between* breaks; a strongly trending series with no real regime change can still "
+            "trip a false positive, since a smooth trend also produces a large cumulative sum."
+        )
+        if st.button("Detect Changepoints", key="changepoint_run_btn", use_container_width=True):
+            cp_series, cp_freq, cp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if cp_prep_error:
+                st.session_state.changepoint_result = None
+                st.session_state.changepoint_error = cp_prep_error
+            else:
+                with st.spinner(ui.get_loading_message()):
+                    cp_outcome = changepoint.detect_changepoints(cp_series)
+                if not cp_outcome.get("ok"):
+                    st.session_state.changepoint_result = None
+                    st.session_state.changepoint_error = cp_outcome.get("error")
+                else:
+                    st.session_state.changepoint_result = cp_outcome
+                    st.session_state.changepoint_error = None
+            st.session_state.changepoint_narration = None
+
+        if st.session_state.changepoint_error:
+            st.error(st.session_state.changepoint_error)
+        elif st.session_state.changepoint_result is None:
+            ui.render_empty_state(
+                "🪜", "No changepoints detected yet", 'Click "Detect Changepoints" to scan for level shifts.'
+            )
+        else:
+            cp_result = st.session_state.changepoint_result
+            st.markdown(changepoint.changepoint_verdict(cp_result))
+            cp_fig = changepoint.build_changepoint_chart(cp_result, f"{forecast_num_col} changepoints")
+            if cp_fig is not None:
+                st.plotly_chart(cp_fig, use_container_width=True)
+
+            if cp_result["changepoints"]:
+                cp_table = pd.DataFrame([
+                    {
+                        "When": cp["index_label"],
+                        "Before": cp["before_mean"],
+                        "After": cp["after_mean"],
+                        "Change": cp["delta"],
+                        "p-value": cp["p_value"],
+                    }
+                    for cp in cp_result["changepoints"]
+                ])
+                st.dataframe(cp_table, use_container_width=True, hide_index=True)
+
+            if st.session_state.changepoint_narration:
+                st.info(st.session_state.changepoint_narration)
+            elif st.button("✨ Explain this", key="changepoint_narrate_btn"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is interpreting this…"):
+                    narration, narr_error = changepoint.narrate_changepoints(model, cp_result)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.changepoint_narration = narration
+                    st.rerun()
 
 # --------------------------------------------------------------------------
 # Clustering tab — pick an algorithm (KMeans with a hybrid elbow +
