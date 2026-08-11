@@ -2,6 +2,50 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 25)
+
+### Added
+- **Experiment Design — A/B test power/sample-size calculator, and
+  underpowered-result detection** (`modules/experiment_design.py`,
+  `modules/hypothesis_sweep.py`, `app.py`) — closes a real gap flagged by
+  this run's job-market research: "A/B testing design" and "sample size /
+  power analysis" come up in essentially every data-analyst interview
+  loop, and nothing in Prism touched it. New `modules/experiment_design.py`
+  wraps statsmodels' `NormalIndPower`/`TTestIndPower` (Cohen's h / Cohen's
+  d) to answer two questions: *before* an experiment runs,
+  `sample_size_two_proportions()`/`sample_size_two_means()` compute how
+  many users per variant are needed to reliably detect a given lift;
+  *after* a test already exists in the data, `power_check_ttest()`
+  computes the achieved (post-hoc) power for a result that already ran,
+  flags it underpowered against an 80%-power target, and — when
+  underpowered — recommends the sample size a follow-up study would need.
+  `hypothesis_sweep.annotate_power()` wires this into the existing
+  Hypothesis Sweep automatically: every significant t-test row now gets a
+  "Power" badge (✅/⚠️ + achieved %) in the results table, and an
+  underpowered-findings panel explains in plain English which "significant"
+  results are actually too small a sample to trust — the same "signal
+  found, but is it real" self-verification pattern `insight_verifier` and
+  the confounder cross-check already established elsewhere in the app,
+  applied to statistical power instead of confounding or claim-grounding.
+  A standalone "🧮 Experiment Design" calculator (conversion-rate and
+  continuous-metric sub-forms, α/power/ratio controls) lives in the Stats
+  Lab tab for pre-experiment planning independent of any loaded dataset.
+  Scoped to t-tests only — chi-square/ANOVA power depends on the
+  contingency table shape / group count, not just the stored effect size,
+  and is left as a follow-on rather than approximated. Pure statsmodels,
+  zero extra Gemini calls. 32 new tests (25 in
+  `tests/test_experiment_design.py`, 7 appended to
+  `tests/test_hypothesis_sweep.py`), full suite 454 → 486 green. Live-
+  verified via Playwright at desktop (1440px) and mobile (390px) in dark
+  theme, and desktop in light (Arctic) theme — the calculator matches its
+  own unit-test reference value (20%→25% conversion lift, 1,092/group) end
+  to end through the real UI; screenshots in
+  `.prism/runs/2026-08-11-run25/`. Mobile light-theme wasn't reachable
+  this run (the theme selector lives behind the collapsed mobile sidebar,
+  which Playwright automation still can't drive — the same standing
+  mobile-viewport-controls gap logged across 7+ prior runs, not new to
+  this feature).
+
 ## 2026-08-11 (Run 24)
 
 ### Added

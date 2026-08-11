@@ -1611,3 +1611,112 @@ sandbox). **Recommended for Run 25: a fresh Phase 2 web research sweep**
 (Excel ingestion, open since Run 20), so per this routine's own stated
 rule, reusing the backlog is no longer the right call; Run 25 should
 generate new evidence-backed candidates instead.
+
+## Run 25 — 2026-08-11 — selection log (written before code merge)
+
+Local `main` branch ref was stale (pointing at an older commit, `dd20c29`)
+even though the working branch this session started on already had HEAD
+at `origin/main`'s current tip (`7396d0c`, Run 24's own merge) — fast-
+forwarded local `main` to `origin/main` before branching, same "stale
+local ref" precedent Runs 19/21/22/23/24 all hit. Cold-start dependency
+install needed again (`pip install -r requirements.txt -r
+requirements-dev.txt` then `pip install cffi` to unblock `cryptography`'s
+Rust bindings under `google-auth`) — fourth run in a row logging this
+exact fix, confirming it's a per-sandbox cold-start cost.
+
+**Phase 2 research (fresh sweep, per Run 24's explicit recommendation —
+the backlog had thinned to cosmetic-only/out-of-scope items):** searched
+agentic-EDA research (self-verifying multi-agent analysis, DataSage/QUIS-
+style insight discovery), 2026 data-analyst interview prep content, and
+competitor tooling (Julius AI/Hex/Deepnote). The clearest, most concrete
+gap: "A/B testing design" and "sample size / power analysis" show up as
+a named tested skill across virtually every 2026 data-analyst interview
+guide surveyed, and Prism's extensive statistical surface (Stats Lab,
+Hypothesis Sweep, confounder cross-check, causal inference) had nothing
+for it — no sample-size calculator, no power analysis anywhere in the
+app. `auto_analyst.suggest_followup_hypothesis` (hypothesis suggestion)
+and the Insight Orchestrator (cross-detector synthesis) already cover
+what earlier runs' research flagged for the agentic-EDA theme, so this
+run's research explicitly looked for a *new* angle rather than re-
+confirming standing backlog.
+
+**Selected: Experiment Design — A/B test power/sample-size calculator +
+post-hoc underpowered-result detection.** Single feature (not the usual
+2-3), per this run's "use fewer tokens" directive — but designed as one
+coherent unit that satisfies both the statistical-rigor filter *and* the
+cycle's required agentic-AI-analysis theme in the same piece of work,
+rather than bolting two unrelated features together to hit a quota:
+- The **planning half** (`sample_size_two_proportions()`/
+  `sample_size_two_means()`, built on statsmodels' `NormalIndPower`/
+  `TTestIndPower`) is the standalone stats-rigor piece — cross-checked
+  against known textbook reference values in tests (Cohen's d=0.5 →
+  ~64/group is a standard citation; verified to within statsmodels'
+  own computed value).
+- The **agentic half** (`hypothesis_sweep.annotate_power()`) is what
+  actually satisfies this cycle's theme requirement: it's a fully
+  automatic follow-up question the sweep now asks about its own
+  significant findings ("was this test even capable of detecting an
+  effect this size?"), in the same self-verifying-agent pattern
+  `insight_verifier` and the confounder cross-check already established
+  — extending that pattern to statistical power instead of numeric-claim
+  grounding or confounding.
+Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).
+
+**Why not chi-square/ANOVA power too:** chi-square power depends on the
+contingency table's shape (rows × cols), not just the stored Cramer's V;
+ANOVA power depends on group count, not just eta-squared. Neither maps
+onto a single stored effect-size number the way t-test Cohen's d does —
+approximating either would mean silently wrong power estimates. Scoped
+to t-tests only and documented as an explicit, deliberate limitation in
+`annotate_power()`'s docstring rather than left unstated.
+
+**Result:** 32 new tests (25 in `tests/test_experiment_design.py`, 7
+appended to `tests/test_hypothesis_sweep.py` for the `group_sizes`/
+`annotate_power()` wiring), full suite 454 → 486 green, zero regressions.
+Live-verified via Playwright: desktop (1440px) dark **and** light
+(Arctic) theme, mobile (390px) dark theme — the calculator's own output
+(20%→25% conversion lift → 1,092 users/group) matched its unit test's
+reference value exactly through the real running UI. Mobile nav required
+falling back to JS-dispatched clicks (`element.click()` via
+`page.evaluate`) for the "Advanced Tools" popover and Stats Lab button —
+the sticky bottom Atlas command bar intercepts real pointer clicks on
+mobile, the same standing gap logged 7+ prior runs; JS clicks worked
+but don't trigger the popover's real outside-click-to-close behavior, so
+an explicit Escape + off-target mouse click was needed to close it before
+screenshotting. Mobile **light** theme wasn't reachable this run — the
+theme selectbox lives inside the collapsed mobile sidebar's "App
+Preferences" expander, and neither the sidebar-open control nor the
+selectbox opened via the JS-click workaround that unblocked the main nav
+popover; left as the mobile-automation gap's next unresolved corner
+rather than spending further budget chasing it. Screenshots in
+`.prism/runs/2026-08-11-run25/`. Verified a fresh `main` checkout launches
+cleanly (HTTP 200, no traceback in server log, `486/486` passing) before
+finishing. Merged `feature/experiment-design-power-lab` into `main` with
+`--no-ff`, updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run25.md`,
+pushed `main`.
+
+**Not built (backlog, updated):** chi-square/ANOVA post-hoc power
+(deliberately out of scope this run, see above — a real follow-on, not a
+dead end). Mobile-viewport sidebar/theme-toggle Playwright automation
+(now specifically: the collapsed-sidebar "App Preferences" expander +
+selectbox, on top of the already-standing sticky-bottom-bar gap — 8+ runs
+open). Light-theme repaint lag (cosmetic, app-wide, unchanged this run).
+Atlas/HUD maturity (out of scope per run brief, untouched this run).
+Live-Gemini verification (structural, no API key in this sandbox — 24th
+consecutive run without one). **Recommended for Run 26:** either extend
+`annotate_power()` to chi-square (needs the contingency table's actual
+shape threaded through the sweep row, not just Cramer's V — a real, well-
+scoped follow-on to this run's feature), or a genuinely new agentic-AI-
+analysis feature if chi-square power is judged too narrow on its own —
+Prism's detector/orchestrator surface is now broad enough that the next
+highest-leverage move may be UX consolidation (e.g. a single "run
+everything" agentic entry point across Auto Insights/Hypothesis Sweep/
+Anomaly Drivers/Insight Orchestrator) rather than another new detector.
+
+**Run 25 summary:** Shipped Experiment Design (A/B power/sample-size
+calculator + automatic underpowered-result detection in Hypothesis
+Sweep), closing the "A/B testing" interview-skill gap this run's fresh
+web research surfaced. 32 new tests, 454→486 green, zero regressions.
+Verified live via Playwright (desktop dark/light, mobile dark); mobile
+light-theme automation remains blocked by the sidebar/popover gap.
+Merged to `main` and pushed.
