@@ -4,7 +4,11 @@ Atlas — Prism's JARVIS-style voice operator.
 Architecture (the intent router is the core; everything else hangs off it):
 
     utterance (voice or typed)
-        --> classify_intent(): ONE Gemini call, strict JSON out
+        --> classify_intent_fast(): zero-Gemini keyword match for a small,
+            context-free command set (navigate, demo/story mode, next/
+            previous, cancel) — returns None on no match
+        --> classify_intent(): ONE Gemini call, strict JSON out (only
+            reached when the fast path didn't match)
         --> {"type": APP_COMMAND | DATA_QUESTION | CHITCHAT, "action", "target",
              "question", "spoken_reply"}
 
@@ -126,6 +130,74 @@ Rules:
 - spoken_reply must be 1-2 sentences, said aloud — keep it short; detail belongs on
   screen, not in speech.
 """
+
+# ═══════════════════════════════════════════════════════════════════════
+# KEYWORD FAST PATH — a small, deliberately-conservative set of utterances
+# with exactly one correct interpretation regardless of conversation
+# context, matched with zero Gemini calls. Everything context-sensitive
+# (the router's own "go"/"do it"/"start" confirm-vs-execute_plan overlap,
+# data questions, chitchat, anything not an exact phrasing below) falls
+# through to classify_intent()'s Gemini call unchanged — this never
+# guesses. Cuts latency and API quota for the handful of commands used
+# every session (navigation, demo/story mode, slide stepping, cancel) and,
+# as a side effect, makes those commands exercisable in this sandbox
+# without a live GEMINI_API_KEY (see Run 16's routine_log note).
+# ═══════════════════════════════════════════════════════════════════════
+_FAST_PATH_TAB_ALIASES = {name.lower(): name for name in TAB_NAMES}
+
+_NAVIGATE_RE = re.compile(
+    r"^(?:go to|open|navigate to|show me)\s+(?:the\s+)?(.+?)(?:\s+tab)?$", re.I
+)
+
+_FAST_PATH_EXACT = {
+    "start demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "run demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "start story mode": {"action": "start_story_mode", "spoken_reply": "Let's tell this dataset's story."},
+    "story mode": {"action": "start_story_mode", "spoken_reply": "Let's tell this dataset's story."},
+    "next": {"action": "next", "spoken_reply": "Next."},
+    "next slide": {"action": "next", "spoken_reply": "Next."},
+    "previous": {"action": "previous", "spoken_reply": "Back one."},
+    "previous slide": {"action": "previous", "spoken_reply": "Back one."},
+    "go back": {"action": "previous", "spoken_reply": "Back one."},
+    "cancel": {"action": "cancel", "spoken_reply": "Cancelled."},
+    "stop": {"action": "cancel", "spoken_reply": "Cancelled."},
+    "never mind": {"action": "cancel", "spoken_reply": "Cancelled."},
+}
+
+
+def _fast_intent(action: str, target: Optional[str], spoken_reply: str) -> dict:
+    return {
+        "type": "APP_COMMAND", "action": action, "target": target,
+        "question": None, "spoken_reply": spoken_reply,
+    }
+
+
+def classify_intent_fast(utterance: Optional[str]) -> Optional[dict]:
+    """Zero-Gemini-call match for the conservative fast-path set above.
+    Returns a fully-formed intent dict (same shape classify_intent()
+    returns) on a match, else None so the caller falls back to the full
+    Gemini router. Never raises.
+    """
+    text = (utterance or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"[.!?]+$", "", text).strip().lower()
+    if not text:
+        return None
+
+    exact = _FAST_PATH_EXACT.get(text)
+    if exact:
+        return _fast_intent(exact["action"], None, exact["spoken_reply"])
+
+    match = _NAVIGATE_RE.match(text)
+    if match:
+        target = _FAST_PATH_TAB_ALIASES.get(match.group(1).strip())
+        if target:
+            return _fast_intent("navigate", target, f"Opening {target}.")
+
+    return None
+
 
 FALLBACK_INTENT = {
     "type": "CHITCHAT",
@@ -331,8 +403,10 @@ def handle_utterance(utterance: str) -> dict:
     st.session_state.chat_history.append({"role": "user", "content": utterance})
     set_state("processing")
 
-    context = _recent_context()
-    intent = classify_intent(utterance, context)
+    intent = classify_intent_fast(utterance)
+    if intent is None:
+        context = _recent_context()
+        intent = classify_intent(utterance, context)
 
     if intent["type"] == "APP_COMMAND":
         handled = dispatch(intent["action"], intent.get("target"))
