@@ -2,6 +2,44 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 15)
+
+### Added
+- **Fact-check badges for the Report Writer's HTML/PDF exports**
+  (`modules/report_writer.py`) — `build_report_content()` calls
+  `ai_analyst.generate_key_insights()` directly, the third independent
+  Gemini call site sharing that function's "quote a number straight from
+  the data" findings shape (alongside Auto Analyst's Run Full Analysis,
+  verified since Run 10, and the AI Analyst tab's Generate Key Insights,
+  verified since Run 14) — and the only one whose output leaves the app as
+  a downloadable artifact a user might hand to someone else, which made it
+  the most consequential of the three to still have zero fact-checking.
+  `build_report_content()` now runs `insight_verifier.verify_findings()`
+  over the generated findings and attaches the result as
+  `findings_verification`. `generate_html_report()` badges each finding
+  VERIFIED/UNCONFIRMED (self-contained CSS — the export has no Streamlit
+  theme loaded) plus a one-line fact-check caption; `generate_pdf_report()`
+  tags each finding with a plain-ASCII `[VERIFIED]` /
+  `[UNCONFIRMED - verify before citing]` suffix (fpdf2's core Helvetica
+  font can't render the checkmark glyphs the HTML badges use) plus the
+  same caption in italic. Both renderers degrade gracefully when
+  verification is absent. Zero extra Gemini calls. 12 new tests in
+  `tests/test_report_writer.py` (new file — this module had none before).
+- **Facet Row (dual-axis small multiples) for the Manual Chart Builder**
+  (`modules/visualization.py`, Visualize tab) — continues Run 13/14's
+  grammar-of-graphics slice (Color, Aggregation, Facet columns) with the
+  second facet dimension Run 14's own report recommended next: a true
+  row x column small-multiples grid instead of a single wrapped strip.
+  `build_manual_chart()` and `plot_scatter()` gain an optional `facet_row`
+  parameter using Plotly Express's native `facet_row`, validated the same
+  way `facet` already is. New `MAX_FACET_ROW_CATEGORIES` (4, tighter than
+  the column facet's 6 since the two dimensions multiply), capped
+  independently via a generalized `_cap_facet_categories(df, facet,
+  max_categories)` so each dimension's own frequency ranking is respected.
+  Still selectbox-based, no drag-and-drop/custom JS component — same
+  no-architecture-rewrite-risk approach as the prior two runs. New "Facet
+  rows by (optional)" selectbox in `app.py`. 14 new tests.
+
 ## 2026-08-11 (Run 14)
 
 ### Added

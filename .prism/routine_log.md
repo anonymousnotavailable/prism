@@ -1043,3 +1043,50 @@ Merged `feature/key-insights-verification-badges` and
 — matches the convention recent runs established of only pushing `main`).
 Updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run14.md`. Pushed
 `main` to `origin`.
+
+## Run 15 — 2026-08-11
+
+Orientation found local `main` was 76 commits stale (last synced at Run 7)
+— fast-forwarded to `origin/main` (Run 14's tip, `6d273ea`) before any work
+started; no work was lost since prior sessions branched from the real tip.
+Modest web-research check per this run's instructions (not the full ranked
+sweep — 7th consecutive run reusing the standing backlog) surfaced nothing
+materially new in agentic-EDA/Hex/Deepnote/DuckDB territory; fell back to
+the standing backlog as every run since Run 9 has.
+
+**Shipped two features:** (1) extended `insight_verifier` fact-check badges
+to `report_writer`'s exported HTML/PDF reports — the third
+`generate_key_insights()` call site and the only one whose output leaves
+the app as a downloadable artifact, closing the exact gap this run's
+instructions named as the strongest agentic-theme candidate; verified live
+by generating a real HTML+PDF report with a fake model (`.prism/runs/
+2026-08-11-run15/demo_report_with_badges.{html,pdf}`) showing a genuine
+VERIFIED/UNCONFIRMED split, since the sandbox still has no live Gemini key
+(15th consecutive run). (2) Facet Row — the second facet dimension for the
+Manual Chart Builder (row x column grid via Plotly's native `facet_row`,
+capped tighter than the column facet since dimensions multiply), continuing
+Run 13/14's chart-builder backlog slice per Run 14's own recommendation.
+Full suite 310 -> 336/336 green. Live-verified via Playwright (desktop
+1440px dark/light, mobile 390px dark; `samples/indian_startup_funding_
+messy.csv`): built a `sector x founded_year` bar chart faceted by
+`funding_round` (columns) and `city` (rows), confirmed a real grid render
+in both desktop themes and no horizontal overflow on mobile, zero console
+errors. Hit the known `_cffi_backend` gap and the known Playwright/Chromium
+browser-revision mismatch (pinned `playwright==1.56.0` to match the
+pre-installed `/opt/pw-browsers` revision 1194 rather than running
+`playwright install`) — both logged here so a future run recognizes them
+on sight. Merged both feature branches to `main`, pushed.
+
+**Not built (backlog, unchanged from Run 14):** PyGWalker-style builder's
+remaining scope (a genuine "explore mode" that auto-suggests encodings —
+row/column dual-axis faceting is now closed by this run). Large Excel
+ingestion (unaddressed). Light-theme dataframe/chart repaint-lag
+(cosmetic). Live-Gemini verification (15th consecutive run, sandbox
+constraint). Mobile+light simultaneous screenshot coverage (automation gap,
+not re-attempted this run since it didn't touch theming/mobile nav code).
+New environment note for future runs: this sandbox's Playwright browsers
+at `/opt/pw-browsers` are chromium-headless-shell revision 1194 — pip's
+latest `playwright` package (1.62.0 as of this run) expects a newer
+revision and fails to launch; match by installing the `playwright` pip
+version whose bundled `browsers.json` lists revision 1194 (`1.56.0` at
+time of writing) instead of running `playwright install`.
