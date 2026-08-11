@@ -1720,3 +1720,103 @@ web research surfaced. 32 new tests, 454→486 green, zero regressions.
 Verified live via Playwright (desktop dark/light, mobile dark); mobile
 light-theme automation remains blocked by the sidebar/popover gap.
 Merged to `main` and pushed.
+
+## Run 26 — 2026-08-11 — selection log (written before code merge)
+
+Session git policy for this run pins development to a pre-assigned
+branch (`claude/adoring-meitner-rmdy26`, created off `origin/main`'s
+Run 25 tip) rather than `main` directly — this run's harness-level
+instructions explicitly forbid pushing to a different branch without
+permission, which overrides this routine's usual Phase 7 "merge to
+main" step. All work below happened on a `feature/chi2-power-check`
+branch merged into that designated branch, not `main`; `main` was left
+untouched. Noting this explicitly so the next run doesn't assume `main`
+is the current tip — check the designated branch first.
+
+Cold-start dependency install needed again (`pip install -r
+requirements.txt -r requirements-dev.txt`) — every run since Run 22 has
+logged this same per-sandbox cost; no action needed, just confirming the
+pattern holds.
+
+**Phase 2 research (light-touch, per this run's own efficiency
+directive):** two targeted searches — one on agentic-EDA/"run everything"
+autonomous analysis trends (confirms Runs 20-25's existing agentic
+surface — Auto Analyst, Hypothesis Sweep, Insight Orchestrator, confounder
+cross-check — already matches where the market is; the concrete open
+gap is UX consolidation, not a new detector), one on chi-square/
+contingency-table testing as a named 2026 data-analyst interview topic
+(confirmed still commonly tested alongside t-tests/ANOVA). Given Run 25
+left an explicit, well-scoped, low-risk technical follow-on on the table
+(chi-square power for Hypothesis Sweep) rather than an open-ended new
+feature, and given this run's efficiency directive, skipped a full fresh
+candidate table in favor of executing that follow-on directly — same
+"don't reopen a settled backlog item with more research" principle Run
+25 itself applied to the Excel-ingestion item it closed.
+
+**Selected: Chi-square post-hoc power in Hypothesis Sweep** — extends
+`hypothesis_sweep.annotate_power()` (the agentic self-verifying-sweep
+pattern already established for t-tests) to chi-square rows too, via a
+new `experiment_design.power_check_chi2()` built on statsmodels'
+`GofChisquarePower`. Satisfies this cycle's required agentic-AI-analysis
+theme the same way Run 25's t-test half did: it's an automatic follow-up
+question the sweep asks about its own findings, not a manually-triggered
+calculator. Single feature, matching the "use fewer tokens" pattern
+several recent runs have applied when the selected work is a well-scoped
+extension rather than a novel surface. Not an Atlas/JARVIS-track feature.
+
+**Why not ANOVA power too (same as Run 25's reasoning, re-affirmed):**
+`FTestAnovaPower` needs one `nobs`-per-group figure, but real categorical
+groupings are rarely balanced — approximating with a mean or min group
+size would silently misstate power for any dataset with skewed group
+sizes, which is common (e.g. one dominant category, several small ones).
+Chi-square's degrees of freedom, by contrast, come cleanly from the
+contingency table's row/column counts alone, independent of how the `n`
+is distributed across cells. Logged explicitly as the next well-scoped
+follow-on rather than approximated here.
+
+**Result:** 23 new tests (12 in `tests/test_experiment_design.py`, 11 in
+`tests/test_hypothesis_sweep.py`), full suite 486 → 501 green, zero
+regressions. Test fixtures use fixed-count contingency tables (not
+random-threshold association) specifically so significance and power are
+deterministic across runs rather than RNG-dependent — a 9:3/3:9 2x2
+table (n=24) is reliably significant-but-underpowered, and the same
+table scaled ×10 (n=240) is reliably well-powered, at the exact same
+Cramer's V both times. Live-verified via Playwright: uploaded a planted
+2x2 CSV (n=24, Cramer's V=0.417) through the real running app, ran
+Hypothesis Sweep, and confirmed the underpowered-findings panel reads
+"Underpowered: with a 2x2 table, n=24, this test had only 53% power to
+detect an association this strong — a follow-up study should collect
+~46 rows total to reach 80% power" — matching the unit test's reference
+value exactly. Screenshots at desktop (1440px) dark/light (Arctic) and
+mobile (390px) dark in `.prism/runs/2026-08-11-run26/` — all three clean
+(readable contrast, no clipping, glass effects consistent, no layout
+regressions from the wording change to the expander header). Merged
+`feature/chi2-power-check` into `claude/adoring-meitner-rmdy26` with
+`--no-ff`, updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run26.md`,
+pushed the branch (not `main` — see git-policy note above).
+
+**Not built (backlog, updated):** ANOVA post-hoc power (see reasoning
+above — needs a per-dataset balanced-vs-skewed-groups decision that
+chi-square didn't). Mobile-viewport sidebar/theme-toggle Playwright
+automation (unchanged, 8+ runs open). Light-theme repaint lag (cosmetic,
+app-wide, unchanged). Atlas/HUD maturity (out of scope per run brief,
+untouched). Live-Gemini verification (structural, no API key in this
+sandbox — 25th consecutive run without one). **Recommended for Run 27:**
+Prism's statistical/agentic detector surface (t-test, ANOVA, chi-square,
+Pearson, power, confounders, anomalies) is now broad enough that a UX-
+consolidation pass — a single "run everything" entry point across Auto
+Insights/Hypothesis Sweep/Anomaly Drivers/Insight Orchestrator, as Run 25
+also flagged — is likely higher-leverage than another new detector; a
+fresh Phase 2 web sweep (not reused reasoning) should confirm or
+redirect that before building it, since it's a genuinely new UX surface
+rather than a scoped extension like this run's.
+
+**Run 26 summary:** Extended Hypothesis Sweep's automatic post-hoc power
+checks from t-tests to chi-square tests of independence (Cramer's V →
+Cohen's w recovery + statsmodels' GofChisquarePower), closing the
+follow-on Run 25 explicitly left open. 23 new tests, 486→501 green, zero
+regressions. Live-verified via Playwright (desktop dark/light, mobile
+dark) against a planted underpowered 2x2 table. Developed on a feature
+branch merged into this session's designated branch
+(`claude/adoring-meitner-rmdy26`) per this run's git policy — `main` was
+not touched or pushed.

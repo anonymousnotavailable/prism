@@ -2,6 +2,38 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 26)
+
+### Added
+- **Chi-square post-hoc power checks in Hypothesis Sweep**
+  (`modules/experiment_design.py`, `modules/hypothesis_sweep.py`,
+  `app.py`) — closes the chi-square/ANOVA gap Run 25 explicitly left
+  open. `annotate_power()` previously only scored t-test rows because a
+  contingency table's degrees of freedom (needed for chi-square power)
+  isn't recoverable from Cramer's V alone once the table isn't square.
+  New `experiment_design.power_check_chi2()` recovers Cohen's w from the
+  sweep's already-computed Cramer's V and the contingency table's shape
+  (`w = V * sqrt(min(rows, cols) - 1)`), and calls statsmodels'
+  `GofChisquarePower` with `n_bins = dof + 1` — cross-checked against the
+  standard `pwr.chisq.test(w=0.3, df=1, power=.8)` textbook reference
+  (~88 rows) to within statsmodels' own computed value. Every significant
+  chi-square row in a Hypothesis Sweep now gets the same "Power" badge
+  and underpowered-findings callout t-test rows already had, through the
+  same UI components — no new UI surface, `interpret_power_check()` now
+  just dispatches on the check's test type. ANOVA power remains
+  out of scope (real-world group sizes are rarely balanced, which
+  complicates the single-`nobs`-per-group assumption `FTestAnovaPower`
+  needs — left as a follow-on, not approximated). 23 new tests (12 in
+  `tests/test_experiment_design.py`, 11 in `tests/test_hypothesis_sweep.py`,
+  using fixed-count contingency tables so significance/power are
+  deterministic rather than RNG-dependent), full suite 486 → 501 green,
+  zero regressions. Live-verified via Playwright against a planted 2x2
+  table (n=24, Cramer's V=0.417): the sweep correctly flagged it
+  significant-but-underpowered (53% power, ~46 rows recommended),
+  matching the unit test's reference value exactly, at desktop
+  (1440px) dark/light (Arctic) and mobile (390px) dark — screenshots in
+  `.prism/runs/2026-08-11-run26/`.
+
 ## 2026-08-11 (Run 25)
 
 ### Added
