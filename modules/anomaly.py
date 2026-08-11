@@ -168,6 +168,70 @@ def narrate_anomalies(model, flagged: Optional[pd.DataFrame]) -> tuple[str, Opti
     return text.strip(), None
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# NARRATION FACT-CHECK — same "plausible but wrong number" safety net
+# insight_verifier applies to Auto Analyst's findings (see that module's
+# docstring) and hypothesis_sweep applies to its own narration, extended
+# here to both anomaly narration helpers. Ground truth comes straight from
+# the flagged DataFrame / methods_summary dict each narration was built
+# from — no DataFrame recomputation needed, same reasoning as
+# hypothesis_sweep.sweep_reference_numbers().
+# ═══════════════════════════════════════════════════════════════════════
+def anomaly_reference_numbers(flagged: Optional[pd.DataFrame]) -> set[float]:
+    """Ground-truth numbers for narrate_anomalies()'s prose: the flagged
+    row count and the per-reason counts narrate_anomalies() itself fed to
+    Gemini. Never raises — a malformed frame just yields a smaller
+    reference set, which verify_narration() degrades to "unverifiable"/
+    "flagged" for, same non-blocking contract as insight_verifier.
+    """
+    numbers: set[float] = set()
+    if flagged is None or flagged.empty:
+        return numbers
+    try:
+        numbers.add(float(len(flagged)))
+        if "anomaly_reason" in flagged.columns:
+            for count in flagged["anomaly_reason"].value_counts().head(8):
+                numbers.add(float(count))
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return numbers
+
+
+def ensemble_reference_numbers(consensus: Optional[pd.DataFrame], methods_summary: Optional[dict]) -> set[float]:
+    """Ground-truth numbers for narrate_ensemble_disagreement()'s prose:
+    the consensus row count, each method's flagged_count/pct, and the
+    full-agreement count — the exact numbers that function's prompt cites.
+    Never raises.
+    """
+    numbers: set[float] = set()
+    if consensus is None or consensus.empty or not methods_summary:
+        return numbers
+    try:
+        numbers.add(float(len(consensus)))
+        for stats in methods_summary.values():
+            numbers.add(float(stats.get("flagged_count", 0)))
+            numbers.add(float(stats.get("pct", 0)))
+        if "consensus_count" in consensus.columns:
+            numbers.add(float((consensus["consensus_count"] == len(ENSEMBLE_METHODS)).sum()))
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return numbers
+
+
+def verify_narration(narration: str, reference_numbers: set[float]) -> dict:
+    """Fact-check either anomaly narration helper's prose against its own
+    pre-computed reference numbers. Reuses insight_verifier.verify_finding()
+    — same {"status": "confirmed" | "flagged" | "unverifiable", ...}
+    contract as every other verified surface in the app. Never raises.
+    """
+    from modules import insight_verifier
+
+    try:
+        return insight_verifier.verify_finding(narration or "", reference_numbers)
+    except Exception:
+        return {"status": "unverifiable", "checked": 0, "matched": 0}
+
+
 def _dbscan_eps(scaled: "np.ndarray", min_samples: int) -> float:
     """Heuristic eps for DBSCAN: the 90th percentile of each point's
     distance to its min_samples-th nearest neighbor (a simplified k-distance

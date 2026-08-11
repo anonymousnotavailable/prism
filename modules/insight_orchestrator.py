@@ -654,6 +654,48 @@ def narrate_orchestration(model, result: Optional[OrchestrationResult]) -> tuple
     return text.strip(), None
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# NARRATION FACT-CHECK — same "plausible but wrong number" safety net
+# insight_verifier applies to Auto Analyst's findings, extended here to
+# narrate_orchestration()'s executive-summary prose. Each ClaimGroup's
+# `headline` is already deterministic, non-LLM text (built straight from
+# the contributing detectors' own computed stats), so the reference set
+# is simply every number appearing in the ranked top-list headlines
+# narrate_orchestration() was given to synthesize — same reasoning as
+# auto_insights.insights_reference_numbers().
+# ═══════════════════════════════════════════════════════════════════════
+def orchestration_reference_numbers(result: Optional[OrchestrationResult]) -> set[float]:
+    """Ground-truth numbers for narrate_orchestration()'s prose: every
+    number quoted in the ranked top-list headlines. Never raises.
+    """
+    from modules import insight_verifier
+
+    numbers: set[float] = set()
+    if result is None or result.silent:
+        return numbers
+    try:
+        for group in result.top or []:
+            numbers.update(insight_verifier.extract_numbers(group.headline))
+    except (TypeError, AttributeError):
+        pass
+    return numbers
+
+
+def verify_narration(narration: str, result: Optional[OrchestrationResult]) -> dict:
+    """Fact-check narrate_orchestration()'s prose against the ranked
+    top-list's own numbers. Reuses insight_verifier.verify_finding() —
+    same {"status": "confirmed" | "flagged" | "unverifiable", ...}
+    contract as every other verified surface in the app. Never raises.
+    """
+    from modules import insight_verifier
+
+    try:
+        reference_numbers = orchestration_reference_numbers(result)
+    except Exception:
+        reference_numbers = set()
+    return insight_verifier.verify_finding(narration or "", reference_numbers)
+
+
 def proactive_alert_text(result: Optional[OrchestrationResult], last_alerted_fingerprint: Optional[str]) -> Optional[dict]:
     """JARVIS-copilot slice: decide whether Atlas should proactively speak up
     about a *newly changed* orchestration result, with no button click or

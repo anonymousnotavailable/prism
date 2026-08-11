@@ -348,6 +348,46 @@ def narrate_insights(model, insights: list[dict]) -> tuple[str, Optional[str]]:
     return text.strip(), None
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# NARRATION FACT-CHECK — same "plausible but wrong number" safety net
+# insight_verifier applies to Auto Analyst's findings, extended here to
+# narrate_insights()'s executive-summary prose. Each insight's "message"
+# is already deterministic, non-LLM text (built straight from the
+# detector's own computed stats — see _detect_*_insights above), so the
+# reference set is simply every number that appears in any message
+# narrate_insights() was given to synthesize. No DataFrame recomputation
+# needed, same reasoning as hypothesis_sweep.sweep_reference_numbers().
+# ═══════════════════════════════════════════════════════════════════════
+def insights_reference_numbers(insights: list[dict]) -> set[float]:
+    """Ground-truth numbers for narrate_insights()'s prose: every number
+    quoted in the source insight messages themselves. Never raises.
+    """
+    from modules import insight_verifier
+
+    numbers: set[float] = set()
+    try:
+        for ins in insights or []:
+            numbers.update(insight_verifier.extract_numbers(ins.get("message", "")))
+    except (TypeError, AttributeError):
+        pass
+    return numbers
+
+
+def verify_narration(narration: str, insights: list[dict]) -> dict:
+    """Fact-check narrate_insights()'s prose against the source insights'
+    own numbers. Reuses insight_verifier.verify_finding() — same
+    {"status": "confirmed" | "flagged" | "unverifiable", ...} contract as
+    every other verified surface in the app. Never raises.
+    """
+    from modules import insight_verifier
+
+    try:
+        reference_numbers = insights_reference_numbers(insights)
+    except Exception:
+        reference_numbers = set()
+    return insight_verifier.verify_finding(narration or "", reference_numbers)
+
+
 def severity_icon(severity: str) -> str:
     """Emoji icon for UI display."""
     return {"high": "🔴", "medium": "🟡", "low": "🔵"}.get(severity, "⚪")

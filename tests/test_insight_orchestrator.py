@@ -15,9 +15,11 @@ from modules.insight_orchestrator import (
     narrate_orchestration,
     normalize_findings,
     orchestrate_insights,
+    orchestration_reference_numbers,
     proactive_alert_text,
     proactive_alert_text_tier2,
     severity_icon,
+    verify_narration,
 )
 
 
@@ -632,6 +634,55 @@ def test_fingerprint_result_stable_for_same_top_list():
 def test_fingerprint_result_empty_for_silent_result():
     result = orchestrate_insights({"auto_insights": _auto_insights_raw()})
     assert fingerprint_result(result) == "empty"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Narration fact-check — orchestration_reference_numbers / verify_narration
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_orchestration_reference_numbers_empty_for_silent_or_none():
+    silent = orchestrate_insights({"auto_insights": _auto_insights_raw()})  # only 1 detector -> silent
+    assert orchestration_reference_numbers(silent) == set()
+    assert orchestration_reference_numbers(None) == set()
+
+
+def test_orchestration_reference_numbers_pulls_from_top_headlines():
+    from modules.insight_verifier import extract_numbers
+
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    numbers = orchestration_reference_numbers(result)
+    for group in result.top:
+        for n in extract_numbers(group.headline):
+            assert n in numbers
+
+
+def test_verify_narration_confirmed_when_a_headline_number_matches():
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    numbers = orchestration_reference_numbers(result)
+    assert numbers, "fixture should produce at least one checkable number"
+    n = next(iter(numbers))
+    narration = f"One finding worth a look cites {n} — take a second pass."
+    verification = verify_narration(narration, result)
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_when_fabricated():
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    narration = "A wild 8675309 appears in these results — extraordinary."
+    verification = verify_narration(narration, result)
+    assert verification["status"] == "flagged"
+
+
+def test_verify_narration_unverifiable_when_no_numbers_in_text():
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    verification = verify_narration("Nothing quantitative to report here.", result)
+    assert verification["status"] == "unverifiable"
+
+
+def test_verify_narration_never_raises_on_malformed_result():
+    verification = verify_narration("Some text with 42 in it.", "not a result")  # type: ignore[arg-type]
+    assert verification["status"] in ("flagged", "unverifiable")
     assert fingerprint_result(None) == "empty"
 
 

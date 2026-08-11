@@ -13,8 +13,10 @@ from modules.auto_insights import (
     category_label,
     format_insights_text,
     generate_insights,
+    insights_reference_numbers,
     narrate_insights,
     severity_icon,
+    verify_narration,
 )
 
 
@@ -121,3 +123,40 @@ def test_narrate_insights_with_no_findings_skips_gemini():
 def test_severity_icon_and_category_label_cover_known_values():
     assert severity_icon("high") != severity_icon("low")
     assert isinstance(category_label("missing_data"), str) and category_label("missing_data")
+
+
+# --- insights_reference_numbers / verify_narration -------------------------
+
+def test_insights_reference_numbers_empty_is_safe():
+    assert insights_reference_numbers([]) == set()
+    assert insights_reference_numbers(None) == set()  # type: ignore[arg-type]
+
+
+def test_insights_reference_numbers_pulls_from_messages():
+    insights = [{"severity": "high", "message": "Column b is 90.0% missing (45 of 50 rows)."}]
+    numbers = insights_reference_numbers(insights)
+    assert 90.0 in numbers and 45.0 in numbers and 50.0 in numbers
+
+
+def test_verify_narration_confirmed_when_number_matches_a_message():
+    insights = [{"severity": "high", "message": "Column b is 90.0% missing (45 of 50 rows)."}]
+    narration = "About 90.0% of column b is missing — worth investigating the collection process."
+    verification = verify_narration(narration, insights)
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_when_a_number_is_fabricated():
+    insights = [{"severity": "high", "message": "Column b is 90.0% missing (45 of 50 rows)."}]
+    narration = "A staggering 12345.0% of the data is missing — a critical issue."
+    verification = verify_narration(narration, insights)
+    assert verification["status"] == "flagged"
+
+
+def test_verify_narration_unverifiable_when_no_numbers_in_text():
+    verification = verify_narration("Your data looks clean overall.", [])
+    assert verification["status"] == "unverifiable"
+
+
+def test_verify_narration_never_raises_on_malformed_insights():
+    verification = verify_narration("Some text with 42 in it.", "not a list")  # type: ignore[arg-type]
+    assert verification["status"] in ("flagged", "unverifiable")

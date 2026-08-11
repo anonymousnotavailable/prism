@@ -94,6 +94,7 @@ _DEFAULTS = {
     "key_insights_verification": [],  # insight_verifier.verify_findings() result for key_insights, same order/length
     "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
+    "auto_insights_narration_verification": None,  # auto_insights.verify_narration() result for the narration above
     "confounder_scan": None,  # confounder_detection.auto_scan_for_confounding() result (run on upload)
     "confounder_narrations": {},  # (x, y, confounder) -> cached Gemini narration text, avoids re-spending a call per rerun
     "causal_result": None,  # last causal_inference.estimate_causal_effect() result dict (kept across reruns so the panel doesn't collapse)
@@ -102,6 +103,7 @@ _DEFAULTS = {
     "cate_narration": None,  # cached Gemini narration of cate_result, avoids re-spending a call per rerun
     "orchestration_narration": None,  # cached Gemini narration of the Agent Summary panel's ranked "what matters most" list
     "orchestration_narration_fingerprint": None,  # insight_orchestrator.fingerprint_result() covered by the narration above
+    "orchestration_narration_verification": None,  # insight_orchestrator.verify_narration() result for the narration above
     "atlas_orchestration_alert_fingerprint": None,  # fingerprint of the last orchestration result Atlas proactively spoke up about (see _maybe_announce_orchestration())
     "atlas_orchestration_alert_tier2_fingerprint": None,  # separate fingerprint tracker for the tier-2 lone-confounder-paradox alert (see _maybe_announce_orchestration())
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
@@ -147,6 +149,7 @@ _DEFAULTS = {
     "anomaly_error": None,  # error from the last anomaly-detection attempt, if any
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
+    "anomaly_narration_verification": None,  # anomaly.verify_narration() result for the narration above
     "anomaly_methods_summary": None,  # per-method flagged counts from the last ensemble "Find Anomalies" run, if any
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
@@ -336,6 +339,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.data_dictionary_rows = None
     st.session_state.auto_insights = auto_insights.generate_insights(working_df, st.session_state.column_types)
     st.session_state.auto_insights_narration = None
+    st.session_state.auto_insights_narration_verification = None
     st.session_state.confounder_scan = confounder_detection.auto_scan_for_confounding(working_df, st.session_state.column_types)
     st.session_state.confounder_narrations = {}
     st.session_state.causal_result = None
@@ -346,7 +350,11 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
     st.session_state.anomaly_narration_fingerprint = None
+    st.session_state.anomaly_narration_verification = None
     st.session_state.anomaly_methods_summary = None
+    st.session_state.orchestration_narration = None
+    st.session_state.orchestration_narration_fingerprint = None
+    st.session_state.orchestration_narration_verification = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -1647,6 +1655,11 @@ elif st.session_state.active_section == "Overview":
                 and st.session_state.orchestration_narration_fingerprint == fingerprint
             ):
                 st.info(st.session_state.orchestration_narration)
+                caption = ui.build_verification_caption(
+                    [st.session_state.orchestration_narration_verification or {"status": "unverifiable"}]
+                )
+                if caption:
+                    st.caption(caption)
             elif st.button(
                 "✨ Generate Executive Summary", key="orchestration_narrate",
                 help="Ask Gemini to synthesize the ranked list below into one paragraph",
@@ -1659,6 +1672,12 @@ elif st.session_state.active_section == "Overview":
                 else:
                     st.session_state.orchestration_narration = narration
                     st.session_state.orchestration_narration_fingerprint = fingerprint
+                    # Fact-check the narration against the ranked top-list's own
+                    # numbers — same insight_verifier-backed safety net every
+                    # other Gemini-written surface in the app already has.
+                    st.session_state.orchestration_narration_verification = (
+                        insight_orchestrator.verify_narration(narration, orchestration)
+                    )
                     st.rerun()
 
             for group in orchestration.top:
@@ -1683,6 +1702,11 @@ elif st.session_state.active_section == "Overview":
             st.markdown(f"#### 🔍 Auto-Insights  •  {len(insights_list)} finding{'s' if len(insights_list) != 1 else ''}  ({severity_summary})")
             if st.session_state.auto_insights_narration:
                 st.info(st.session_state.auto_insights_narration)
+                caption = ui.build_verification_caption(
+                    [st.session_state.auto_insights_narration_verification or {"status": "unverifiable"}]
+                )
+                if caption:
+                    st.caption(caption)
             elif st.button("✨ Generate Executive Summary", key="auto_insights_narrate", help="Ask Gemini to narrate these findings"):
                 model = ai_analyst.get_model()
                 with st.spinner("Gemini is summarizing the findings…"):
@@ -1691,6 +1715,12 @@ elif st.session_state.active_section == "Overview":
                     st.warning(narr_error)
                 else:
                     st.session_state.auto_insights_narration = narration
+                    # Fact-check the narration against the source insights' own
+                    # numbers — same insight_verifier-backed safety net every
+                    # other Gemini-written surface in the app already has.
+                    st.session_state.auto_insights_narration_verification = (
+                        auto_insights.verify_narration(narration, insights_list)
+                    )
                     st.rerun()
             for ins in insights_list:
                 icon = auto_insights.severity_icon(ins["severity"])
@@ -2166,6 +2196,7 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.anomaly_error = anomaly_err
                 st.session_state.anomaly_narration = None
                 st.session_state.anomaly_narration_fingerprint = None
+                st.session_state.anomaly_narration_verification = None
                 st.rerun()  # see the Agent Summary same-pass-staleness note above
 
             if st.session_state.anomaly_error:
@@ -2198,6 +2229,11 @@ elif st.session_state.active_section == "Overview":
                         and st.session_state.anomaly_narration_fingerprint == current_fp
                     ):
                         st.info(f"🤖 {st.session_state.anomaly_narration}")
+                        caption = ui.build_verification_caption(
+                            [st.session_state.anomaly_narration_verification or {"status": "unverifiable"}]
+                        )
+                        if caption:
+                            st.caption(caption)
                     elif st.button(
                         "✨ Explain these anomalies with AI",
                         key="narrate_anomalies_btn",
@@ -2207,13 +2243,21 @@ elif st.session_state.active_section == "Overview":
                         with st.spinner("Gemini is reviewing the flagged rows…"):
                             if methods_summary:
                                 narration, narr_error = anomaly.narrate_ensemble_disagreement(model, flagged, methods_summary)
+                                ref_numbers = anomaly.ensemble_reference_numbers(flagged, methods_summary)
                             else:
                                 narration, narr_error = anomaly.narrate_anomalies(model, flagged)
+                                ref_numbers = anomaly.anomaly_reference_numbers(flagged)
                         if narr_error:
                             st.warning(narr_error)
                         else:
                             st.session_state.anomaly_narration = narration
                             st.session_state.anomaly_narration_fingerprint = current_fp
+                            # Fact-check the narration against the flagged set's
+                            # own numbers — same insight_verifier-backed safety
+                            # net every other Gemini-written surface has.
+                            st.session_state.anomaly_narration_verification = (
+                                anomaly.verify_narration(narration, ref_numbers)
+                            )
                             st.rerun()
 
                     if st.button("Exclude flagged rows from active dataset", key="exclude_anomalies_btn"):

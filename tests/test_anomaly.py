@@ -9,11 +9,14 @@ from modules.anomaly import (
     ENSEMBLE_METHODS,
     ENSEMBLE_MIN_ROWS,
     MIN_ROWS_REQUIRED,
+    anomaly_reference_numbers,
+    ensemble_reference_numbers,
     find_anomalies,
     find_anomalies_ensemble,
     fingerprint_flagged,
     narrate_anomalies,
     narrate_ensemble_disagreement,
+    verify_narration,
 )
 
 
@@ -116,6 +119,47 @@ def test_narrate_anomalies_calls_gemini_with_flagged_summary():
     narration, error = narrate_anomalies(_FakeModel(), flagged)
     assert error is None
     assert "review" in narration.lower()
+
+
+# --- anomaly_reference_numbers / verify_narration -------------------------
+
+def test_anomaly_reference_numbers_empty_is_safe():
+    assert anomaly_reference_numbers(None) == set()
+    empty = pd.DataFrame({"value": [], "label": [], "anomaly_reason": []})
+    assert anomaly_reference_numbers(empty) == set()
+
+
+def test_anomaly_reference_numbers_includes_flagged_count():
+    df = _clean_df_with_one_outlier()
+    flagged, _ = find_anomalies(df, {"value": "numeric", "label": "categorical"})
+    numbers = anomaly_reference_numbers(flagged)
+    assert float(len(flagged)) in numbers
+
+
+def test_verify_narration_confirmed_when_flagged_count_matches():
+    df = _clean_df_with_one_outlier()
+    flagged, _ = find_anomalies(df, {"value": "numeric", "label": "categorical"})
+    narration = f"{len(flagged)} row(s) look like genuine data-entry errors — worth a spot-check."
+    verification = verify_narration(narration, anomaly_reference_numbers(flagged))
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_when_a_number_is_fabricated():
+    df = _clean_df_with_one_outlier()
+    flagged, _ = find_anomalies(df, {"value": "numeric", "label": "categorical"})
+    narration = "A shocking 999999 rows were flagged — highly unusual."
+    verification = verify_narration(narration, anomaly_reference_numbers(flagged))
+    assert verification["status"] == "flagged"
+
+
+def test_verify_narration_unverifiable_when_no_numbers_in_text():
+    verification = verify_narration("These look like genuine outliers.", set())
+    assert verification["status"] == "unverifiable"
+
+
+def test_verify_narration_never_raises_on_malformed_input():
+    verification = verify_narration("Some text with 42 in it.", None)  # type: ignore[arg-type]
+    assert verification["status"] in ("flagged", "unverifiable")
 
 
 # --- find_anomalies_ensemble ----------------------------------------------
@@ -231,3 +275,43 @@ def test_narrate_ensemble_disagreement_calls_gemini_with_method_summary():
     narration, error = narrate_ensemble_disagreement(_FakeModel(), consensus, summary)
     assert error is None
     assert "agree" in narration.lower()
+
+
+# --- ensemble_reference_numbers / verify_narration -------------------------
+
+def test_ensemble_reference_numbers_empty_is_safe():
+    assert ensemble_reference_numbers(None, None) == set()
+    empty = pd.DataFrame({"value": [], "other": [], "anomaly_reason": [], "consensus_count": []})
+    assert ensemble_reference_numbers(empty, {}) == set()
+
+
+def test_ensemble_reference_numbers_includes_method_counts():
+    df = _ensemble_df()
+    consensus, summary, _ = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    numbers = ensemble_reference_numbers(consensus, summary)
+    assert float(len(consensus)) in numbers
+    for stats in summary.values():
+        assert float(stats["flagged_count"]) in numbers
+
+
+def test_verify_narration_confirmed_for_ensemble_when_numbers_match():
+    df = _ensemble_df()
+    consensus, summary, _ = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    n_full = int((consensus["consensus_count"] == len(ENSEMBLE_METHODS)).sum())
+    narration = f"All 3 methods agree on {n_full} row(s) — a strong-consensus anomaly."
+    verification = verify_narration(narration, ensemble_reference_numbers(consensus, summary))
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_for_ensemble_when_fabricated():
+    df = _ensemble_df()
+    consensus, summary, _ = find_anomalies_ensemble(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    narration = "An implausible 424242 rows were flagged by every method."
+    verification = verify_narration(narration, ensemble_reference_numbers(consensus, summary))
+    assert verification["status"] == "flagged"
