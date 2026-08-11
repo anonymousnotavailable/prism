@@ -15,6 +15,7 @@ from modules.insight_orchestrator import (
     narrate_orchestration,
     normalize_findings,
     orchestrate_insights,
+    proactive_alert_text,
     severity_icon,
 )
 
@@ -534,6 +535,100 @@ def test_fingerprint_result_changes_when_top_list_changes():
         }
     )
     assert fingerprint_result(result_a) != fingerprint_result(result_b)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Proactive alert — the JARVIS-copilot "surfaces without being asked" slice.
+# Atlas should only interrupt for the orchestrator's genuinely unique
+# signal (cross-detector agreement or contradiction), never for a lone
+# finding a single detector's own panel already shows, and never for the
+# baseline two-detector result that fires automatically on every upload
+# (auto_insights + confounder_scan) — that's already covered by the
+# separate ambient-upload announcement.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_proactive_alert_none_for_none_result():
+    assert proactive_alert_text(None, last_alerted_fingerprint=None) is None
+
+
+def test_proactive_alert_none_when_silent():
+    result = orchestrate_insights({})
+    assert proactive_alert_text(result, last_alerted_fingerprint=None) is None
+
+
+def test_proactive_alert_none_at_baseline_two_detectors():
+    # auto_insights + drift both fire, same as the automatic upload-time
+    # pair (auto_insights + confounder_scan) — not "new" news yet.
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    assert result.n_detectors_fired == 2
+    assert proactive_alert_text(result, last_alerted_fingerprint=None) is None
+
+
+def test_proactive_alert_none_for_lone_high_severity_with_no_agreement_or_contradiction():
+    # A third detector fires, but its top finding is a lone claim no other
+    # detector corroborates — that's exactly what the panel below already
+    # shows, so nothing new to interrupt for.
+    result = orchestrate_insights(
+        {"auto_insights": _auto_insights_raw(), "drift": _drift_raw(), "anomaly": _anomaly_raw()}
+    )
+    assert result.n_detectors_fired == 3
+    top = result.top[0]
+    assert top.agreement is False and top.contradiction is None
+    assert proactive_alert_text(result, last_alerted_fingerprint=None) is None
+
+
+def test_proactive_alert_fires_on_agreement_after_a_third_detector():
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw(),
+            "confounder": _confounder_raw_agreeing_with_causal(),
+            "causal_att": _causal_att_raw_adjusting_for_confounder(),
+        }
+    )
+    assert result.n_detectors_fired == 3
+    alert = proactive_alert_text(result, last_alerted_fingerprint=None)
+    assert alert is not None
+    assert "spend" in alert["text"] and "revenue" in alert["text"]
+    assert alert["fingerprint"] == fingerprint_result(result)
+
+
+def test_proactive_alert_fires_on_contradiction_after_a_third_detector():
+    result = orchestrate_insights(
+        {
+            "confounder": _confounder_raw_agreeing_with_causal(),
+            "causal_att": _causal_att_raw_missing_channel_covariate(),
+            "drift": _drift_raw(),
+        }
+    )
+    assert result.n_detectors_fired == 3
+    assert result.top[0].contradiction is not None
+    alert = proactive_alert_text(result, last_alerted_fingerprint=None)
+    assert alert is not None
+    assert "disagree" in alert["text"].lower() or "check" in alert["text"].lower()
+
+
+def test_proactive_alert_does_not_refire_for_an_already_alerted_fingerprint():
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw(),
+            "confounder": _confounder_raw_agreeing_with_causal(),
+            "causal_att": _causal_att_raw_adjusting_for_confounder(),
+        }
+    )
+    fp = fingerprint_result(result)
+    assert proactive_alert_text(result, last_alerted_fingerprint=fp) is None
+
+
+def test_proactive_alert_fires_again_once_the_fingerprint_changes():
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw(),
+            "confounder": _confounder_raw_agreeing_with_causal(),
+            "causal_att": _causal_att_raw_adjusting_for_confounder(),
+        }
+    )
+    assert proactive_alert_text(result, last_alerted_fingerprint="some-stale-fingerprint") is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -101,6 +101,7 @@ _DEFAULTS = {
     "cate_narration": None,  # cached Gemini narration of cate_result, avoids re-spending a call per rerun
     "orchestration_narration": None,  # cached Gemini narration of the Agent Summary panel's ranked "what matters most" list
     "orchestration_narration_fingerprint": None,  # insight_orchestrator.fingerprint_result() covered by the narration above
+    "atlas_orchestration_alert_fingerprint": None,  # fingerprint of the last orchestration result Atlas proactively spoke up about (see _maybe_announce_orchestration())
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -757,6 +758,29 @@ def _build_orchestration_input() -> dict:
     }
 
 
+def _maybe_announce_orchestration(orchestration) -> None:
+    """JARVIS-copilot proactive slice: the moment the Agent Summary
+    orchestration's #1 finding becomes a genuinely new cross-detector
+    agreement or contradiction, Atlas says so unprompted — no need to open
+    the Overview tab or click "Generate Executive Summary" first. Thin
+    wiring only; the actual decision (what counts as "new", which findings
+    are worth interrupting for) lives in
+    insight_orchestrator.proactive_alert_text(), which is plain data logic
+    and unit-tested on its own. Called every rerun once a dataset is
+    active (see below), so it fires regardless of which tab is currently
+    open — e.g. running the Causal Effect Estimator on its own tab can
+    trigger this without ever visiting Overview.
+    """
+    alert = insight_orchestrator.proactive_alert_text(
+        orchestration, st.session_state.atlas_orchestration_alert_fingerprint
+    )
+    if alert is None:
+        return
+    st.session_state.atlas_orchestration_alert_fingerprint = alert["fingerprint"]
+    atlas.say_only(alert["text"])
+    atlas.raise_alert(1)
+
+
 def _cmd_auto_clean(target) -> None:
     """Atlas voice/typed entry point — guarded, unlike the Overview tab's
     button (a direct click is already an unambiguous action; a spoken
@@ -1321,6 +1345,17 @@ ui.render_onboarding()
 df = st.session_state.working_df
 column_types = st.session_state.column_types
 
+# Agent Summary orchestration is computed here — every rerun, regardless of
+# which tab is active — rather than inside the Overview tab block below, so
+# _maybe_announce_orchestration() can proactively surface a new cross-
+# detector finding even while the user is on a completely different tab
+# (e.g. just ran the Causal Effect Estimator). Pure synthesis over
+# already-computed detector output, no Gemini call, so recomputing it every
+# pass is cheap. The Overview tab reuses this same value below instead of
+# recomputing it a second time.
+_orchestration = insight_orchestrator.orchestrate_insights(_build_orchestration_input())
+_maybe_announce_orchestration(_orchestration)
+
 _TAB_ICONS = {
     "Overview": "📊", "Clean": "🧹", "Hell Mode": "🔥", "Combine": "🔗", "Visualize": "📈", "SQL Lab": "🗄️",
     "AI Analyst": "💬", "Auto Analyst": "🤖", "Stats Lab": "🧪", "Forecasting": "🔮", "Clustering": "🧩",
@@ -1568,7 +1603,7 @@ elif st.session_state.active_section == "Overview":
     # silent — same convention as every panel below it — until at least
     # two detectors have actually fired this session.
     # ------------------------------------------------------------------
-    orchestration = insight_orchestrator.orchestrate_insights(_build_orchestration_input())
+    orchestration = _orchestration  # computed once per rerun above, regardless of active tab
     if not orchestration.silent:
         with st.container(border=True):
             n_contradictions = len(orchestration.contradictions)
