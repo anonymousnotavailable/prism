@@ -341,6 +341,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.regression_diag_error = None
     st.session_state.mllab_conformal_result = None
     st.session_state.mllab_conformal_error = None
+    st.session_state.mllab_cv_result = None
+    st.session_state.mllab_cv_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
@@ -4766,6 +4768,8 @@ elif st.session_state.active_section == "ML Lab":
             st.session_state.mllab_shap_error = None
             st.session_state.mllab_conformal_result = None  # ditto for any prior conformal interval run
             st.session_state.mllab_conformal_error = None
+            st.session_state.mllab_cv_result = None  # ditto for any prior cross-validation run
+            st.session_state.mllab_cv_error = None
             try:
                 st.session_state.mllab_result = mllab.run_baseline_models(
                     df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
@@ -4811,6 +4815,46 @@ elif st.session_state.active_section == "ML Lab":
                 st.plotly_chart(
                     mllab.build_feature_importance_chart(baseline_result["feature_importances"]), use_container_width=True
                 )
+
+            st.divider()
+            st.markdown("#### Cross-Validation")
+            st.caption(
+                "The metrics above come from one 80/20 split, which can swing noticeably depending on which "
+                "rows landed in the test set — especially on a smaller dataset. K-fold cross-validation refits "
+                "the same two models on every fold and reports mean ± standard deviation, a far more reliable "
+                "read on real-world performance."
+            )
+            mllab_cv_k = st.slider("Number of folds (k)", min_value=2, max_value=10, value=5, key="mllab_cv_k")
+            if st.button("Run Cross-Validation", key="mllab_cv_btn", use_container_width=True):
+                with st.spinner(f"Running {mllab_cv_k}-fold cross-validation…"):
+                    cv_result = mllab.run_cross_validation(
+                        df, mllab_selected_features, mllab_target_col, mllab_task_type, k=mllab_cv_k
+                    )
+                    if "error" in cv_result:
+                        st.session_state.mllab_cv_result = None
+                        st.session_state.mllab_cv_error = cv_result["error"]
+                    else:
+                        st.session_state.mllab_cv_result = cv_result
+                        st.session_state.mllab_cv_error = None
+
+            if st.session_state.mllab_cv_error:
+                st.warning(st.session_state.mllab_cv_error)
+            elif st.session_state.mllab_cv_result is not None:
+                cv_result = st.session_state.mllab_cv_result
+                if cv_result["k_reduced"]:
+                    st.caption(
+                        f"k reduced from {cv_result['k_requested']} to {cv_result['k']} — the rarest class "
+                        "doesn't have enough members for the requested number of folds."
+                    )
+                cv_metric_cols = st.columns(2)
+                for cv_metric_col, (model_name, model_results) in zip(cv_metric_cols, cv_result["results"].items()):
+                    with cv_metric_col:
+                        st.markdown(f"**{model_name}**")
+                        for metric_name, stats in model_results.items():
+                            st.metric(metric_name.upper(), f"{stats['mean']:.4f} ± {stats['std']:.4f}")
+                st.success(mllab.cv_verdict(cv_result))
+                cv_primary_metric = "accuracy" if cv_result["task_type"] == "classification" else "r2"
+                st.plotly_chart(mllab.build_cv_score_chart(cv_result, cv_primary_metric), use_container_width=True)
 
             st.divider()
             st.markdown("#### Explainability (SHAP)")

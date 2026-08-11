@@ -802,3 +802,197 @@ def conformal_verdict(result: dict) -> str:
         f"fixed-width interval of ±{result['quantile']:.3g} ({result['mean_interval_width']:.3g} total width), "
         f"built from {result['n_train']} training rows and calibrated on {result['n_calib']} held-out rows."
     )
+
+
+# ==========================================================================
+# 15. K-Fold Cross-Validation — replaces the noisy single 80/20 split
+# ==========================================================================
+
+# `run_baseline_models()` above reports metrics off exactly one train/test
+# split; on a small-to-medium dataset that single split's metrics can swing
+# noticeably depending on which rows happened to land in the test fold.
+# This runs the same two baseline models through proper k-fold
+# cross-validation instead — a fresh preprocessing fit *inside every fold*
+# (via a single sklearn Pipeline passed to `cross_validate`, never fit
+# once up front) so there's no leakage between folds — and reports mean
+# +/- std per metric, which is the actual standard a hiring-panel-caliber
+# reviewer expects before trusting a single-split number.
+CV_MIN_ROWS = 20
+CV_MIN_K = 2
+
+
+def run_cross_validation(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    target_col: str,
+    task_type: str,
+    k: int = 5,
+    random_state: int = 42,
+) -> dict:
+    """K-fold (StratifiedKFold for classification, KFold for regression)
+    cross-validation of the same Baseline (Logistic/Linear Regression) and
+    Random Forest models `run_baseline_models` compares, scored via
+    `sklearn.model_selection.cross_validate` over a single Pipeline so
+    preprocessing is refit inside every fold.
+
+    Returns {"task_type", "k" (the k actually used, after any reduction),
+    "k_requested", "k_reduced" (bool), "n_samples", "results": {model_name:
+    {metric_name: {"mean", "std", "scores": [per-fold values]}}}} on
+    success, or {"error": str} on any failure — never raises. For
+    classification, k is silently reduced to the rarest class's member
+    count when the requested k exceeds it (StratifiedKFold's own
+    requirement), flagged via "k_reduced".
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    if not feature_cols:
+        return {"error": "Pick at least one feature column to cross-validate."}
+    if k < CV_MIN_K:
+        return {"error": f"k must be at least {CV_MIN_K}."}
+    if target_col not in df.columns:
+        return {"error": f"Target column '{target_col}' not found."}
+
+    data = df[feature_cols + [target_col]].dropna()
+    if len(data) < CV_MIN_ROWS:
+        return {
+            "error": (
+                f"Need at least {CV_MIN_ROWS} complete rows for cross-validation — "
+                f"only {len(data)} available after dropping missing values."
+            )
+        }
+
+    X = data[feature_cols]
+    y = data[target_col]
+
+    k_requested = k
+    k_reduced = False
+
+    if task_type == "classification":
+        class_counts = y.value_counts()
+        if len(class_counts) < 2:
+            return {"error": "The target has only one class — nothing to cross-validate."}
+        min_class_count = int(class_counts.min())
+        if min_class_count < CV_MIN_K:
+            return {
+                "error": (
+                    f"The rarest class in the target has only {min_class_count} row(s) — each class needs "
+                    f"at least {CV_MIN_K} for cross-validation."
+                )
+            }
+        if k > min_class_count:
+            k = min_class_count
+            k_reduced = True
+        splitter = StratifiedKFold(n_splits=k, shuffle=True, random_state=random_state)
+    else:
+        if len(data) < 2 * k:
+            return {"error": f"Need at least {2 * k} rows to run {k}-fold cross-validation ({len(data)} available)."}
+        splitter = KFold(n_splits=k, shuffle=True, random_state=random_state)
+
+    categorical_features = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+    numeric_features = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]), numeric_features),
+            (
+                "cat",
+                Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("encode", OneHotEncoder(handle_unknown="ignore"))]),
+                categorical_features,
+            ),
+        ],
+        remainder="drop",
+    )
+
+    if task_type == "classification":
+        models = {
+            "Baseline": LogisticRegression(max_iter=1000),
+            "Random Forest": RandomForestClassifier(n_estimators=200, random_state=random_state),
+        }
+        scoring = {"accuracy": "accuracy", "f1": "f1_weighted"}
+    else:
+        models = {
+            "Baseline": LinearRegression(),
+            "Random Forest": RandomForestRegressor(n_estimators=200, random_state=random_state),
+        }
+        scoring = {"rmse": "neg_root_mean_squared_error", "r2": "r2"}
+
+    results = {}
+    try:
+        for model_name, model in models.items():
+            pipeline = Pipeline([("preprocess", preprocessor), ("model", model)])
+            cv_scores = cross_validate(pipeline, X, y, cv=splitter, scoring=list(scoring.values()))
+            model_results = {}
+            for display_name, sklearn_name in scoring.items():
+                raw_scores = cv_scores[f"test_{sklearn_name}"]
+                # neg_root_mean_squared_error comes back negative by sklearn convention
+                # (so "higher is better" holds uniformly across all scorers) — flip sign for display.
+                scores = -raw_scores if sklearn_name.startswith("neg_") else raw_scores
+                model_results[display_name] = {
+                    "mean": round(float(np.mean(scores)), 4),
+                    "std": round(float(np.std(scores)), 4),
+                    "scores": [round(float(s), 4) for s in scores],
+                }
+            results[model_name] = model_results
+    except Exception as e:
+        return {"error": f"Cross-validation failed: {e}"}
+
+    return {
+        "task_type": task_type,
+        "k": k,
+        "k_requested": k_requested,
+        "k_reduced": k_reduced,
+        "n_samples": len(data),
+        "results": results,
+    }
+
+
+def build_cv_score_chart(result: dict, metric: str) -> go.Figure:
+    """Box plot of per-fold scores for `metric`, one box per model — makes
+    fold-to-fold spread (the whole point of cross-validating) visible
+    instead of collapsing straight to a mean.
+    """
+    fig = go.Figure()
+    for model_name, model_results in result["results"].items():
+        if metric in model_results:
+            fig.add_trace(go.Box(y=model_results[metric]["scores"], name=model_name, boxpoints="all"))
+    fig.update_layout(
+        title=f"{result['k']}-Fold Cross-Validation — {metric}",
+        yaxis_title=metric,
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def cv_verdict(result: dict) -> str:
+    """Plain-English mean +/- std comparison for the primary metric
+    (accuracy for classification, R² for regression). Handles an error
+    result gracefully instead of raising.
+    """
+    if "error" in result:
+        return f"Couldn't run cross-validation: {result['error']}"
+
+    primary_metric = "accuracy" if result["task_type"] == "classification" else "r2"
+    metric_label = "accuracy" if primary_metric == "accuracy" else "R²"
+
+    lines = [
+        f"{model_name}: {model_results[primary_metric]['mean']:.4f} ± {model_results[primary_metric]['std']:.4f} {metric_label}"
+        for model_name, model_results in result["results"].items()
+    ]
+    reduction_note = (
+        f" (k reduced from {result['k_requested']} to {result['k']} — the rarest class doesn't have enough "
+        f"members for {result['k_requested']}-fold stratification)"
+        if result.get("k_reduced")
+        else ""
+    )
+    return (
+        f"{result['k']}-fold cross-validation on {result['n_samples']} rows{reduction_note}: " + "; ".join(lines) +
+        ". A mean +/- std across folds is a far more reliable estimate of real-world performance than any "
+        "single train/test split, which can swing significantly just from which rows happened to land in "
+        "the test set."
+    )
