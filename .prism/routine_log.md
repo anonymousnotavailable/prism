@@ -1370,3 +1370,59 @@ Phase 2 web research sweep this run (14th consecutive reuse of the
 backlog) — the backlog still has enough well-scoped, high-depth items
 that a fresh sweep isn't the bottleneck yet; recommended once the list
 above is down to cosmetic-only items.
+
+## Run 22 — 2026-08-11
+
+Reused the standing backlog (15th consecutive run, same token-efficiency
+reasoning documented since Run 9 — "loop until 100% usage" + "use less
+tokens" are contradictory; ran one complete, verified cycle and stopped,
+per the hard guardrails). Local `main` was 79 commits behind
+`origin/main` at start (stale local ref from container image, not a real
+divergence) — fast-forwarded before branching, same precedent as
+Runs 19/21.
+
+**Shipped one feature (mandatory agentic-AI theme):** Anomaly Drivers —
+`find_anomaly_drivers()` in `modules/anomaly.py` answers *why* rows were
+flagged, not just which ones: splits flagged-vs-normal and tests every
+other column (Welch's t-test/Cohen's d for numeric, chi-square/Cramer's V
+for categorical), reusing `stats_lab.run_ttest()`/`run_chi2()` directly
+so effect sizes/labels always agree with Stats Lab. Only p < 0.05 drivers
+surface, ranked by effect size. New "🔬 What makes these rows anomalous?"
+panel under both single-method and ensemble Anomaly Detection results,
+zero extra Gemini calls unless the user asks for AI narration (cached +
+fact-checked, same pattern as every other narrated surface). Genuinely
+new — the one mature auto-EDA module (Anomaly Detection) that hadn't yet
+been extended with this "does the statistics hold up / what's the
+story" follow-up pattern Auto Insights/Sweep/Confounder Detection all
+already have.
+
+24 new tests (44 total in `test_anomaly.py`), full suite 428/428 green,
+zero regressions. Live-verified with Playwright at desktop 1440px +
+mobile 390px, dark theme, against a synthetic planted-driver dataset
+(generated for this run only, not committed): correctly ranked a numeric
+driver (Cohen's d = -12.46, large) and a categorical driver (Cramer's V =
+0.91, large), both p = 0.0000. Light theme: the new panel itself renders
+correctly, but reconfirmed the app-wide (not new) "light-theme repaint-
+lag" — `st.dataframe()` grids across the page keep a dark background
+after a live theme toggle. Mobile+light: sidebar theme control was
+off-screen after scroll, same standing mobile-automation gap logged
+6+ prior runs. Zero console/page errors beyond the expected absence of a
+live Gemini call (22nd consecutive run with no `GEMINI_API_KEY`).
+`.env`/secrets hygiene re-checked (clean, `.gitignore` covers it).
+Verified a fresh `main` checkout (separate git worktree at the merge
+commit) both passes the full suite and launches the Streamlit server
+cleanly (HTTP 200, no traceback) before finishing. Merged
+`feature/anomaly-driver-analysis` into `main` with `--no-ff`, updated
+`CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run22.md`, pushed `main`.
+
+**Not built (backlog, unchanged):** Large Excel ingestion (no out-of-core
+reader). Light-theme repaint-lag (cosmetic, app-wide, reconfirmed this
+run). Live-Gemini verification (structural constraint). Mobile-viewport
+navigation/theme-toggle automation gap (now 7+ runs — sidebar controls
+and sticky bottom bar intercept Playwright interaction; a test-harness
+fix, not an app change). Explore Mode's "load into Manual Builder"
+click-through (Run 20's logged follow-on, now 2 runs open). Atlas voice/
+HUD slice beyond current maturity. No fresh Phase 2 web research sweep
+this run (15th consecutive reuse) — backlog still has real, non-cosmetic
+items (Excel ingestion, Explore Mode click-through), so a fresh sweep
+still isn't the bottleneck.
