@@ -482,18 +482,71 @@ def test_annotate_power_flags_well_powered_significant_ttest():
     assert row["power_check"]["achieved_power"] > 0.95
 
 
-def test_annotate_power_skips_nonsignificant_and_nonttest_rows():
+def test_annotate_power_skips_nonsignificant_and_uncovered_test_rows():
     df = _correlated_df()
     result = sweep_hypotheses(df, _column_types(df))
     annotated = annotate_power(result)
     for row in annotated["tested"]:
-        if row["test"] != "ttest" or not row["significant"]:
+        if row["test"] not in ("ttest", "chi2") or not row["significant"]:
             assert row["power_check"] is None
 
 
 def test_annotate_power_handles_empty_result():
     assert annotate_power({"tested": []}) == {"tested": []}
     assert annotate_power(None) is None
+
+
+# --- table_shape on chi2 rows, and annotate_power()'s chi2 branch ----------
+
+def _chi2_df(n: int = 40, flip_prob: float = 0.4, seed: int = 5) -> pd.DataFrame:
+    """Two categorical columns with a controllable association strength:
+    `b` copies `a` except with `flip_prob` chance of flipping to the other
+    category. Lower flip_prob / larger n -> stronger, better-powered signal.
+    """
+    rng = np.random.default_rng(seed)
+    a = rng.choice(["x", "y"], size=n)
+    flip = rng.random(size=n) < flip_prob
+    b = np.array([("y" if v == "x" else "x") if f else v for v, f in zip(a, flip)])
+    return pd.DataFrame({"a": a, "b": b})
+
+
+def test_chi2_row_carries_table_shape():
+    df = _chi2_df(n=200, flip_prob=0.1)
+    result = sweep_hypotheses(df, {"a": "categorical", "b": "categorical"})
+    row = next(r for r in result["tested"] if r["test"] == "chi2")
+    assert row["table_shape"] == (2, 2)
+
+
+def test_non_chi2_rows_have_no_table_shape():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    non_chi2 = [r for r in result["tested"] if r["test"] != "chi2"]
+    assert non_chi2 and all(r["table_shape"] is None for r in non_chi2)
+
+
+def test_annotate_power_flags_underpowered_significant_chi2():
+    # Small n, weak planted association -> significant sometimes, but even
+    # when it is, power should be well under 80%.
+    df = _chi2_df(n=40, flip_prob=0.35, seed=11)
+    result = sweep_hypotheses(df, {"a": "categorical", "b": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "chi2")
+    if row["significant"]:
+        assert row["power_check"] is not None
+        assert row["power_check"]["test_type"] == "chisquare"
+        assert row["power_check"]["n"] == row["n"]
+    else:
+        assert row["power_check"] is None
+
+
+def test_annotate_power_flags_well_powered_significant_chi2():
+    df = _chi2_df(n=400, flip_prob=0.05, seed=2)
+    result = sweep_hypotheses(df, {"a": "categorical", "b": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "chi2")
+    assert row["significant"] is True
+    assert row["power_check"]["underpowered"] is False
+    assert row["power_check"]["achieved_power"] > 0.95
 
 
 def test_annotate_power_does_not_mutate_input():

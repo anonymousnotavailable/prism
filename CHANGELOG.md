@@ -2,6 +2,30 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 26)
+
+### Added
+- **Chi-square post-hoc power in Hypothesis Sweep** (`modules/experiment_
+  design.py`: `achieved_power_chisquare`, `power_check_chisquare`) —
+  extends the t-test post-hoc power check Run 25 shipped to categorical/
+  categorical (chi-square) pairs, closing the gap that run explicitly
+  left open. Built on statsmodels' `GofChisquarePower`, the same
+  primitive R's `pwr::pwr.chisq.test` uses. Correctly recovers Cohen's w
+  from the sweep's stored Cramer's V using the contingency table's actual
+  shape (`w = V * sqrt(min(rows-1, cols-1))`) rather than approximating
+  from Cramer's V alone — a 2x2 and a 3x2 table at the same V and n have
+  different w and different power, so `hypothesis_sweep.sweep_hypotheses()`
+  now threads the contingency table's shape through as `table_shape` on
+  every chi2 row, mirroring how t-test rows already carry `group_sizes`.
+  `annotate_power()` and the Hypothesis Sweep UI's underpowered-result
+  callout now cover both t-test and chi-square findings; `interpret_
+  power_check()` dispatches on a new `test_type` key rather than assuming
+  t-test shape. 22 new tests (14 in `tests/test_experiment_design.py`
+  cross-checked against Cohen's (1988) classic df=1 power tables — w=0.3/
+  n=88 -> ~80% power, solved n for w=0.1 and w=0.5 at 80% power match the
+  textbook ~785/~32 — plus 8 in `tests/test_hypothesis_sweep.py` for the
+  `table_shape` wiring), full suite 486 -> 501 green, zero regressions.
+
 ## 2026-08-11 (Run 25)
 
 ### Added

@@ -4031,17 +4031,19 @@ elif st.session_state.active_section == "Stats Lab":
                     st.plotly_chart(sweep_chart, use_container_width=True)
 
                 # Power check detail — a "Power" badge in the table above is
-                # easy to skim past; underpowered t-test findings get a
-                # plain-English callout with a concrete follow-up sample size,
+                # easy to skim past; underpowered findings get a plain-
+                # English callout with a concrete follow-up sample size,
                 # same "don't just flag it, tell them what to do next"
-                # pattern as the confounder cross-check below.
+                # pattern as the confounder cross-check below. Covers both
+                # t-test (numeric/categorical) and chi-square (categorical/
+                # categorical) rows — see hypothesis_sweep.annotate_power().
                 underpowered_rows = [
                     r for r in significant_rows
                     if r.get("power_check") and r["power_check"]["underpowered"]
                 ]
                 if underpowered_rows:
                     with st.expander(
-                        f"⚠️ {len(underpowered_rows)} significant t-test result"
+                        f"⚠️ {len(underpowered_rows)} significant result"
                         f"{'s' if len(underpowered_rows) != 1 else ''} may be underpowered",
                         expanded=False,
                     ):

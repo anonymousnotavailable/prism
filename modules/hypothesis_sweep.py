@@ -103,6 +103,13 @@ def sweep_hypotheses(
                 # test type, where "power" isn't a single well-defined number
                 # from just an effect size and a combined n.
                 "group_sizes": dict(result["groups"]) if result["test"] == "ttest" else None,
+                # Contingency table shape (rows, cols) for chi2 rows only —
+                # annotate_power() needs it to recover Cohen's w from the
+                # stored Cramer's V (see experiment_design.achieved_power_
+                # chisquare's docstring for why shape, not just dof, matters).
+                "table_shape": (
+                    tuple(result["contingency_table"].shape) if result["test"] == "chi2" else None
+                ),
             }
         )
 
@@ -137,23 +144,24 @@ def sweep_hypotheses(
 
 
 def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT_POWER) -> dict:
-    """Attach a post-hoc power check (`experiment_design.power_check_ttest`)
-    to every significant t-test row in a sweep result.
+    """Attach a post-hoc power check to every significant t-test or
+    chi-square row in a sweep result (`experiment_design.power_check_ttest`
+    / `power_check_chisquare` respectively).
 
-    A significant t-test only tells you *this* sample showed an effect —
+    A significant result only tells you *this* sample showed an effect —
     it says nothing about whether the study had enough power to reliably
     find one in the first place. A "significant" result from 8 rows per
     group is far less trustworthy than the same p-value from 800, and this
     surfaces that distinction automatically rather than making the user
     reason about sample size themselves.
 
-    Scoped to t-test rows only (Cohen's d + two known group sizes map
-    directly onto `TTestIndPower`); ANOVA/chi-square/Pearson rows get
-    `power_check: None` — extending post-hoc power to those test families
-    is a real but separate effort (chi-square power depends on the
-    contingency table's shape, not just Cramer's V; ANOVA depends on group
-    count, not just eta-squared), left for a future pass rather than
-    approximated here.
+    Scoped to t-test and chi-square rows (Cohen's d + two known group
+    sizes map directly onto `TTestIndPower`; Cramer's V + the stored
+    contingency table shape map directly onto `GofChisquarePower`).
+    ANOVA/Pearson rows get `power_check: None` — ANOVA power depends on
+    group count, not just eta-squared, and Pearson's r has no post-hoc
+    power primitive as directly reusable as the other two in statsmodels;
+    left for a future pass rather than approximated here.
 
     Non-mutating: returns a new dict with a new `tested` list; the input
     `result` (and its row dicts) are left untouched.
@@ -166,6 +174,7 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
     for row in result["tested"]:
         row = dict(row)
         group_sizes = row.get("group_sizes")
+        table_shape = row.get("table_shape")
         if (
             row.get("test") == "ttest"
             and row.get("significant")
@@ -176,6 +185,15 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
             n1, n2 = list(group_sizes.values())
             row["power_check"] = experiment_design.power_check_ttest(
                 row["effect_size"], n1, n2, alpha=alpha, target_power=target_power
+            )
+        elif (
+            row.get("test") == "chi2"
+            and row.get("significant")
+            and table_shape
+            and all(d >= 2 for d in table_shape)
+        ):
+            row["power_check"] = experiment_design.power_check_chisquare(
+                row["effect_size"], row["n"], table_shape, alpha=alpha, target_power=target_power
             )
         else:
             row["power_check"] = None
