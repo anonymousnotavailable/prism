@@ -199,6 +199,57 @@ def narrate_sweep(model, result: Optional[dict]) -> tuple[str, Optional[str]]:
     return text.strip(), None
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# NARRATION FACT-CHECK — the same "plausible but wrong number" safety net
+# insight_verifier applies to Auto Analyst's Gemini findings (see that
+# module's docstring), extended here to narrate_sweep()'s prose. The
+# reference numbers don't need recomputing from the DataFrame the way
+# insight_verifier.compute_reference_numbers() does — sweep_hypotheses()
+# already produced every statistic narrate_sweep() could plausibly cite
+# (p-values, adjusted p-values, effect sizes, sample sizes, test counts),
+# so the ground truth here is exact, not a reference-set approximation.
+# ═══════════════════════════════════════════════════════════════════════
+def sweep_reference_numbers(result: Optional[dict]) -> set[float]:
+    """Ground-truth numbers straight from a sweep result's own already-
+    computed statistics. Never raises — a malformed result just yields an
+    empty (or partial) reference set, which verify_narration() degrades to
+    "unverifiable" for, same non-blocking contract as insight_verifier.
+    """
+    if not result:
+        return set()
+    numbers: set[float] = set()
+    try:
+        numbers.add(float(result.get("n_tests_run", 0)))
+        numbers.add(float(result.get("n_significant", 0)))
+        for row in result.get("tested") or []:
+            for key in ("p_value", "p_adj", "effect_size", "n"):
+                value = row.get(key)
+                if value is None:
+                    continue
+                numbers.add(round(float(value), 4))
+                numbers.add(round(float(value), 2))
+                numbers.add(round(float(value) * 100, 2))  # p/effect sizes often quoted as %
+    except (TypeError, ValueError, AttributeError):
+        pass
+    return numbers
+
+
+def verify_narration(narration: str, result: Optional[dict]) -> dict:
+    """Fact-check narrate_sweep()'s prose against the sweep's own numbers.
+    Reuses insight_verifier.verify_finding() — same {"status": "confirmed"
+    | "flagged" | "unverifiable", ...} contract as every other verified
+    surface in the app, just backed by exact sweep statistics instead of a
+    DataFrame recomputation. Never raises.
+    """
+    from modules import insight_verifier
+
+    try:
+        reference_numbers = sweep_reference_numbers(result)
+    except Exception:
+        reference_numbers = set()
+    return insight_verifier.verify_finding(narration or "", reference_numbers)
+
+
 def build_sweep_chart(result: dict, top_n: int = 15):
     """Horizontal bar chart of the top significant findings by |effect size|."""
     import plotly.express as px
