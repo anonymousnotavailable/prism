@@ -2,6 +2,32 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 15)
+
+### Added
+- **"Suggest a chart" auto-encoding recommendation** (`modules/visualization.
+  suggest_chart_encoding`, `app.py`) — the "explore mode" slice of the
+  PyGWalker-style Manual Chart Builder that Runs 13/14 explicitly left as
+  remaining scope after shipping the Color/Aggregation/Facet encoding
+  channels. A single "✨ Suggest a chart" button reads the loaded data
+  directly (deterministic, no Gemini call) and recommends a chart type +
+  X/Y/Color/Facet/Aggregation encoding, ranked the same way
+  `auto_analyst.suggest_followup_hypothesis` already ranks Stats Lab
+  candidates: strongest numeric/numeric correlation → Scatter (colored by
+  a low-cardinality categorical when one exists); else largest one-way
+  ANOVA F-statistic numeric/categorical pair → Bar of the mean (faceted by
+  a second categorical when one exists); else a datetime+numeric trend →
+  Line; else a lone numeric or categorical column → Histogram or a Bar of
+  counts. Shows its reasoning as a plain-English caption above the chart
+  and pre-fills every Manual Chart Builder selectbox so the user can keep
+  tweaking from there. Satisfies this cycle's mandatory agentic-AI-analysis
+  theme (an explainable, automatic "what should I look at next" pick) and
+  needs no API key, so — unlike most recent runs' features — it was fully
+  exercisable live in this sandbox (no `GEMINI_API_KEY` available). 11 new
+  tests in `tests/test_chart_suggestion.py`, including a test that every
+  suggestion branch actually builds without raising in
+  `build_manual_chart`.
+
 ## 2026-08-11 (Run 14)
 
 ### Added

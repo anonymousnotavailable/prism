@@ -108,6 +108,7 @@ _DEFAULTS = {
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
+    "chart_suggestion_reason": None,  # plain-English reason for the last "Suggest a chart" pick, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
     "sql_lab_tabs": [{"id": "t1", "name": "Query 1", "sql": ""}],  # SQL Lab's open query tabs
     "sql_lab_active_tab_id": "t1",  # which sql_lab_tabs entry the editor is currently showing
@@ -294,6 +295,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.combine_stats = None
     st.session_state.manual_chart_fig = None
     st.session_state.manual_chart_error = None
+    st.session_state.chart_suggestion_reason = None
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
@@ -2869,6 +2871,44 @@ elif st.session_state.active_section == "Visualize":
     st.subheader("Manual Chart Builder")
     st.caption("Auto mode above not showing what you need? Pick the axes and chart type yourself.")
 
+    # "Explore mode" auto-suggestion — the encoding-recommendation slice of
+    # the PyGWalker-style builder (Color/Aggregation/Facet were the prior
+    # encoding-channel slices). Deterministic and Gemini-free: ranks the
+    # data itself (strongest correlation, then largest group difference,
+    # then a time trend, then a lone-column fallback) the same way
+    # auto_analyst.suggest_followup_hypothesis ranks Stats Lab candidates.
+    # Must run BEFORE the selectboxes below are instantiated — Streamlit
+    # forbids writing to a widget's session_state key after that widget has
+    # already rendered this run.
+    if st.button("✨ Suggest a chart", use_container_width=True, help="Auto-pick a chart from what's in the data"):
+        suggestion = visualization.suggest_chart_encoding(df, st.session_state.column_types)
+        if suggestion is None:
+            st.session_state.chart_suggestion_reason = None
+            st.toast("Nothing usable to suggest — the data may be empty or all-null.", icon="⚠️")
+        else:
+            st.session_state.manual_x = suggestion["col_x"]
+            st.session_state.manual_chart_type = suggestion["chart_type"]
+            st.session_state.manual_y = suggestion["col_y"] or "(none)"
+            st.session_state.manual_color = suggestion["color"] or "(none)"
+            st.session_state.manual_agg = next(
+                (label for label, fn in visualization.MANUAL_CHART_AGG_FUNCS.items() if fn == suggestion["agg"]),
+                "Mean",
+            )
+            st.session_state.manual_facet = suggestion["facet"] or "(none)"
+            st.session_state.chart_suggestion_reason = suggestion["reason"]
+            try:
+                st.session_state.manual_chart_fig = visualization.build_manual_chart(
+                    df, suggestion["chart_type"], suggestion["col_x"], suggestion["col_y"],
+                    color=suggestion["color"], agg=suggestion["agg"], facet=suggestion["facet"],
+                )
+                st.session_state.manual_chart_error = None
+            except Exception as e:
+                st.session_state.manual_chart_fig = None
+                st.session_state.manual_chart_error = str(e)
+
+    if st.session_state.chart_suggestion_reason:
+        st.info(f"💡 {st.session_state.chart_suggestion_reason}")
+
     mc1, mc2, mc3 = st.columns(3)
     with mc1:
         manual_x = st.selectbox("X-axis", df.columns.tolist(), key="manual_x")
@@ -2916,6 +2956,9 @@ elif st.session_state.active_section == "Visualize":
                     manual_facet = None if facet_label == "(none)" else facet_label
 
     if st.button("Build Chart", use_container_width=True):
+        # A manual build means the user is now steering directly — the
+        # previous suggestion's reason no longer describes what's on screen.
+        st.session_state.chart_suggestion_reason = None
         try:
             st.session_state.manual_chart_fig = visualization.build_manual_chart(
                 df, manual_chart_type, manual_x, manual_y, color=manual_color, agg=manual_agg, facet=manual_facet
