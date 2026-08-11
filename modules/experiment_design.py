@@ -32,7 +32,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from statsmodels.stats.power import NormalIndPower, TTestIndPower
+from statsmodels.stats.power import GofChisquarePower, NormalIndPower, TTestIndPower
 from statsmodels.stats.proportion import proportion_effectsize
 
 DEFAULT_ALPHA = 0.05
@@ -208,6 +208,7 @@ def power_check_ttest(
             recommended_n_per_group = None
 
     return {
+        "test": "ttest",
         "achieved_power": achieved,
         "target_power": target_power,
         "alpha": alpha,
@@ -222,16 +223,88 @@ def power_check_ttest(
     }
 
 
-def interpret_power_check(check: dict) -> str:
-    """Plain-English verdict for a `power_check_ttest()` result, e.g.
-    "⚠️ Underpowered: with 15 samples per group, this test had only 18%
-    power to detect an effect this size — a follow-up would need ~176
-    samples per group for 80% power." Never raises on a missing
-    recommendation (zero/near-zero effect size).
-    """
-    if check.get("error"):
-        return check["error"]
+def achieved_power_chi2(cramers_v: float, n: int, rows: int, cols: int, alpha: float = DEFAULT_ALPHA) -> float:
+    """Post-hoc power of a chi-square test of independence that already ran,
+    given the effect size it found (Cramer's V), its sample size, and the
+    contingency table's shape.
 
+    Cramer's V alone isn't enough to size a chi-square power calculation —
+    unlike Cohen's d for a t-test, V is normalized by `min(rows, cols) - 1`,
+    which erases the table's actual degrees of freedom whenever it isn't
+    square. This recovers Cohen's w (the effect-size measure
+    `GofChisquarePower` expects) via `w = V * sqrt(min(rows, cols) - 1)` —
+    algebraically the inverse of how `stats_lab.run_chi2` derives V from w
+    in the first place — and passes `n_bins = dof + 1` (`dof =
+    (rows-1)*(cols-1)`), which is how statsmodels' goodness-of-fit power
+    function is documented to encode a contingency table's degrees of
+    freedom for an independence test.
+    """
+    if n < 1 or rows < 2 or cols < 2:
+        return 0.0
+    min_dim = min(rows, cols) - 1
+    dof = (rows - 1) * (cols - 1)
+    cohens_w = abs(cramers_v) * math.sqrt(min_dim)
+    power = GofChisquarePower().power(effect_size=cohens_w, nobs=n, alpha=alpha, n_bins=dof + 1)
+    return float(min(max(power, 0.0), 1.0))
+
+
+def power_check_chi2(
+    cramers_v: float,
+    n: int,
+    rows: int,
+    cols: int,
+    alpha: float = DEFAULT_ALPHA,
+    target_power: float = DEFAULT_POWER,
+) -> dict:
+    """Full post-hoc power verdict for a chi-square test of independence —
+    the chi-square counterpart to `power_check_ttest()`. Same contract:
+    achieved power, a pass/fail flag against `target_power`, and — if
+    underpowered — the total sample size that would reach `target_power`
+    for this same effect size and table shape.
+
+    Returns {test: "chi2", achieved_power, target_power, alpha, n, rows,
+    cols, dof, cramers_v, cohens_w, underpowered, recommended_n}.
+    `recommended_n` is `None` when the effect size is (near) zero, same
+    "no finite sample size" convention as `power_check_ttest`.
+    """
+    if rows < 2 or cols < 2:
+        return {"error": f"Need at least a 2x2 table, got {rows}x{cols}."}
+
+    achieved = achieved_power_chi2(cramers_v, n, rows, cols, alpha=alpha)
+    underpowered = achieved < target_power
+
+    min_dim = min(rows, cols) - 1
+    dof = (rows - 1) * (cols - 1)
+    cohens_w = abs(cramers_v) * math.sqrt(min_dim)
+
+    recommended_n: Optional[int] = None
+    if cohens_w > 1e-9:
+        try:
+            n_needed = GofChisquarePower().solve_power(
+                effect_size=cohens_w, alpha=alpha, power=target_power, n_bins=dof + 1
+            )
+            if n_needed and n_needed <= _MAX_SOLVABLE_N:
+                recommended_n = _round_up(n_needed)
+        except Exception:
+            recommended_n = None
+
+    return {
+        "test": "chi2",
+        "achieved_power": achieved,
+        "target_power": target_power,
+        "alpha": alpha,
+        "n": n,
+        "rows": rows,
+        "cols": cols,
+        "dof": dof,
+        "cramers_v": cramers_v,
+        "cohens_w": cohens_w,
+        "underpowered": underpowered,
+        "recommended_n": recommended_n,
+    }
+
+
+def _interpret_power_check_ttest(check: dict) -> str:
     pct = f"{check['achieved_power']:.0%}"
     n1, n2 = check["n1"], check["n2"]
     n_desc = f"{n1} vs {n2}" if n1 != n2 else str(n1)
@@ -256,6 +329,50 @@ def interpret_power_check(check: dict) -> str:
         f"~{check['recommended_n_per_group']:,} samples per group to reach "
         f"{check['target_power']:.0%} power."
     )
+
+
+def _interpret_power_check_chi2(check: dict) -> str:
+    pct = f"{check['achieved_power']:.0%}"
+    table_desc = f"{check['rows']}x{check['cols']} table, n={check['n']}"
+
+    if not check["underpowered"]:
+        return (
+            f"✅ Well-powered: with a {table_desc}, this test had "
+            f"{pct} power to detect an association this strong (target: "
+            f"{check['target_power']:.0%})."
+        )
+
+    if check["recommended_n"] is None:
+        return (
+            f"⚠️ Underpowered: with a {table_desc}, this test had only "
+            f"{pct} power to detect an association this strong — the effect size is too "
+            "close to zero for any finite sample size to reliably detect."
+        )
+
+    return (
+        f"⚠️ Underpowered: with a {table_desc}, this test had only "
+        f"{pct} power to detect an association this strong — a follow-up study should "
+        f"collect ~{check['recommended_n']:,} rows total to reach "
+        f"{check['target_power']:.0%} power."
+    )
+
+
+def interpret_power_check(check: dict) -> str:
+    """Plain-English verdict for any `power_check_*()` result — dispatches
+    on the `"test"` key (`power_check_ttest()` sets `"ttest"`,
+    `power_check_chi2()` sets `"chi2"`) so a caller rendering a mixed sweep
+    result (t-test and chi-square rows side by side) can call this one
+    function regardless of which test produced the check. E.g.
+    "⚠️ Underpowered: with 15 samples per group, this test had only 18%
+    power to detect an effect this size — a follow-up would need ~176
+    samples per group for 80% power." Never raises on a missing
+    recommendation (zero/near-zero effect size).
+    """
+    if check.get("error"):
+        return check["error"]
+    if check.get("test") == "chi2":
+        return _interpret_power_check_chi2(check)
+    return _interpret_power_check_ttest(check)
 
 
 def interpret_sample_size_proportions(result: dict) -> str:

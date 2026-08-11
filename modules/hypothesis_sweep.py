@@ -103,6 +103,16 @@ def sweep_hypotheses(
                 # test type, where "power" isn't a single well-defined number
                 # from just an effect size and a combined n.
                 "group_sizes": dict(result["groups"]) if result["test"] == "ttest" else None,
+                # Contingency table shape for chi-square rows only — needed
+                # to recover Cohen's w (and the test's degrees of freedom)
+                # from the stored Cramer's V for a post-hoc power check; see
+                # experiment_design.achieved_power_chi2()'s docstring for why
+                # V alone isn't enough. None for every other test type.
+                "table_shape": (
+                    tuple(int(x) for x in result["contingency_table"].shape)
+                    if result["test"] == "chi2"
+                    else None
+                ),
             }
         )
 
@@ -137,23 +147,24 @@ def sweep_hypotheses(
 
 
 def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT_POWER) -> dict:
-    """Attach a post-hoc power check (`experiment_design.power_check_ttest`)
-    to every significant t-test row in a sweep result.
+    """Attach a post-hoc power check to every significant t-test *and*
+    chi-square row in a sweep result (`experiment_design.power_check_ttest`
+    / `power_check_chi2` respectively).
 
-    A significant t-test only tells you *this* sample showed an effect —
+    A significant result only tells you *this* sample showed an effect —
     it says nothing about whether the study had enough power to reliably
     find one in the first place. A "significant" result from 8 rows per
     group is far less trustworthy than the same p-value from 800, and this
     surfaces that distinction automatically rather than making the user
     reason about sample size themselves.
 
-    Scoped to t-test rows only (Cohen's d + two known group sizes map
-    directly onto `TTestIndPower`); ANOVA/chi-square/Pearson rows get
-    `power_check: None` — extending post-hoc power to those test families
-    is a real but separate effort (chi-square power depends on the
-    contingency table's shape, not just Cramer's V; ANOVA depends on group
-    count, not just eta-squared), left for a future pass rather than
-    approximated here.
+    Scoped to t-test and chi-square rows (Cohen's d + two known group sizes
+    map directly onto `TTestIndPower`; Cramer's V + table shape recover
+    Cohen's w for `GofChisquarePower`, see `power_check_chi2`'s docstring).
+    ANOVA/Pearson rows get `power_check: None` — ANOVA power depends on
+    per-group sample sizes (which aren't uniformly balanced in real data)
+    on top of group count, not just eta-squared; a real follow-on, left for
+    a future pass rather than approximated here.
 
     Non-mutating: returns a new dict with a new `tested` list; the input
     `result` (and its row dicts) are left untouched.
@@ -166,6 +177,7 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
     for row in result["tested"]:
         row = dict(row)
         group_sizes = row.get("group_sizes")
+        table_shape = row.get("table_shape")
         if (
             row.get("test") == "ttest"
             and row.get("significant")
@@ -176,6 +188,16 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
             n1, n2 = list(group_sizes.values())
             row["power_check"] = experiment_design.power_check_ttest(
                 row["effect_size"], n1, n2, alpha=alpha, target_power=target_power
+            )
+        elif (
+            row.get("test") == "chi2"
+            and row.get("significant")
+            and table_shape
+            and all(dim >= 2 for dim in table_shape)
+        ):
+            rows_dim, cols_dim = table_shape
+            row["power_check"] = experiment_design.power_check_chi2(
+                row["effect_size"], row["n"], rows_dim, cols_dim, alpha=alpha, target_power=target_power
             )
         else:
             row["power_check"] = None

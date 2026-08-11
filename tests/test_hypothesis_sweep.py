@@ -458,6 +458,33 @@ def test_non_ttest_rows_have_no_group_sizes():
     assert non_ttest and all(r["group_sizes"] is None for r in non_ttest)
 
 
+# --- table_shape on chi-square rows -----------------------------------------
+# Deterministic (not random) 2x2 contingency tables, so significance/power
+# are stable across runs rather than depending on an RNG threshold.
+
+def _chi2_df(scale: int = 1) -> pd.DataFrame:
+    """A 2x2 table with a fixed moderate association (Cramer's V ~0.42):
+    9:3 / 3:9 per `scale` units. Cramer's V is scale-invariant, but power
+    isn't — `scale` controls n while holding the effect size fixed."""
+    col_a = ["x"] * (12 * scale) + ["y"] * (12 * scale)
+    col_b = ["p"] * (9 * scale) + ["q"] * (3 * scale) + ["p"] * (3 * scale) + ["q"] * (9 * scale)
+    return pd.DataFrame({"col_a": col_a, "col_b": col_b})
+
+
+def test_chi2_row_carries_table_shape():
+    df = _chi2_df(scale=10)
+    result = sweep_hypotheses(df, {"col_a": "categorical", "col_b": "categorical"})
+    row = next(r for r in result["tested"] if r["test"] == "chi2")
+    assert row["table_shape"] == (2, 2)
+
+
+def test_non_chi2_rows_have_no_table_shape():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    non_chi2 = [r for r in result["tested"] if r["test"] != "chi2"]
+    assert non_chi2 and all(r["table_shape"] is None for r in non_chi2)
+
+
 def test_annotate_power_flags_underpowered_significant_ttest():
     # Small n, small-ish planted effect -> significant sometimes, but even
     # when it is, power should be well under 80%.
@@ -482,13 +509,35 @@ def test_annotate_power_flags_well_powered_significant_ttest():
     assert row["power_check"]["achieved_power"] > 0.95
 
 
-def test_annotate_power_skips_nonsignificant_and_nonttest_rows():
+def test_annotate_power_skips_nonsignificant_and_unsupported_test_rows():
     df = _correlated_df()
     result = sweep_hypotheses(df, _column_types(df))
     annotated = annotate_power(result)
     for row in annotated["tested"]:
-        if row["test"] != "ttest" or not row["significant"]:
+        if not row["significant"] or row["test"] not in ("ttest", "chi2"):
             assert row["power_check"] is None
+
+
+def test_annotate_power_flags_underpowered_significant_chi2():
+    df = _chi2_df(scale=1)  # small n, moderate effect -> significant but underpowered
+    result = sweep_hypotheses(df, {"col_a": "categorical", "col_b": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "chi2")
+    assert row["significant"] is True
+    assert row["power_check"] is not None
+    assert row["power_check"]["test"] == "chi2"
+    assert row["power_check"]["underpowered"] is True
+    assert row["power_check"]["rows"] == 2 and row["power_check"]["cols"] == 2
+
+
+def test_annotate_power_flags_well_powered_significant_chi2():
+    df = _chi2_df(scale=10)  # same effect size, 10x the n -> well-powered
+    result = sweep_hypotheses(df, {"col_a": "categorical", "col_b": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "chi2")
+    assert row["significant"] is True
+    assert row["power_check"]["underpowered"] is False
+    assert row["power_check"]["achieved_power"] > 0.95
 
 
 def test_annotate_power_handles_empty_result():
