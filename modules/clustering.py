@@ -18,11 +18,15 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
-from sklearn.cluster import KMeans
+import plotly.figure_factory as ff
+from scipy.cluster.hierarchy import linkage as scipy_linkage
+from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
+from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 
 from modules.ai_analyst import call_gemini, parse_numbered_bullets
@@ -30,6 +34,19 @@ from modules.ai_analyst import call_gemini, parse_numbered_bullets
 # Below this many rows, clustering results are shown but flagged as unreliable.
 MIN_ROWS_FOR_CLUSTERING = 50
 MAX_K = 10
+
+# Algorithms offered in the Clustering tab's algorithm picker.
+CLUSTER_ALGORITHMS = ["KMeans", "DBSCAN", "Hierarchical (Agglomerative)"]
+
+# Linkage criteria offered for Agglomerative/hierarchical clustering. Ward
+# (minimizes within-cluster variance, the standard default) requires
+# Euclidean distance, which is what StandardScaler-ed data already gives us.
+HIERARCHICAL_LINKAGE_METHODS = ["ward", "complete", "average", "single"]
+
+# Dendrograms with too many leaves are unreadable and slow to render; sample
+# down to this many rows for the dendrogram plot only (cluster assignments
+# elsewhere are computed on the full clean data, unaffected by this cap).
+MAX_DENDROGRAM_ROWS = 300
 
 # How many candidate Ks on either side of the elbow's pick to compare by
 # silhouette score before settling on a final suggestion.
@@ -157,6 +174,234 @@ def run_clustering(df: pd.DataFrame, numeric_cols: list[str], k: int) -> dict:
         "n_rows": len(clean),
         "silhouette_score": sil_score,
     }
+
+
+def _elbow_index(values: list[float]) -> int:
+    """Kneedle-style elbow finder: the index of the point on `values` (a
+    monotonic curve) furthest from the straight line connecting its first
+    and last point. Used for the DBSCAN eps k-distance plot, the same way
+    `suggest_k` already finds an elbow in KMeans inertia — an unattended
+    version of what a human would eyeball on the curve.
+    """
+    n = len(values)
+    if n < 3:
+        return 0
+    y = np.asarray(values, dtype=float)
+    x = np.arange(n, dtype=float)
+    x_range = x[-1] - x[0]
+    y_range = y.max() - y.min()
+    x_norm = (x - x[0]) / x_range if x_range > 0 else np.zeros(n)
+    y_norm = (y - y.min()) / y_range if y_range > 0 else np.zeros(n)
+
+    x1, y1 = x_norm[0], y_norm[0]
+    x2, y2 = x_norm[-1], y_norm[-1]
+    denom = float(np.hypot(y2 - y1, x2 - x1))
+    if denom == 0:
+        return 0
+    distances = np.abs((y2 - y1) * x_norm - (x2 - x1) * y_norm + x2 * y1 - y2 * x1) / denom
+    return int(np.argmax(distances))
+
+
+def suggest_eps(
+    df: pd.DataFrame, numeric_cols: list[str], min_samples: int = 5
+) -> tuple[Optional[float], list[float]]:
+    """DBSCAN needs an `eps` (neighborhood radius). The standard way to pick
+    one (Ester et al. 1996) is the "k-distance plot": for every point, find
+    the distance to its `min_samples`-th nearest neighbor, sort those
+    distances ascending, and look for the "knee" where the curve bends
+    sharply upward — points past the knee are in sparse regions (noise
+    candidates), points before it are in dense regions (core points).
+
+    Returns (suggested_eps, sorted_k_distances). Both are the empty/None
+    case if there isn't enough clean data to compute `min_samples` nearest
+    neighbors for every point.
+    """
+    clean = df[numeric_cols].dropna()
+    if len(clean) < min_samples + 1:
+        return None, []
+
+    scaled = StandardScaler().fit_transform(clean)
+    nn = NearestNeighbors(n_neighbors=min_samples).fit(scaled)
+    distances, _ = nn.kneighbors(scaled)
+    k_distances = np.sort(distances[:, -1])
+
+    elbow_idx = _elbow_index(k_distances.tolist())
+    suggested_eps = float(k_distances[elbow_idx])
+    return (suggested_eps if suggested_eps > 0 else 0.5), k_distances.tolist()
+
+
+def _pca_scatter(clean: pd.DataFrame, scaled, labels) -> tuple[pd.DataFrame, "np.ndarray"]:
+    pca = PCA(n_components=2, random_state=42)
+    coords = pca.fit_transform(scaled)
+    scatter_df = pd.DataFrame(coords, columns=["PC1", "PC2"], index=clean.index)
+    scatter_df["cluster"] = ["Noise" if lbl == -1 else str(lbl) for lbl in labels]
+    return scatter_df, pca.explained_variance_ratio_
+
+
+def run_dbscan(df: pd.DataFrame, numeric_cols: list[str], eps: float, min_samples: int) -> dict:
+    """Density-based clustering: finds arbitrary-shaped clusters and
+    explicitly labels points that don't belong to any dense region as noise
+    (-1), unlike KMeans which forces every point into some cluster and
+    assumes roughly spherical shapes. No K to pick — density
+    (eps/min_samples) implicitly determines the cluster count.
+
+    Returns the same shape as run_clustering (cluster_stats, scatter_df,
+    pca_explained_variance, silhouette_score) plus n_clusters (excluding
+    noise), noise_count, and noise_pct — or "error" if there isn't enough
+    clean data, or if every point was classified as noise (eps too small).
+    """
+    clean = df[numeric_cols].dropna()
+    if len(clean) < min_samples + 1:
+        return {
+            "error": (
+                f"Only {len(clean)} complete rows available — need at least "
+                f"{min_samples + 1} for min_samples={min_samples}."
+            )
+        }
+
+    scaled = StandardScaler().fit_transform(clean)
+    labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(scaled)
+
+    n_clusters = len({lbl for lbl in labels if lbl != -1})
+    noise_count = int((labels == -1).sum())
+    if n_clusters == 0:
+        return {
+            "error": (
+                f"DBSCAN found no clusters at eps={eps:.3g}, min_samples={min_samples} — "
+                "every point was treated as noise. Try a larger eps."
+            )
+        }
+
+    scatter_df, explained_variance = _pca_scatter(clean, scaled, labels)
+
+    stats_source = clean.copy()
+    stats_source["cluster"] = ["Noise" if lbl == -1 else str(lbl) for lbl in labels]
+    cluster_stats = stats_source.groupby("cluster")[numeric_cols].mean()
+    cluster_stats["size"] = stats_source.groupby("cluster").size()
+    cluster_stats["pct"] = (cluster_stats["size"] / len(clean) * 100).round(1)
+
+    # Silhouette score only makes sense over real (non-noise) cluster
+    # assignments — noise points have no cluster to be "well-separated" from.
+    non_noise_mask = labels != -1
+    non_noise_labels = labels[non_noise_mask]
+    n_unique_non_noise = len(set(non_noise_labels))
+    sil_score = (
+        float(silhouette_score(scaled[non_noise_mask], non_noise_labels))
+        if 2 <= n_unique_non_noise <= non_noise_mask.sum() - 1
+        else None
+    )
+
+    return {
+        "cluster_stats": cluster_stats,
+        "scatter_df": scatter_df,
+        "pca_explained_variance": explained_variance,
+        "n_rows": len(clean),
+        "silhouette_score": sil_score,
+        "n_clusters": n_clusters,
+        "noise_count": noise_count,
+        "noise_pct": round(noise_count / len(clean) * 100, 1),
+        "eps": eps,
+        "min_samples": min_samples,
+    }
+
+
+def run_hierarchical(
+    df: pd.DataFrame, numeric_cols: list[str], k: int, linkage_method: str = "ward"
+) -> dict:
+    """Agglomerative hierarchical clustering: starts with every point as its
+    own cluster and repeatedly merges the closest pair (by `linkage_method`)
+    until `k` clusters remain. Unlike KMeans, it makes no upfront assumption
+    about cluster shape and its merge history can be inspected as a
+    dendrogram (see build_dendrogram_chart) — useful when the "right" K
+    isn't obvious and you want to see the merge structure, not just guess.
+
+    Returns the same shape as run_clustering plus "linkage_method" — or
+    "error" if there isn't enough clean data to form k clusters.
+    """
+    clean = df[numeric_cols].dropna()
+    if len(clean) < k:
+        return {"error": f"Only {len(clean)} complete rows available — need at least {k} to form {k} clusters."}
+
+    scaled = StandardScaler().fit_transform(clean)
+    agg = AgglomerativeClustering(n_clusters=k, linkage=linkage_method)
+    labels = agg.fit_predict(scaled)
+
+    scatter_df, explained_variance = _pca_scatter(clean, scaled, labels)
+
+    stats_source = clean.copy()
+    stats_source["cluster"] = labels.astype(str)
+    cluster_stats = stats_source.groupby("cluster")[numeric_cols].mean()
+    cluster_stats["size"] = stats_source.groupby("cluster").size()
+    cluster_stats["pct"] = (cluster_stats["size"] / len(clean) * 100).round(1)
+
+    n_unique_labels = len(set(labels))
+    sil_score = (
+        float(silhouette_score(scaled, labels)) if 2 <= n_unique_labels <= len(clean) - 1 else None
+    )
+
+    return {
+        "cluster_stats": cluster_stats,
+        "scatter_df": scatter_df,
+        "pca_explained_variance": explained_variance,
+        "k": k,
+        "n_rows": len(clean),
+        "silhouette_score": sil_score,
+        "linkage_method": linkage_method,
+    }
+
+
+def build_dbscan_eps_chart(k_distances: list[float], suggested_eps: Optional[float]) -> px.Figure:
+    """The k-distance plot behind suggest_eps: sorted nearest-neighbor
+    distances with the suggested eps marked, so the "knee" the heuristic
+    picked is visible rather than just a bare number.
+    """
+    if not k_distances:
+        fig = px.line(title="K-Distance Plot (DBSCAN eps selection)")
+        fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+        return fig
+
+    fig = px.line(
+        x=list(range(len(k_distances))), y=k_distances,
+        labels={"x": "Points, sorted by distance", "y": "Distance to k-th nearest neighbor"},
+        title="K-Distance Plot (DBSCAN eps selection)",
+    )
+    if suggested_eps is not None:
+        fig.add_hline(
+            y=suggested_eps, line_dash="dash", line_color="red",
+            annotation_text=f"Suggested eps ≈ {suggested_eps:.3g}",
+        )
+    fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+    return fig
+
+
+def build_dendrogram_chart(
+    df: pd.DataFrame, numeric_cols: list[str], linkage_method: str = "ward", max_rows: int = MAX_DENDROGRAM_ROWS
+) -> px.Figure:
+    """Dendrogram of the hierarchical merge structure, via plotly's
+    figure_factory (which wraps scipy's linkage/dendrogram under the hood —
+    we pass our own linkagefun so it uses the same linkage_method as
+    run_hierarchical, on the same standardized data).
+
+    Sampled down to `max_rows` rows for readability/speed if the dataset is
+    larger — this affects only the dendrogram's shape, not any cluster
+    assignment (run_hierarchical always uses the full clean data).
+    """
+    clean = df[numeric_cols].dropna()
+    if len(clean) > max_rows:
+        clean = clean.sample(n=max_rows, random_state=42)
+    scaled = StandardScaler().fit_transform(clean)
+
+    fig = ff.create_dendrogram(
+        scaled, linkagefun=lambda x: scipy_linkage(x, method=linkage_method)
+    )
+    fig.update_layout(
+        title=f"Dendrogram ({linkage_method} linkage)"
+        + (f" — sampled {max_rows} of {len(df[numeric_cols].dropna())} rows" if len(df[numeric_cols].dropna()) > max_rows else ""),
+        margin=dict(t=50, b=10, l=10, r=10),
+        xaxis_title="Rows (leaf order)",
+        yaxis_title="Merge distance",
+    )
+    return fig
 
 
 def build_elbow_chart(inertias: dict[int, float]) -> px.Figure:
