@@ -62,6 +62,7 @@ from modules import (
     sql_lab,
     stats_lab,
     story_mode,
+    survival,
     theme,
     type_coercion,
     ui,
@@ -165,6 +166,8 @@ _DEFAULTS = {
     "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
     "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
+    "survival_result": None,  # last survival.survival_analysis() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
+    "survival_narration": None,  # cached Gemini narration of survival_result, avoids re-spending a call per rerun
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
@@ -4333,6 +4336,112 @@ elif st.session_state.active_section == "Stats Lab":
                         st.session_state.hypothesis_sweep_narration_verification = (
                             hypothesis_sweep.verify_narration(narration, sweep_result)
                         )
+                        st.rerun()
+
+        # ------------------------------------------------------------------
+        # Survival Analysis — Kaplan-Meier curves + log-rank test, the
+        # "time until an event" analysis every other test above sidesteps
+        # (see modules/survival.py). Only rendered when the dataset has a
+        # numeric duration-like column and a binary event column — same
+        # "stay silent rather than force it" convention as the rest of the
+        # app's optional panels.
+        # ------------------------------------------------------------------
+        _survival_duration_cols = [
+            c for c, t in column_types.items()
+            if t == "numeric" and c in df.columns and (df[c].dropna() >= 0).all() and df[c].notna().sum() >= 2
+        ]
+        _survival_event_cols = [
+            c for c, t in column_types.items()
+            if t in ("categorical", "text", "boolean") and c in df.columns and df[c].nunique(dropna=True) == 2
+        ]
+        if _survival_duration_cols and _survival_event_cols:
+            st.divider()
+            st.markdown("#### ⏳ Survival Analysis — time until an event")
+            st.caption(
+                "For 'time until X happens' data (tenure until churn, time until failure): plots the "
+                "probability of *not yet* having the event over time, using every row — including ones "
+                "where the event hasn't happened yet (right-censored) — instead of a fixed pass/fail cutoff."
+            )
+            sv1, sv2, sv3 = st.columns(3)
+            survival_duration_col = sv1.selectbox("Duration column", _survival_duration_cols, key="survival_duration_col")
+            survival_event_col = sv2.selectbox("Event column", _survival_event_cols, key="survival_event_col")
+            _survival_group_cols = [
+                c for c, t in column_types.items()
+                if t in ("categorical", "text", "boolean") and c in df.columns and c != survival_event_col
+                and 2 <= df[c].nunique(dropna=True) <= 8
+            ]
+            survival_group_col = sv3.selectbox(
+                "Compare groups (optional)", ["(none)"] + _survival_group_cols, key="survival_group_col"
+            )
+            survival_group_col = None if survival_group_col == "(none)" else survival_group_col
+
+            if st.button("Run Survival Analysis", key="survival_run_btn"):
+                with st.spinner("Estimating survival curve…"):
+                    st.session_state.survival_result = survival.survival_analysis(
+                        df, survival_duration_col, survival_event_col, group_col=survival_group_col
+                    )
+                st.session_state.survival_narration = None
+                st.rerun()  # same same-pass-staleness reason as the Causal Effect Estimator above
+
+            survival_result = st.session_state.survival_result
+            if survival_result is None:
+                ui.render_empty_state(
+                    "⏳", "No survival curve yet", 'Click "Run Survival Analysis" above to see the curve.'
+                )
+            elif not survival_result["ok"]:
+                st.warning(survival_result["error"])
+            else:
+                for w in survival_result["warnings"]:
+                    st.caption(f"⚠ {w}")
+
+                survival_fig = visualization.plot_kaplan_meier(survival_result)
+                if survival_fig is not None:
+                    st.plotly_chart(survival_fig, use_container_width=True)
+
+                if survival_result["groups"]:
+                    med_df = pd.DataFrame(
+                        [
+                            {
+                                "Group": level,
+                                "n": km["n"],
+                                "Events": km["n_events"],
+                                "Censored": km["n_censored"],
+                                "Median survival": km["median_survival"] if km["median_survival"] is not None else "not reached",
+                            }
+                            for level, km in survival_result["groups"].items()
+                        ]
+                    )
+                    st.dataframe(med_df, use_container_width=True, hide_index=True)
+
+                    log_rank = survival_result["log_rank"]
+                    if log_rank and log_rank["ok"]:
+                        lr_c1, lr_c2 = st.columns(2)
+                        lr_c1.metric("Log-rank p-value", f"{log_rank['p_value']:.4g}")
+                        lr_c2.metric("Test statistic", f"{log_rank['statistic']:.3f}")
+                        if log_rank["p_value"] < 0.05:
+                            st.success("Groups have significantly different survival curves.")
+                        else:
+                            st.info("No statistically significant difference between groups' survival curves.")
+                else:
+                    overall = survival_result["overall"]
+                    o1, o2, o3 = st.columns(3)
+                    o1.metric("n", overall["n"])
+                    o2.metric("Events", overall["n_events"])
+                    o3.metric(
+                        "Median survival",
+                        overall["median_survival"] if overall["median_survival"] is not None else "not reached",
+                    )
+
+                if st.session_state.survival_narration:
+                    st.info(st.session_state.survival_narration)
+                elif st.button("✨ Explain this", key="survival_narrate_btn"):
+                    model = ai_analyst.get_model()
+                    with st.spinner("Gemini is interpreting this…"):
+                        narration, narr_error = survival.narrate_survival(model, survival_result)
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.survival_narration = narration
                         st.rerun()
 
 # --------------------------------------------------------------------------
