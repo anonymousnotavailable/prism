@@ -49,6 +49,7 @@ from modules import (
     insight_orchestrator,
     insight_verifier,
     join_engine,
+    market_basket,
     mllab,
     pii_detector,
     profiling,
@@ -182,6 +183,7 @@ _DEFAULTS = {
     "auto_report_content": None,  # last "Generate Report" content dict (for PDF/HTML export)
     "recipe_apply_log": [],  # last "Apply Recipe" per-step applied/skipped log
     "pii_findings": {},  # PII Detector's scan of the active dataset — {"email"/"phone"/"name": [...]}
+    "market_basket_result": None,  # last "Find Association Rules" result dict from Domain Lens
     "jump_to_tab": None,  # tab label to auto-select via JS once, right after tabs render
     "hellmode_date_result": None,  # last "Standardize Dates" preview {"column","parsed","failed","day_first"}
     "hellmode_impute_recs": {},  # last "AI Recommend" imputation strategy suggestions
@@ -329,6 +331,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
     st.session_state.cluster_algorithm_last = None
+    st.session_state.market_basket_result = None
     st.session_state.drift_result = None
     st.session_state.dashboard_spec = None
     st.session_state.auto_report_content = None
@@ -4616,6 +4619,76 @@ elif st.session_state.active_section == "Domain Lens":
             st.dataframe(churn_df.sort_values("days_inactive", ascending=False), use_container_width=True, hide_index=True)
         except Exception as e:
             st.error(f"Couldn't compute churn: {e}")
+
+        st.divider()
+        st.markdown("#### Market Basket Analysis")
+        st.caption(
+            "What gets bought together — mines frequent itemsets and association rules (support/"
+            "confidence/lift) via Apriori. Needs a Basket ID column (order/transaction/session ID, "
+            "one row per item in the basket) and an Item column (product/SKU/event name)."
+        )
+        mb1, mb2 = st.columns(2)
+        with mb1:
+            mb_basket_col = st.selectbox("Basket ID", all_domain_cols, key="mb_basket_col")
+        with mb2:
+            mb_item_default_idx = 1 if len(all_domain_cols) > 1 else 0
+            mb_item_col = st.selectbox("Item", all_domain_cols, index=mb_item_default_idx, key="mb_item_col")
+
+        mb3, mb4 = st.columns(2)
+        with mb3:
+            mb_min_support = st.slider(
+                "Minimum support", min_value=0.01, max_value=0.5, value=0.02, step=0.01, key="mb_min_support",
+                help="Fraction of baskets an itemset must appear in to be considered 'frequent'.",
+            )
+        with mb4:
+            mb_min_confidence = st.slider(
+                "Minimum confidence", min_value=0.05, max_value=1.0, value=0.3, step=0.05, key="mb_min_confidence",
+                help="Of baskets containing the antecedent, the fraction that must also contain the consequent.",
+            )
+
+        if mb_basket_col == mb_item_col:
+            st.info("Pick two different columns for Basket ID and Item.")
+        elif st.button("Find Association Rules", type="primary", use_container_width=True, key="find_rules_btn"):
+            with st.spinner(ui.get_loading_message()):
+                st.session_state.market_basket_result = market_basket.compute_association_rules(
+                    df, mb_basket_col, mb_item_col, min_support=mb_min_support, min_confidence=mb_min_confidence
+                )
+
+        mb_result = st.session_state.market_basket_result
+        if mb_result is None:
+            ui.render_empty_state(
+                "🛒", "No rules yet", 'Map Basket ID + Item above and click "Find Association Rules".'
+            )
+        elif mb_result.get("error"):
+            st.error(mb_result["error"])
+        else:
+            if mb_result.get("sampled"):
+                st.caption(
+                    f"Sampled {mb_result['n_baskets']:,} of {mb_result['n_baskets_total']:,} baskets for "
+                    "tractability — support/confidence/lift are still statistically meaningful on this sample."
+                )
+            mbm1, mbm2, mbm3 = st.columns(3)
+            mbm1.metric("Baskets mined", f"{mb_result['n_baskets']:,}")
+            mbm2.metric("Distinct items", f"{mb_result['n_distinct_items']:,}")
+            mbm3.metric("Rules found", len(mb_result["rules"]))
+
+            if mb_result["rules"].empty:
+                st.info(
+                    "No rules met the confidence threshold. Try lowering minimum support or minimum "
+                    "confidence above."
+                )
+            else:
+                st.plotly_chart(market_basket.build_rules_chart(mb_result["rules"]), use_container_width=True)
+                st.markdown("**Association rules** (sorted by lift)")
+                st.dataframe(mb_result["rules"], use_container_width=True, hide_index=True)
+                top_rule = mb_result["rules"].iloc[0]
+                st.caption(
+                    f"Top rule: **{top_rule['antecedent']} → {top_rule['consequent']}** — "
+                    + market_basket.rule_verdict(top_rule["lift"])
+                )
+
+            with st.expander("Frequent itemsets (raw)", expanded=False):
+                st.dataframe(mb_result["frequent_itemsets"], use_container_width=True, hide_index=True)
 
     else:
         st.markdown("#### Column Mapper")
