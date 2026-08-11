@@ -55,22 +55,33 @@ _ENCODING_FALLBACKS = ["utf-8-sig", "cp1252", "latin-1"]
 # database and log-style exports.
 _DELIMITER_CANDIDATES = [",", ";", "\t", "|"]
 
-# Above this many bytes, load_data() tries DuckDB's out-of-core CSV reader
-# before falling back to the pandas path above. Below it, pandas reading the
-# whole file into memory first is fast enough that the extra machinery
-# wouldn't pay for itself. 15 MB is comfortably above every sample dataset
-# and typical Kaggle CSV Prism has been tested against, so this only kicks
-# in for genuinely large uploads.
+# Above this many bytes, load_data() tries an out-of-core reader (DuckDB for
+# CSV, streaming openpyxl for .xlsx — see below) before falling back to the
+# pandas path above. Below it, pandas reading the whole file into memory
+# first is fast enough that the extra machinery wouldn't pay for itself.
+# 15 MB is comfortably above every sample dataset and typical Kaggle
+# CSV/Excel export Prism has been tested against, so this only kicks in for
+# genuinely large uploads.
 LARGE_FILE_THRESHOLD_BYTES = 15 * 1024 * 1024
+
+# How many columns a sampled-file's fidelity check inspects, at most — kept
+# small so the extra population-stats query/pass stays cheap relative to the
+# read itself. Excess columns are silently skipped past this many, but that
+# skip is always surfaced in a warning (see _stream_sample_excel) rather than
+# left implicit.
+NUMERIC_FIDELITY_LIMIT = 8
+CATEGORICAL_FIDELITY_LIMIT = 5
 
 
 def _should_attempt_duckdb(uploaded_file) -> bool:
     """Whether load_data() should try the DuckDB path for this file.
 
     Only CSV-shaped files with a known size at/above the threshold qualify.
-    Excel files go through openpyxl (no equivalent out-of-core reader
-    integrated here) and anything whose size can't be determined is treated
-    conservatively — same behavior as today rather than risking a surprise.
+    .xlsx files above the threshold get their own streaming path instead
+    (see _should_attempt_streaming_excel/_stream_sample_excel); .xls (the
+    legacy binary format) and anything whose size can't be determined are
+    treated conservatively — same behavior as today rather than risking a
+    surprise.
     """
     size = getattr(uploaded_file, "size", None)
     if size is None:
@@ -79,6 +90,26 @@ def _should_attempt_duckdb(uploaded_file) -> bool:
     if filename.endswith((".xlsx", ".xls")):
         return False
     return size >= LARGE_FILE_THRESHOLD_BYTES
+
+
+def _should_attempt_streaming_excel(uploaded_file) -> bool:
+    """Whether load_data() should stream this .xlsx instead of reading it
+    eagerly. The Excel analog of _should_attempt_duckdb above — same size
+    gate, reusing LARGE_FILE_THRESHOLD_BYTES rather than a separate tuned
+    constant. (.xlsx is zip-compressed, so on-disk size under-counts the
+    decompressed row data — that only makes streaming kick in a bit later
+    than it "ideally" would for spreadsheet-dense sheets, never earlier, so
+    reusing the CSV threshold is a safe simplification, not a mistuning.)
+
+    Only .xlsx qualifies — openpyxl can't read the legacy .xls binary format
+    in a streaming/read-only fashion at all, so .xls always takes the eager
+    pandas path further down.
+    """
+    size = getattr(uploaded_file, "size", None)
+    if size is None or size < LARGE_FILE_THRESHOLD_BYTES:
+        return False
+    filename = getattr(uploaded_file, "name", "").lower()
+    return filename.endswith(".xlsx")
 
 
 def _duckdb_sample_csv(
@@ -149,6 +180,13 @@ def _duckdb_sample_csv(
             # caller fall back to them rather than accepting empty garbage.
             if df.dropna(how="all").empty:
                 return None
+            if total_rows > max_rows:
+                # A sample was actually taken (as opposed to reading the
+                # whole file) — worth checking whether it turned out
+                # representative, since DuckDB already has the full file
+                # open and this is cheap relative to the read itself.
+                fidelity_stats = _population_stats_from_duckdb(con, tmp_path, df, total_rows)
+                warnings.extend(check_sampling_fidelity(df, fidelity_stats))
             return df, warnings
         finally:
             con.close()
@@ -157,6 +195,121 @@ def _duckdb_sample_csv(
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _population_stats_from_duckdb(con, tmp_path: str, df: pd.DataFrame, total_rows: int) -> dict:
+    """Computes exact population statistics for a bounded subset of columns,
+    straight from the full file via DuckDB SQL — no pandas ever holding the
+    whole thing. Feeds check_sampling_fidelity() so a sample can be checked
+    against the population it was drawn from, not just assumed good.
+
+    Column *selection* (which ones qualify, and the LIMIT-based cap) is
+    driven by the already-loaded sample's dtypes/cardinality — a proxy for
+    the full file's shape, which is exactly the assumption a fidelity check
+    is meant to catch if it's wrong. Any single column's query failing
+    (a type DuckDB inferred differently than pandas did, an exotic value)
+    is swallowed and that column is just skipped, since a partial fidelity
+    check is still useful and one bad column shouldn't cancel the rest.
+    """
+    stats: dict = {"numeric": {}, "categorical": {}}
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])][:NUMERIC_FIDELITY_LIMIT]
+    categorical_cols = [
+        c
+        for c in df.columns
+        if not pd.api.types.is_numeric_dtype(df[c]) and 1 < df[c].nunique(dropna=True) <= 50
+    ][:CATEGORICAL_FIDELITY_LIMIT]
+
+    if numeric_cols:
+        select_clause = ", ".join(
+            f'avg("{c}") AS "{c}__mean", stddev_pop("{c}") AS "{c}__std"' for c in numeric_cols
+        )
+        try:
+            row = con.execute(
+                f"SELECT {select_clause} FROM read_csv_auto(?, ignore_errors=true)", [tmp_path]
+            ).fetchone()
+            for i, c in enumerate(numeric_cols):
+                mean, std = row[2 * i], row[2 * i + 1]
+                if mean is not None:
+                    stats["numeric"][c] = {"mean": float(mean), "std": float(std) if std is not None else 0.0}
+        except Exception:
+            pass
+
+    for c in categorical_cols:
+        try:
+            top = con.execute(
+                f'SELECT "{c}", count(*) FROM read_csv_auto(?, ignore_errors=true) '
+                f'GROUP BY "{c}" ORDER BY count(*) DESC LIMIT 1',
+                [tmp_path],
+            ).fetchone()
+            if top is not None and top[0] is not None:
+                stats["categorical"][c] = {"top_value": top[0], "share": top[1] / total_rows}
+        except Exception:
+            continue
+
+    return stats
+
+
+def check_sampling_fidelity(sample_df: pd.DataFrame, population_stats: dict, rel_threshold: float = 0.15) -> list[str]:
+    """Self-verifying check for an out-of-core sample: does the sample that
+    actually got loaded still look like the full file it was drawn from?
+
+    population_stats is {"numeric": {col: {"mean", "std"}}, "categorical":
+    {col: {"top_value", "share"}}} — computed straight from the full file
+    (see _population_stats_from_duckdb / _stream_sample_excel), never from
+    pandas holding the whole thing. A column is flagged when the sample's
+    own statistic drifts from the true population value by more than
+    rel_threshold (15% by default — the same small/medium-effect spirit as
+    the effect-size thresholds elsewhere in Prism, just applied to sampling
+    error instead of a group difference). Returns a reassurance message
+    instead of nothing when every checked column passed, so a clean check
+    isn't indistinguishable from a check that never ran at all — the same
+    "self-verifying agent" pattern Confounder Detection and Anomaly Drivers
+    already use, applied at ingestion time instead of after analysis.
+    """
+    numeric_stats = population_stats.get("numeric", {})
+    categorical_stats = population_stats.get("categorical", {})
+
+    flagged: list[str] = []
+    checked = 0
+    for col, pop in numeric_stats.items():
+        if col not in sample_df.columns:
+            continue
+        sample_series = pd.to_numeric(sample_df[col], errors="coerce").dropna()
+        if sample_series.empty:
+            continue
+        checked += 1
+        pop_mean, pop_std = pop["mean"], pop["std"]
+        sample_mean = sample_series.mean()
+        denom = abs(pop_mean) if abs(pop_mean) > 1e-9 else (pop_std if pop_std > 1e-9 else 1.0)
+        rel_delta = abs(sample_mean - pop_mean) / denom
+        if rel_delta > rel_threshold:
+            flagged.append(
+                f"⚠️ Sampling fidelity: column '{col}' — the sample's mean ({sample_mean:.3g}) differs from "
+                f"the full file's mean ({pop_mean:.3g}) by {rel_delta:.0%}. Conclusions about this column "
+                "may not hold for the full dataset."
+            )
+
+    for col, pop in categorical_stats.items():
+        if col not in sample_df.columns:
+            continue
+        checked += 1
+        top_value, pop_share = pop["top_value"], pop["share"]
+        sample_share = (sample_df[col] == top_value).mean()
+        delta = abs(sample_share - pop_share)
+        if delta > rel_threshold:
+            flagged.append(
+                f"⚠️ Sampling fidelity: column '{col}' — its most common value in the full file "
+                f"('{top_value}', {pop_share:.0%} of all rows) makes up {sample_share:.0%} of the sample, "
+                f"a {delta:.0%}-point gap. Category proportions for this column may not hold for the full "
+                "dataset."
+            )
+
+    if checked and not flagged:
+        flagged.append(
+            f"✅ Sampling fidelity check: {checked} column(s) checked against the full file's true "
+            "statistics — the random sample looks representative."
+        )
+    return flagged
 
 
 def _header_row_is_probably_data(df: pd.DataFrame) -> bool:
@@ -295,6 +448,119 @@ def _strip_object_column_whitespace(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _stream_sample_excel(
+    uploaded_file, sheet_name: Union[str, int], max_rows: int, random_state: int = 42
+) -> Optional[tuple[pd.DataFrame, list[str]]]:
+    """Reads a (potentially huge) .xlsx sheet by streaming rows via
+    openpyxl's read_only mode, instead of pandas/openpyxl building the full
+    in-memory workbook object graph first. The Excel analog of
+    _duckdb_sample_csv above: takes a reservoir sample (Algorithm R) of at
+    most max_rows rows in a single pass, and — in that same pass — tracks
+    each numeric column's exact population mean/variance via Welford's
+    online algorithm, so check_sampling_fidelity() can run without a second
+    read of the file.
+
+    Categorical-column fidelity isn't tracked here — unlike the CSV path,
+    which gets it almost for free via a SQL GROUP BY, doing it safely in a
+    single streaming pass needs a bounded-cardinality counter per column
+    that gets abandoned once it overflows (a free-text column could
+    otherwise grow one entry per row). That's a real follow-on, not
+    attempted half-way; logged in the backlog instead.
+
+    Returns (sampled_df, warnings) on success, or None on *any* failure —
+    openpyxl not installed, an unreadable workbook, a header row that
+    doesn't look usable (e.g. a banner row — the existing pandas fallback's
+    banner-row recovery already handles that case properly, so this bails
+    rather than trying to be equally clever). Same silent-fallback contract
+    as _duckdb_sample_csv: a performance optimization, never a required
+    capability.
+    """
+    try:
+        import openpyxl
+    except ImportError:
+        return None
+
+    import random
+
+    try:
+        uploaded_file.seek(0)
+        wb = openpyxl.load_workbook(filename=uploaded_file, read_only=True, data_only=True)
+        try:
+            if isinstance(sheet_name, int):
+                if sheet_name >= len(wb.worksheets):
+                    return None
+                ws = wb.worksheets[sheet_name]
+            else:
+                if sheet_name not in wb.sheetnames:
+                    return None
+                ws = wb[sheet_name]
+
+            row_iter = ws.iter_rows(values_only=True)
+            try:
+                header = next(row_iter)
+            except StopIteration:
+                return None
+            if not header or sum(1 for c in header if c is not None) < 2:
+                return None
+            columns = [str(c) if c is not None else f"Column_{i + 1}" for i, c in enumerate(header)]
+            n_cols = len(columns)
+
+            rng = random.Random(random_state)
+            reservoir: list[tuple] = []
+            total_rows = 0
+            numeric_state: dict[int, list[float]] = {}  # col idx -> [count, mean, M2]
+            NUMERIC_TRACK_LIMIT = 50
+
+            for row in row_iter:
+                total_rows += 1
+                if len(reservoir) < max_rows:
+                    reservoir.append(row)
+                else:
+                    j = rng.randint(0, total_rows - 1)
+                    if j < max_rows:
+                        reservoir[j] = row
+                for idx in range(min(n_cols, NUMERIC_TRACK_LIMIT, len(row))):
+                    val = row[idx]
+                    if isinstance(val, (int, float)) and not isinstance(val, bool):
+                        state = numeric_state.get(idx)
+                        if state is None:
+                            numeric_state[idx] = [1, float(val), 0.0]
+                        else:
+                            state[0] += 1
+                            delta = val - state[1]
+                            state[1] += delta / state[0]
+                            state[2] += delta * (val - state[1])
+        finally:
+            wb.close()
+    except Exception:
+        return None
+
+    if total_rows == 0:
+        return None
+
+    df = pd.DataFrame(reservoir, columns=columns)
+    warnings: list[str] = []
+    if total_rows > max_rows:
+        warnings.append(
+            f"This Excel sheet has {total_rows:,} rows — too large to load in full. Streamed it row-by-row "
+            f"(without building the full sheet in memory) and took a random {max_rows:,}-row sample across "
+            "the entire sheet, not just the top. The cleaned-data download will only reflect this sample."
+        )
+        if n_cols > NUMERIC_TRACK_LIMIT:
+            warnings.append(f"(Sampling fidelity check limited to the first {NUMERIC_TRACK_LIMIT} of {n_cols} columns.)")
+        population_stats = {
+            "numeric": {
+                columns[idx]: {"mean": mean, "std": (m2 / (count - 1)) ** 0.5}
+                for idx, (count, mean, m2) in numeric_state.items()
+                if count >= 2
+            },
+            "categorical": {},
+        }
+        warnings.extend(check_sampling_fidelity(df, population_stats))
+
+    return df, warnings
+
+
 def load_data(
     uploaded_file, sheet_name: Union[str, int] = 0, max_rows: Optional[int] = MAX_ROWS
 ) -> tuple[Optional[pd.DataFrame], Optional[str], list[str]]:
@@ -327,9 +593,16 @@ def load_data(
     # way the pandas fallback below can) this silently falls through to the
     # existing behavior rather than surfacing an error.
     duckdb_result = _duckdb_sample_csv(uploaded_file, effective_cap) if _should_attempt_duckdb(uploaded_file) else None
+    excel_stream_result = (
+        _stream_sample_excel(uploaded_file, sheet_name, effective_cap)
+        if duckdb_result is None and _should_attempt_streaming_excel(uploaded_file)
+        else None
+    )
 
     if duckdb_result is not None:
         df, warnings = duckdb_result
+    elif excel_stream_result is not None:
+        df, warnings = excel_stream_result
     else:
         try:
             if filename.endswith((".xlsx", ".xls")):

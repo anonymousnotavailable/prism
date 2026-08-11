@@ -192,6 +192,11 @@ _DEFAULTS = {
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
     "pending_large_upload": None,  # {"df", "filename"} awaiting a Smart Sampling choice before it becomes active
     "sample_info": None,  # persistent banner text when the active dataset is a Smart Sampling sample, else None
+    "sample_warnings": [],  # load_data() warnings (encoding fallback, out-of-core sampling, sampling-fidelity
+                             # check, ...) captured when a large upload went through Smart Sampling — rendered
+                             # alongside sample_info instead of via a one-shot st.warning() right before the
+                             # st.rerun() below, which would otherwise never actually reach the user (Streamlit
+                             # discards that run's output as soon as the rerun starts the next one)
     "autocleaner_report": None,  # {"narration", "before_score", "safe_applied", "safe_log"} from the last Auto Clean run
     "autocleaner_review_queue": [],  # pending REVIEW-tier actions awaiting approve/reject
     "autocleaner_snapshot": None,  # {working_df, column_types, cleaning_log} captured right before Auto Clean ran —
@@ -364,6 +369,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.orchestration_narration_fingerprint = None
     st.session_state.orchestration_narration_verification = None
     st.session_state.sample_info = None
+    st.session_state.sample_warnings = []
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
     st.session_state.autocleaner_snapshot = None
@@ -960,8 +966,7 @@ with st.sidebar:
                     pending_df, sample_method.lower(), data_engine.MAX_ROWS, strat_col
                 )
                 set_active_dataset(sampled_df, sampled_df.copy(), pending["filename"])
-                for w in pending["warnings"]:
-                    st.warning(w)
+                st.session_state.sample_warnings = pending["warnings"]
                 st.session_state.sample_info = explanation
                 st.session_state.pending_large_upload = None
                 st.toast("Sample ready.")
@@ -1441,6 +1446,14 @@ ui.render_sticky_header(
 
 if st.session_state.sample_info:
     st.caption(f"🔬 {st.session_state.sample_info}")
+
+if st.session_state.sample_warnings:
+    # Shown once, on the run right after Smart Sampling confirms a sample —
+    # then cleared, rather than repeating on every later interaction the way
+    # the sample_info caption above intentionally does.
+    for w in st.session_state.sample_warnings:
+        st.warning(w)
+    st.session_state.sample_warnings = []
 
 if st.session_state.dataset_fingerprint:
     _fp = st.session_state.dataset_fingerprint

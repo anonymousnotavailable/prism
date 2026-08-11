@@ -2,6 +2,47 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 24)
+
+### Added
+- **Large-file ingestion: streaming .xlsx sampling + self-verifying
+  "Sampling Fidelity" check** (`modules/data_engine.py`, `app.py`) —
+  closes the oldest open backlog item ("Large Excel ingestion — no
+  out-of-core reader") while also shipping this cycle's mandatory
+  agentic-AI-analysis theme in the same feature. `.xlsx` uploads above the
+  existing 15 MB large-file threshold now stream row-by-row via
+  openpyxl's `read_only` mode instead of pandas/openpyxl materializing
+  the whole workbook first — `_stream_sample_excel()` takes a reservoir
+  sample (Algorithm R) of at most `MAX_ROWS`/`HARD_ROW_CEILING` rows in a
+  single pass, and in that same pass tracks each numeric column's exact
+  population mean/variance via Welford's online algorithm (`.xls`, the
+  legacy binary format, still takes the eager pandas path — openpyxl
+  can't stream it). The genuinely new part: a shared
+  `check_sampling_fidelity()` compares the sample that actually got
+  loaded against those true population statistics — computed via SQL for
+  the existing DuckDB CSV path, via the streaming Welford pass for
+  Excel — and surfaces a "⚠️ Sampling fidelity" warning when a column's
+  sample mean or a categorical column's top-category share drifts more
+  than 15% from the full file's true value, or a "✅ Sampling fidelity
+  check... looks representative" reassurance when it doesn't. This is
+  the same self-verifying-agent pattern Confounder Detection and Anomaly
+  Drivers already use ("does the statistic hold up"), applied for the
+  first time at ingestion time rather than after analysis.
+- **Bug fix (found while verifying the above): Smart Sampling's
+  post-confirmation warnings never actually reached the user.** The
+  "Use this sample" handler called `st.warning(w)` immediately before
+  `st.rerun()` in the same script pass — Streamlit discards that pass's
+  output as soon as the rerun starts the next one, so every warning
+  shown there (including the pre-existing "too large to load in full...
+  sampled N rows" message, not just the new fidelity check) silently
+  never rendered. Fixed by storing them in a new `sample_warnings`
+  session-state list, shown once on the next run (mirroring the existing
+  persistent `sample_info` caption pattern) instead of as a one-shot call
+  right before the rerun.
+
+31 new tests (`tests/test_data_engine.py`), full suite 435 → 456/456
+green.
+
 ## 2026-08-11 (Run 23)
 
 ### Added

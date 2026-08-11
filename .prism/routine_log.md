@@ -1519,3 +1519,96 @@ large Excel ingestion, or run a fresh Phase 2 web research sweep if
 Excel ingestion is judged out of scope, since the backlog is thinning
 toward the "cosmetic-only" threshold that would trigger a sweep per this
 routine's own stated rule.**
+
+## Run 24 — 2026-08-11
+
+**Session git-constraint note (read first if resuming this line of
+work):** this session's harness explicitly assigned branch
+`claude/adoring-meitner-jpcmt5` and forbade pushing anywhere else without
+permission — a different constraint than every prior run's session,
+which merged features into `main` and pushed `main` directly per this
+routine's own Phase 7 text. `claude/adoring-meitner-jpcmt5` started
+identical to `origin/main` (commit `9e55067`, no existing remote branch,
+no PR) — this run committed and pushed there instead of touching `main`.
+**`main` was not merged into or pushed this run.** The work is complete
+and verified below; it's on that branch awaiting merge. If Run 25 starts
+from a session where that branch has since been merged, branch fresh
+from `main`; if not, either continue on the same branch or check with
+the user before deciding.
+
+Reused the standing backlog (17th consecutive run, same token-efficiency
+reasoning documented since Run 9 — ran one complete, verified cycle and
+stopped). Cold-start deps needed a fresh `pip install -r requirements.txt
+-r requirements-dev.txt` plus `pip install cffi` (same `cryptography`/
+`google-auth` transitive-import issue Run 23 first logged) before any
+test could run.
+
+**Shipped one feature that closes the oldest backlog item *and* the
+mandatory agentic-AI theme in the same piece of work:** streaming
+`.xlsx` ingestion + a self-verifying "Sampling Fidelity" check.
+`_stream_sample_excel()` in `modules/data_engine.py` reads large `.xlsx`
+uploads via openpyxl's `read_only` mode + `iter_rows` instead of building
+the full workbook in memory, taking a reservoir sample (Algorithm R) in
+one pass while tracking each numeric column's exact population mean/
+variance via Welford's online algorithm in that same pass — no second
+read. That population-stats byproduct feeds a new shared
+`check_sampling_fidelity()`, which the existing DuckDB CSV path also now
+calls (getting population stats almost for free via one extra SQL
+query): it flags a column when the sample's own mean or top-category
+share drifts >15% from the full file's true value, or confirms fidelity
+explicitly when nothing drifted — the same "does the statistic hold up"
+self-verifying pattern Confounder Detection/Anomaly Drivers already
+established, now running at ingestion time. Categorical-column fidelity
+for the *Excel* path specifically is deliberately not built this run —
+needs a bounded-cardinality counter per column, abandoned on overflow,
+to track safely in one streaming pass — logged below rather than shipped
+half-done.
+
+**Bug found and fixed while live-verifying the feature (not from unit
+tests):** Smart Sampling's "Use this sample" handler called
+`st.warning(w)` immediately before `st.rerun()` in the same script
+pass — Streamlit discards that pass's rendered output as soon as the
+rerun starts the next one, so *every* warning shown there (the
+pre-existing "too large to load in full" message too, not just this
+run's new fidelity messages) silently never reached the user, for all 23
+prior runs, unnoticed because nothing before this depended on that
+warning being visible. Fixed by storing warnings in a new
+`sample_warnings` session-state list rendered once on the next run,
+mirroring the `sample_info` persistent-caption pattern that already
+works correctly.
+
+31 new tests in `tests/test_data_engine.py`, full suite 435 → 456/456
+green, zero regressions. Live-verified with Playwright (raw
+`chromium.launch()`, `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`)
+against a synthetic 700,000-row CSV (generated for this run only, not
+committed) driven through the real Smart Sampling flow end-to-end at
+desktop 1440px, both dark and Arctic (light) themes: both warning
+messages render with correct contrast/wrapping in the existing
+`st.warning()` glass panel (no new visual component, since this feature
+is backend logic reusing an existing UI surface). Mobile viewport hit
+the same standing "controls sit outside the automated viewport" gap
+logged 7+ prior runs (Runs 10/13/16–23) — not re-chased past one retry,
+same bounded-verification precedent; not a regression, since the warning
+uses the same primitive already mobile-verified for other content.
+`.env`/secrets hygiene re-checked (clean, `.gitignore` covers it). App
+launches cleanly (HTTP 200, no traceback) on the branch with all changes
+committed. Zero Gemini calls involved in this feature (24th consecutive
+run with no `GEMINI_API_KEY` in this sandbox, unrelated to this feature
+which doesn't touch Gemini at all). Committed directly to
+`claude/adoring-meitner-jpcmt5` (see session git-constraint note above —
+no `main` merge this run), updated `CHANGELOG.md`, wrote
+`RUN_REPORT_2026-08-11-run24.md`, pushed the branch.
+
+**Not built (backlog, updated):** Categorical-column sampling-fidelity
+tracking for the Excel streaming path (new item this run, well-scoped —
+needs a bounded-cardinality counter per column abandoned on overflow).
+Light-theme repaint-lag (cosmetic, app-wide, unrelated to this run's
+feature). Live-Gemini verification (structural constraint). Mobile-
+viewport navigation/theme-toggle automation gap (7+ runs open elsewhere
+in the app). Atlas voice/HUD slice beyond current maturity. No fresh
+Phase 2 web research sweep this run (17th consecutive reuse) — the
+backlog is now down to the categorical-fidelity follow-on and
+cosmetic/infrastructure items — **recommended for Run 25: build the
+categorical-fidelity follow-on if straightforward, otherwise run a fresh
+Phase 2 web research sweep, since the backlog is now genuinely close to
+the cosmetic-only threshold.**
