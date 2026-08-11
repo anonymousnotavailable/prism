@@ -2,6 +2,25 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 20)
+
+### Added
+- **Explore Mode: auto-suggested chart encodings** (`modules/
+  visualization.py`, `app.py`) — closes the oldest standing backlog item
+  (first logged Run 13, unbuilt through Run 19). `suggest_encodings()`
+  ranks candidate charts by deterministic signal strength: |correlation|
+  for numeric x numeric pairs (Scatter), an ANOVA eta-squared effect size
+  for categorical x numeric (Bar, gated to 2-15 distinct categories so
+  constant/near-unique columns don't clutter the ranking), |trend
+  correlation| for datetime x numeric (Line), and |skew| for single
+  numeric columns (Histogram). Zero extra Gemini calls — entirely
+  offline/deterministic, so it works even when the API is rate-limited.
+  New "🧭 Explore Mode" panel in the Visualize tab, between Auto-Generated
+  Charts and the Manual Chart Builder, rendering the top-ranked
+  suggestions with a plain-English reason and score, built via the
+  existing `build_manual_chart()` so every suggestion is guaranteed
+  renderable. 9 new tests, full suite 386 → 395/395 green.
+
 ## 2026-08-11 (Run 19)
 
 ### Added

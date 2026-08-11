@@ -1268,3 +1268,38 @@ covers Pearson (numeric/numeric) sweep pairs — a categorical-pair-aware
 "does this group difference hold up within strata?" follow-on (two-way
 ANOVA / interaction check) is a well-scoped smaller candidate for a
 future run.
+
+## Run 20 — 2026-08-11
+
+Reused the standing backlog (13th consecutive run, same token-efficiency
+reasoning documented since Run 9) and built its oldest, most-recommended
+item. **Shipped one feature:** Explore Mode — `suggest_encodings()` in
+`modules/visualization.py` ranks candidate charts by deterministic signal
+(|correlation| for numeric pairs, ANOVA η² effect size for
+categorical-vs-numeric, |trend correlation| for datetime-vs-numeric,
+|skew| for single numeric columns) and surfaces the top-ranked
+suggestions in a new "🧭 Explore Mode" panel between Auto-Generated Charts
+and the Manual Chart Builder. Zero extra Gemini calls. Closes the item
+first logged Run 13, open for 7 consecutive runs. 9 new tests, full suite
+386 → 395/395 green, zero regressions post-merge. Live Playwright pass at
+desktop 1440px + mobile 390px, dark theme, `samples/sales_data.csv`: zero
+console/page errors beyond the expected Gemini `ERR_CONNECTION_RESET`
+(20th consecutive run with no `GEMINI_API_KEY` in this sandbox). Light
+theme not re-shot — the panel reuses only pre-verified primitives, no new
+CSS. `.env`/secrets hygiene re-checked (clean, `.gitignore` covers it).
+Verified a fresh `main` checkout (separate git worktree) launches cleanly
+before finishing. Merged `feature/explore-mode-suggested-encodings` into
+`main` with `--no-ff`, updated `CHANGELOG.md`, wrote
+`RUN_REPORT_2026-08-11-run20.md`, pushed `main`.
+
+**Not built (backlog, unchanged + one addition):** Large Excel ingestion.
+Light-theme repaint-lag (cosmetic). Live-Gemini verification (structural
+constraint). Mobile+light simultaneous screenshots (automation gap).
+Categorical-pair confounder cross-check / two-way ANOVA (Run 19's
+follow-on idea). Atlas voice/HUD slice beyond current maturity. **New:**
+Explore Mode's suggestions render statically today — a "load into Manual
+Builder" click-through (pre-fill the selectboxes from a suggestion) is a
+well-scoped, low-risk next slice toward the full PyGWalker interaction
+model. No fresh Phase 2 web research sweep this run (13th consecutive
+reuse of the backlog) — recommended for Run 21 if the backlog thins
+further.
