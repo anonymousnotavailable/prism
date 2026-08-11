@@ -1762,3 +1762,23 @@ Plan: branch `feature/silhouette-cluster-validation` and
 `feature/roc-pr-curves` off `claude/adoring-meitner-7xxgfq`, tests
 first, then implement, full suite must stay green, merge both with
 `--no-ff`, push.
+
+## Run 26 — 2026-08-11 — result
+
+Shipped both selected features: Silhouette-Score Cluster Validation
+(`modules/clustering.py`, 19 tests) and ROC-AUC/Precision-Recall Curves
+(`modules/mllab.py`, 12 tests). Merged `feature/silhouette-cluster-
+validation` and `feature/roc-pr-curves` into `claude/adoring-meitner-
+7xxgfq` with `--no-ff`, both clean merges with no conflicts. Full suite
+479 → 510 green, zero regressions; app launches cleanly post-merge
+(HTTP 200, clean logs). Playwright still blocked by sandbox egress
+policy (confirmed again via a real `playwright install chromium`
+attempt this time, not just the proxy status endpoint — 403 "host not
+permitted" from `cdn.playwright.dev`) — verified via live server smoke
+tests plus direct function-level runs against real sample CSVs instead
+(`samples/hr_data.csv` for ROC/PR surfaced a genuine real-world example
+of the accuracy-hides-a-broken-model failure mode the feature catches).
+Full reasoning, screenshots-not-taken rationale, and Run 27
+recommendation (multiclass ROC/PR as a small follow-on, or a fresh
+Phase 2 sweep — leaning toward the sweep since backlog is thin again)
+in `RUN_REPORT_2026-08-11-run26.md`.

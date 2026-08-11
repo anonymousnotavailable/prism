@@ -2,6 +2,42 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 26)
+
+### Added
+- **Silhouette-Score Cluster Validation** (`modules/clustering.py`) — the
+  Clustering tab's K suggestion is now a hybrid elbow + silhouette-score
+  method instead of elbow alone: the elbow method (inertia drop-off)
+  narrows to a small candidate window, then the silhouette score — which
+  actually measures how well-separated the resulting clusters are, not
+  just how tight they are — picks the winner within that window. This is
+  the standard practice recommendation confirmed by current sources,
+  since inertia decreases monotonically with K by construction and can't
+  by itself tell a genuinely good K from an arbitrary one. Also shown:
+  a silhouette-score-by-K bar chart alongside the existing elbow chart,
+  and a plain-English verdict on the chosen clustering's silhouette score
+  (using the standard Kaufman & Rousseeuw interpretation bands: strong/
+  reasonable/weak/no real structure). 19 new tests — the first direct
+  test coverage for `modules/clustering.py` — verify true-K recovery on
+  synthetic separable blobs and score-band verdict text.
+- **ROC-AUC / Precision-Recall Curves** (`modules/mllab.py`) — ML Lab's
+  baseline model runner now reports threshold-independent classification
+  quality for binary targets, not just accuracy/F1/confusion matrix.
+  Accuracy alone is misleading on imbalanced classes — exactly the case
+  ML Lab's own class-imbalance detector and SMOTE option already handle
+  — since a model can score high accuracy just by favoring the majority
+  class. Shows ROC curve + AUC and Precision-Recall curve + average
+  precision for both the Baseline and Random Forest models, plus a
+  verdict that explicitly flags when the positive class is skewed enough
+  that the PR curve should be weighted over ROC-AUC alone (current
+  guidance for imbalanced classification). Deliberately binary-only —
+  multiclass targets get a graceful explanatory note instead of a
+  fabricated one-vs-rest chart, since that needs its own UI decision.
+  12 new tests, including a real-data check via `samples/hr_data.csv`
+  (attrition prediction) where accuracy alone showed 84.75% but ROC-AUC
+  revealed the model was performing worse than random guessing — the
+  exact failure mode this feature exists to catch.
+
 ## 2026-08-11 (Run 25)
 
 ### Added
