@@ -1611,3 +1611,76 @@ sandbox). **Recommended for Run 25: a fresh Phase 2 web research sweep**
 (Excel ingestion, open since Run 20), so per this routine's own stated
 rule, reusing the backlog is no longer the right call; Run 25 should
 generate new evidence-backed candidates instead.
+
+## Run 25 — 2026-08-11 — selection log (written before code merge)
+
+Cold start this run installed cleanly (`pip install -r requirements.txt
+-r requirements-dev.txt` then `pip install cffi` for the
+`cryptography`/`google-auth` Rust-binding issue, same fix logged by
+every prior run) — 454 tests green before any changes, matching Run
+24's final count exactly, confirming a clean baseline.
+
+**Ran the fresh Phase 2 web research sweep Run 24 recommended** (full
+ranked table in `.prism/research_2026-08-11-run25.md`): DA/DS job-
+posting skill surveys, Hex/Deepnote/Julius AI/ChatGPT ADA/Databricks
+Assistant comparisons, polars/DuckDB/PyGWalker ecosystem adoption,
+agentic-EDA research (DeepAnalyze, LongDA, LLM-agent-for-statistics
+survey), Pandera/Great Expectations data-quality practice, and the
+conformal-prediction + SHAP explainability/uncertainty convergence
+trend specifically called out in current (2026) XAI literature.
+
+Before ranking, read `modules/mllab.py`, `forecasting.py`,
+`hypothesis_sweep.py`, `clustering.py`, `drift.py`,
+`causal_inference.py`, and `confounder_detection.py` directly to check
+what's already shipped — several first-instinct candidates turned out
+to already exist (SHAP explainability, FDR-corrected multi-test
+hypothesis sweeps, parametric forecast confidence intervals, propensity-
+score causal inference with bootstrap CIs, full OLS regression
+diagnostics). Prism's statistical toolkit is already unusually deep for
+24 prior runs of an "auto-EDA tool" — the research sweep was filtered
+down to genuinely open gaps rather than re-discovering shipped work.
+
+**Selected: (1) Conformal Prediction Intervals for ML Lab regression**
+(split-conformal, from scratch — no new heavy dependency) and **(2)
+K-Fold Cross-Validation for ML Lab baseline metrics** (replacing/
+augmenting the single 80/20-split evaluation with `sklearn.model_selection`
+K-Fold/StratifiedKFold mean±std reporting). Both close verified,
+non-cosmetic methodology gaps: `grep -rn "cross_val\|KFold\|silhouette"
+modules/*.py` returned zero hits before this run, and
+`mllab.run_baseline_models()` had zero direct unit tests
+(`grep -rln "from modules import mllab" tests/*.py` also returned zero
+hits) — confirmed by reading the function directly, which evaluates
+every baseline/Random Forest comparison off one single train/test split
+with no interval estimate on regression predictions at all. Both are
+exactly the kind of methodology weak spot a hiring-panel-caliber
+reviewer would flag first in an ML Lab that already has SHAP
+explainability and regression diagnostics but no cross-validation and no
+prediction uncertainty — i.e., high technical depth, not cosmetic
+polish, per this run's stated selection filter.
+
+**Why not the agentic-AI theme this run:** Runs 22 (Anomaly Drivers
+narration) and 23 (Explore Mode click-through) shipped squarely in that
+theme in the two runs immediately preceding this one. This run's
+research sweep surfaced two stronger, verifiably-open statistical/ML-
+rigor gaps (conformal prediction, cross-validation) that better satisfy
+"reject cosmetic polish, prefer statistical rigor / ML / agentic
+pipelines / reproducibility" than forcing a third consecutive agentic-
+theme feature would have. Per the run brief's own exception clause, this
+is an explicit, justified deviation, not an oversight. Neither feature
+touches the Atlas/JARVIS copilot track (zero features on that track this
+run, well under the "at most one" ceiling). Neither calls Gemini at all
+— both are pure local scikit-learn/statsmodels compute, so there is zero
+free-tier rate-limit exposure to design around.
+
+**Environment note:** Playwright's Chromium download (`cdn.playwright.dev`)
+and the bundled `playwright-browser-automation` skill's own dependencies
+were blocked by this session's egress policy (confirmed via
+`curl $HTTPS_PROXY/__agentproxy/status` — `connect_rejected`/403, a
+policy denial, not a cert issue) — no browser automation was available
+this run. Both shipped features are backend logic + standard Streamlit
+widgets (sliders/buttons/metrics/plotly charts) reusing exactly the
+patterns already used elsewhere in `app.py`'s ML Lab tab, not new visual
+surface, so this was verified with Streamlit's built-in
+`streamlit.testing.v1.AppTest` headless harness plus a live server smoke
+test instead of pixel screenshots — see Phase 5 notes below and the run
+report for what that verification actually covered.
