@@ -2,6 +2,24 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 16)
+
+### Added
+- **Fact-check badges for Story Mode and Demo Mode** (`modules/story_mode.py`)
+  — the fourth and fifth `ai_analyst.generate_key_insights()` call sites
+  (alongside Auto Analyst's Run Full Analysis, verified since Run 10; the AI
+  Analyst tab's Generate Key Insights, verified since Run 14; and Report
+  Writer's HTML/PDF export, verified since Run 15), and until this run the
+  only two with zero fact-checking of their own. New shared, `st`-free
+  `_generate_and_verify_insights()` helper runs `insight_verifier` over
+  every insight both paths generate. Story Mode shows the confirmed/
+  unconfirmed badge next to each slide's "Finding N of M" label; Demo Mode
+  switched its hand-duplicated card markup over to `modules.ui`'s shared
+  `build_insight_cards_html()`/`build_verification_caption()` so its
+  post-narration summary gets the same badges and fact-check caption every
+  other insight list in the app has. Zero extra Gemini calls. 5 new tests
+  in `tests/test_story_mode.py` (new file — this module had none before).
+
 ## 2026-08-11 (Run 15)
 
 ### Added
