@@ -3947,34 +3947,51 @@ elif st.session_state.active_section == "Stats Lab":
                     )
                     for scan in sweep_confounder_scan:
                         x_col, y_col = scan["x"], scan["y"]
+                        is_group_diff = scan.get("relationship") == "group_diff"
                         for finding in scan["findings"]:
                             verdict = finding["verdict"]
                             badge = "🔴 Paradox" if verdict == "paradox" else "🟡 Confounded"
+                            relation_word = "differs by" if is_group_diff else "vs"
                             label = (
-                                f"{badge} — **{x_col}** vs **{y_col}**, controlling for **{finding['confounder']}**"
+                                f"{badge} — **{x_col}** {relation_word} **{y_col}**, controlling for **{finding['confounder']}**"
                             )
                             with st.expander(label, expanded=False):
-                                st.caption(
-                                    f"Pooled correlation: r = {finding['overall_r']:.2f}  •  "
-                                    f"Adjusted: r = {finding['adjusted_r']:.2f}"
-                                )
-                                if finding["type"] == "categorical":
-                                    sweep_group_df = pd.DataFrame(finding["detail"])[["group", "r", "n"]]
-                                    sweep_group_df.columns = [finding["confounder"], "r within group", "n"]
+                                sweep_cache_key = (x_col, y_col, finding["confounder"], scan.get("relationship", "correlation"))
+                                if is_group_diff:
+                                    label1, label2 = finding["group_labels"]
+                                    st.caption(
+                                        f"Pooled ({label1} vs {label2}): Cohen's d = {finding['overall_d']:.2f}  •  "
+                                        f"Adjusted: Cohen's d = {finding['adjusted_d']:.2f}"
+                                    )
+                                    sweep_group_df = pd.DataFrame(finding["detail"])[["group", "mean_diff", "d", "n"]]
+                                    sweep_group_df.columns = [finding["confounder"], "mean diff within group", "d within group", "n"]
                                     st.dataframe(sweep_group_df, use_container_width=True, hide_index=True)
                                 else:
-                                    st.caption(f"n = {finding['detail']['n']}")
-                                sweep_cache_key = (x_col, y_col, finding["confounder"])
+                                    st.caption(
+                                        f"Pooled correlation: r = {finding['overall_r']:.2f}  •  "
+                                        f"Adjusted: r = {finding['adjusted_r']:.2f}"
+                                    )
+                                    if finding["type"] == "categorical":
+                                        sweep_group_df = pd.DataFrame(finding["detail"])[["group", "r", "n"]]
+                                        sweep_group_df.columns = [finding["confounder"], "r within group", "n"]
+                                        st.dataframe(sweep_group_df, use_container_width=True, hide_index=True)
+                                    else:
+                                        st.caption(f"n = {finding['detail']['n']}")
                                 sweep_cached = st.session_state.hypothesis_sweep_confounder_narrations.get(sweep_cache_key)
                                 if sweep_cached:
                                     st.info(sweep_cached)
                                 elif st.button(
                                     "✨ Explain this",
-                                    key=f"sweep_confounder_narrate_{x_col}_{y_col}_{finding['confounder']}",
+                                    key=f"sweep_confounder_narrate_{x_col}_{y_col}_{finding['confounder']}_{scan.get('relationship', 'correlation')}",
                                 ):
                                     sweep_confounder_model = ai_analyst.get_model()
                                     with st.spinner("Gemini is interpreting this…"):
-                                        sweep_conf_narration, sweep_conf_error = confounder_detection.narrate_confounder_finding(
+                                        narrate_fn = (
+                                            confounder_detection.narrate_group_diff_confounder_finding
+                                            if is_group_diff
+                                            else confounder_detection.narrate_confounder_finding
+                                        )
+                                        sweep_conf_narration, sweep_conf_error = narrate_fn(
                                             sweep_confounder_model, x_col, y_col, finding
                                         )
                                     if sweep_conf_error:

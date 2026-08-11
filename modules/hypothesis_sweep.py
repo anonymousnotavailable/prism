@@ -263,20 +263,29 @@ def verify_narration(narration: str, result: Optional[dict]) -> dict:
 def cross_check_confounders(
     df: pd.DataFrame, column_types: dict[str, str], result: Optional[dict], top_k: int = 3
 ) -> list[dict]:
-    """For the sweep's strongest significant numeric/numeric (Pearson)
-    findings, auto-run the same paradox/attenuation check Auto-Insights'
-    correlations get, via `confounder_detection.auto_scan_for_confounding`'s
-    `correlation_pairs=` hook — the pair's already-computed effect size is
-    reused directly, nothing is recomputed from scratch.
+    """For the sweep's strongest significant findings, auto-run the same
+    paradox/attenuation check Auto-Insights' correlations get:
 
-    Deterministic, no Gemini call. Only Pearson pairs are eligible (t-test/
-    ANOVA/chi-square pairs don't have a single "r" for a confounder to
-    attenuate or flip the sign of). Returns
-    `auto_scan_for_confounding()`'s own shape — [{x, y, overall_r,
-    findings: [...]}] — empty when nothing significant survived FDR
-    correction, no pair was a Pearson pair, or every candidate confounder
-    came back "robust". Never raises: a malformed `result` just yields an
-    empty list, same non-blocking contract as `sweep_reference_numbers`.
+    - numeric/numeric (Pearson) pairs, via `confounder_detection.
+      auto_scan_for_confounding`'s `correlation_pairs=` hook — the pair's
+      already-computed r is reused directly, nothing recomputed.
+    - binary-categorical/numeric (Welch's t-test) pairs, via
+      `confounder_detection.auto_scan_for_group_diff_confounding`'s
+      `ttest_pairs=` hook — same reuse, but for Cohen's d instead of r
+      (see that module's "GROUP-DIFFERENCE CONFOUNDER CROSS-CHECK" section
+      for why a categorical relationship is just as susceptible to
+      Simpson's Paradox as a correlation is).
+
+    One-way ANOVA (>2 groups) and chi-square pairs are still out of scope —
+    neither has a single signed effect size for a confounder to flip.
+    Deterministic, no Gemini call. Returns a list of scans tagged with
+    `"relationship"` ("correlation" or "group_diff") so callers can render
+    each appropriately — each scan is otherwise its source function's own
+    shape ({x, y, overall_r, findings: [...]} or {x, y, overall_d,
+    findings: [...]}). Empty when nothing significant survived FDR
+    correction or every candidate confounder came back "robust". Never
+    raises: a malformed `result` just yields an empty list, same
+    non-blocking contract as `sweep_reference_numbers`.
     """
     try:
         tested = result.get("tested") if result else None
@@ -286,17 +295,43 @@ def cross_check_confounders(
             r for r in tested
             if r.get("significant") and r.get("test") == "pearson" and r.get("effect_size") is not None
         ]
-        if not significant_pearson:
-            return []
-        pairs = [(r["col_a"], r["col_b"], float(r["effect_size"])) for r in significant_pearson[:top_k]]
+        significant_ttest = [
+            r for r in tested
+            if r.get("significant") and r.get("test") == "ttest" and r.get("effect_size") is not None
+        ]
     except (TypeError, AttributeError, KeyError):
+        return []
+
+    if not significant_pearson and not significant_ttest:
         return []
 
     from modules import confounder_detection
 
-    return confounder_detection.auto_scan_for_confounding(
-        df, column_types, correlation_pairs=pairs, top_k_pairs=top_k
-    )
+    scans = []
+    if significant_pearson:
+        pairs = [(r["col_a"], r["col_b"], float(r["effect_size"])) for r in significant_pearson[:top_k]]
+        for scan in confounder_detection.auto_scan_for_confounding(
+            df, column_types, correlation_pairs=pairs, top_k_pairs=top_k
+        ):
+            scan["relationship"] = "correlation"
+            scans.append(scan)
+
+    if significant_ttest:
+        ttest_pairs = []
+        for r in significant_ttest[:top_k]:
+            col_a, col_b = r["col_a"], r["col_b"]
+            if column_types.get(col_a) == "categorical":
+                cat_col, num_col = col_a, col_b
+            else:
+                cat_col, num_col = col_b, col_a
+            ttest_pairs.append((cat_col, num_col, float(r["effect_size"])))
+        for scan in confounder_detection.auto_scan_for_group_diff_confounding(
+            df, column_types, ttest_pairs=ttest_pairs, top_k_pairs=top_k
+        ):
+            scan["relationship"] = "group_diff"
+            scans.append(scan)
+
+    return scans
 
 
 def build_sweep_chart(result: dict, top_n: int = 15):

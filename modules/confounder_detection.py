@@ -294,3 +294,268 @@ def narrate_confounder_finding(model, x: str, y: str, finding: dict) -> tuple[st
     if error:
         return "", error
     return text.strip(), None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GROUP-DIFFERENCE CONFOUNDER CROSS-CHECK — the same paradox/attenuation
+# question as stratified_correlation() above, asked of a *binary
+# categorical* relationship (a significant Welch's t-test) instead of a
+# numeric correlation. Simpson's Paradox isn't limited to correlations —
+# "drug A beats drug B in every hospital individually, but drug B wins
+# when the hospitals are pooled" is the textbook categorical version,
+# caused the same way: the confounder (hospital) correlates with both
+# which drug a patient got and how sick they were. Cohen's d is the
+# natural effect-size analog of Pearson r here (same detect_confounders()
+# thresholds turn out to transfer directly — 0.2/0.5/0.8 are literally
+# Cohen's own small/medium/large conventions for d).
+#
+# Scope: x must have exactly two distinct groups (matching stats_lab.
+# run_ttest()'s own scope — a signed effect needs exactly two groups to
+# have a direction to flip). Only categorical/text/boolean columns are
+# considered as candidate confounders (stratification); a numeric
+# confounder would need binning to define "groups" first and isn't
+# attempted here — the numeric-confounder path stays exclusive to
+# detect_confounders()'s partial-correlation approach above.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _cohens_d(group1: np.ndarray, group2: np.ndarray) -> Optional[float]:
+    """Cohen's d for two independent samples — the exact formula
+    stats_lab.run_ttest() uses (average, not pooled/weighted, of the two
+    group variances), so a d computed here always matches what Hypothesis
+    Sweep / Stats Lab would report for the same two groups."""
+    if len(group1) < 2 or len(group2) < 2:
+        return None
+    pooled_std = np.sqrt((group1.std(ddof=1) ** 2 + group2.std(ddof=1) ** 2) / 2)
+    if not np.isfinite(pooled_std) or pooled_std <= 0:
+        return None
+    return float((group1.mean() - group2.mean()) / pooled_std)
+
+
+def stratified_mean_difference(
+    df: pd.DataFrame, x_cat: str, y_num: str, group_col: str, min_group_size: int = 3
+) -> Optional[dict]:
+    """Cohen's d for y_num across x_cat's two groups, computed separately
+    within each level of group_col, plus the n-weighted pooled-within-group
+    average, and a verdict comparing that to the plain overall d — the
+    group-difference analog of stratified_correlation().
+
+    Only defined when x_cat has exactly 2 distinct non-null values. Returns
+    None otherwise, or when there aren't at least two levels of group_col
+    with >= min_group_size usable rows to compare — nothing to stratify.
+    """
+    sub = df[[x_cat, y_num, group_col]].dropna()
+    if sub.empty:
+        return None
+
+    levels = sorted(sub[x_cat].unique(), key=str)
+    if len(levels) != 2:
+        return None
+    label1, label2 = str(levels[0]), str(levels[1])
+
+    def _d_and_diff(gdf: pd.DataFrame) -> Optional[tuple]:
+        g1 = gdf.loc[gdf[x_cat] == levels[0], y_num]
+        g2 = gdf.loc[gdf[x_cat] == levels[1], y_num]
+        d = _cohens_d(g1.to_numpy(), g2.to_numpy())
+        if d is None:
+            return None
+        return d, float(g1.mean() - g2.mean())
+
+    overall = _d_and_diff(sub)
+    if overall is None:
+        return None
+    overall_d, overall_diff = overall
+
+    per_group = []
+    excluded = 0
+    for name, gdf in sub.groupby(group_col, observed=True):
+        if len(gdf) < min_group_size:
+            excluded += 1
+            continue
+        result = _d_and_diff(gdf)
+        if result is None:
+            excluded += 1
+            continue
+        d, diff = result
+        per_group.append({"group": name, "d": d, "mean_diff": diff, "n": int(len(gdf))})
+
+    if len(per_group) < 2:
+        return None
+
+    total_n = sum(g["n"] for g in per_group)
+    weighted_d = sum(g["d"] * g["n"] for g in per_group) / total_n
+
+    # Unlike stratified_correlation(), no extra "do the strata even agree
+    # with each other" heterogeneity check on top of the sign-flip/
+    # attenuation verdict: r is bounded to [-1, 1], so a fixed spread there
+    # is a meaningful signal, but Cohen's d is unbounded and its per-stratum
+    # sampling variance scales with 1/sqrt(n) — a fixed absolute d_range
+    # threshold would flag ordinary sampling noise as "confounded" for any
+    # large, genuine effect estimated from small strata. The sign-flip and
+    # attenuation-ratio checks below are scale-relative and don't have this
+    # problem.
+    verdict = _verdict_from_r_pair(overall_d, weighted_d)
+
+    return {
+        "group_labels": (label1, label2),
+        "overall_mean_diff": overall_diff,
+        "overall_d": overall_d,
+        "weighted_within_group_d": float(weighted_d),
+        "per_group": sorted(per_group, key=lambda g: -g["n"]),
+        "verdict": verdict,
+        "excluded_small_groups": excluded,
+    }
+
+
+def detect_group_diff_confounders(
+    df: pd.DataFrame,
+    x_cat: str,
+    y_num: str,
+    column_types: dict,
+    candidates: Optional[list] = None,
+    min_group_size: int = 3,
+    max_categorical_groups: int = 15,
+) -> list[dict]:
+    """Check every other categorical column as a candidate confounder for
+    the (x_cat, y_num) group difference — the group-difference analog of
+    detect_confounders(). Requires x_cat to have exactly 2 groups; numeric
+    candidate confounders are out of scope (see module docstring above).
+
+    Returns findings ranked worst-first (paradox > attenuated > robust),
+    same family as detect_confounders() but with "metric": "cohens_d" and
+    overall_d/adjusted_d in place of overall_r/adjusted_r.
+    """
+    if df is None or df.empty or x_cat not in df.columns or y_num not in df.columns:
+        return []
+    if column_types.get(x_cat) != "categorical" or column_types.get(y_num) != "numeric":
+        return []
+    if df[x_cat].nunique(dropna=True) != 2:
+        return []
+
+    if candidates is None:
+        candidates = [c for c in df.columns if c not in (x_cat, y_num)]
+
+    findings = []
+    for col in candidates:
+        if col not in df.columns or col not in column_types:
+            continue
+        if column_types[col] not in ("categorical", "text", "boolean"):
+            continue
+        nunique = df[col].nunique(dropna=True)
+        if nunique < 2 or nunique > max_categorical_groups:
+            continue
+        result = stratified_mean_difference(df, x_cat, y_num, col, min_group_size=min_group_size)
+        if result is None:
+            continue
+        findings.append(
+            {
+                "confounder": col,
+                "type": "categorical",
+                "metric": "cohens_d",
+                "group_labels": result["group_labels"],
+                "overall_d": result["overall_d"],
+                "adjusted_d": result["weighted_within_group_d"],
+                "verdict": result["verdict"],
+                "detail": result["per_group"],
+            }
+        )
+
+    severity = {"paradox": 0, "attenuated": 1, "robust": 2}
+    findings.sort(key=lambda f: (severity.get(f["verdict"], 3), -abs(f["overall_d"] - f["adjusted_d"])))
+    return findings
+
+
+def auto_scan_for_group_diff_confounding(
+    df: pd.DataFrame,
+    column_types: dict,
+    ttest_pairs: Optional[list] = None,
+    top_k_pairs: int = 3,
+    min_abs_d: float = 0.2,
+    min_rows: int = 6,
+) -> list[dict]:
+    """The group-difference analog of auto_scan_for_confounding() — picks
+    the strongest binary-categorical-vs-numeric mean differences in the
+    dataset (or reuses ones a caller already computed, e.g. Hypothesis
+    Sweep's significant t-test findings, via `ttest_pairs=[(cat_col,
+    num_col, d), ...]` — that hinted d is passed straight through to the
+    result, never recomputed) and runs detect_group_diff_confounders on
+    each, keeping only pairs where at least one candidate confounder came
+    back non-"robust".
+
+    Returns [{x, y, overall_d, findings: [...]}] — empty when nothing in
+    the dataset is worth a second look, the common/healthy case.
+    """
+    if df is None or df.empty:
+        return []
+
+    if ttest_pairs is None:
+        cat_cols = [
+            c for c, t in column_types.items()
+            if t == "categorical" and c in df.columns and df[c].nunique(dropna=True) == 2
+        ]
+        numeric_cols = [c for c, t in column_types.items() if t == "numeric" and c in df.columns]
+        if not cat_cols or not numeric_cols:
+            return []
+        pairs = []
+        for cat_col in cat_cols:
+            for num_col in numeric_cols:
+                sub = df[[cat_col, num_col]].dropna()
+                levels = sorted(sub[cat_col].unique(), key=str)
+                if len(levels) != 2:
+                    continue
+                g1 = sub.loc[sub[cat_col] == levels[0], num_col].to_numpy()
+                g2 = sub.loc[sub[cat_col] == levels[1], num_col].to_numpy()
+                d = _cohens_d(g1, g2)
+                if d is None or abs(d) < min_abs_d:
+                    continue
+                pairs.append((cat_col, num_col, float(d)))
+        pairs.sort(key=lambda p: -abs(p[2]))
+        ttest_pairs = pairs[:top_k_pairs]
+    else:
+        ttest_pairs = list(ttest_pairs)[:top_k_pairs]
+
+    results = []
+    for cat_col, num_col, d in ttest_pairs:
+        if cat_col not in df.columns or num_col not in df.columns:
+            continue
+        sub = df[[cat_col, num_col]].dropna()
+        if len(sub) < min_rows:
+            continue
+        findings = [
+            f for f in detect_group_diff_confounders(df, cat_col, num_col, column_types)
+            if f["verdict"] != "robust"
+        ][:2]
+        if findings:
+            results.append({"x": cat_col, "y": num_col, "overall_d": float(d), "findings": findings})
+    return results
+
+
+def narrate_group_diff_confounder_finding(model, x_cat: str, y_num: str, finding: dict) -> tuple[str, Optional[str]]:
+    """narrate_confounder_finding()'s counterpart for a group-difference
+    (Cohen's d) finding instead of a correlation finding. Returns
+    (narration, error) — never raises. Same caching contract: callers
+    should cache the result, e.g. keyed by (x_cat, y_num, finding['confounder']).
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+
+    from modules.ai_analyst import call_gemini
+
+    verdict_label = _VERDICT_LABELS.get(finding["verdict"], "a checked relationship")
+    label1, label2 = finding["group_labels"]
+    detail_lines = "\n".join(
+        f"- {g['group']}: {label1} minus {label2} = {g['mean_diff']:.2f} (Cohen's d = {g['d']:.2f}, n={g['n']})"
+        for g in finding["detail"]
+    )
+    prompt = (
+        f"A data analysis tool found {verdict_label} in how '{y_num}' differs between "
+        f"'{x_cat}' groups ('{label1}' vs '{label2}').\n"
+        f"Overall (pooled) effect size: Cohen's d = {finding['overall_d']:.2f}\n"
+        f"Within-group effect sizes when split by '{finding['confounder']}':\n{detail_lines}\n\n"
+        "In 2-4 plain-English sentences for a non-technical stakeholder, explain what this means "
+        "and why the pooled difference alone would be misleading here. Do not repeat raw numbers "
+        "verbatim — focus on the practical interpretation and what to check next."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None

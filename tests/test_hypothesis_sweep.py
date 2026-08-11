@@ -373,3 +373,60 @@ def test_cross_check_confounders_handles_missing_or_malformed_result_safely():
     types = _column_types(df)
     assert cross_check_confounders(df, types, None) == []
     assert cross_check_confounders(df, types, {"tested": "not a list"}) == []
+
+
+def test_cross_check_confounders_correlation_scans_are_tagged():
+    df = _sweep_paradox_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    cross = cross_check_confounders(df, _column_types(df), result)
+    assert cross and all(s["relationship"] == "correlation" for s in cross)
+
+
+# --- cross_check_confounders: binary-categorical/numeric (t-test) pairs --
+# Same agentic follow-up question, asked of a significant group difference
+# instead of a correlation — see confounder_detection's "GROUP-DIFFERENCE
+# CONFOUNDER CROSS-CHECK" section for why Simpson's Paradox applies here
+# too.
+
+def _sweep_group_diff_paradox_df(seed: int = 13) -> pd.DataFrame:
+    """Same group-difference Simpson's Paradox construction as
+    test_confounder_detection._group_diff_paradox_df, reused here so the
+    pooled treatment/outcome difference is itself a significant Hypothesis
+    Sweep t-test finding (not just a paradox in isolation)."""
+    rng = np.random.default_rng(seed)
+    mild_b = rng.normal(100, 1.0, 90)
+    mild_a = rng.normal(102, 1.0, 10)
+    severe_a = rng.normal(2, 1.0, 90)
+    severe_b = rng.normal(0, 1.0, 10)
+    return pd.DataFrame(
+        {
+            "treatment": ["B"] * 90 + ["A"] * 10 + ["A"] * 90 + ["B"] * 10,
+            "outcome": np.concatenate([mild_b, mild_a, severe_a, severe_b]),
+            "severity": ["mild"] * 100 + ["severe"] * 100,
+        }
+    )
+
+
+def test_cross_check_confounders_flags_planted_group_diff_paradox():
+    df = _sweep_group_diff_paradox_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    treatment_outcome = next(
+        r for r in result["tested"] if {r["col_a"], r["col_b"]} == {"treatment", "outcome"}
+    )
+    assert treatment_outcome["test"] == "ttest" and treatment_outcome["significant"] is True  # sanity
+
+    cross = cross_check_confounders(df, _column_types(df), result)
+    scan = next(s for s in cross if {s["x"], s["y"]} == {"treatment", "outcome"})
+    assert scan["relationship"] == "group_diff"
+    verdicts = {f["confounder"]: f["verdict"] for f in scan["findings"]}
+    assert verdicts.get("severity") == "paradox"
+
+
+def test_cross_check_confounders_skips_when_no_significant_ttest_or_pearson_pair():
+    fake_result = {
+        "tested": [
+            {"col_a": "group", "col_b": "tier", "test": "chi2", "significant": True, "effect_size": 0.9},
+        ]
+    }
+    df = _correlated_df()
+    assert cross_check_confounders(df, _column_types(df), fake_result) == []
