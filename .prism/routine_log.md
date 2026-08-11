@@ -1684,3 +1684,17 @@ surface, so this was verified with Streamlit's built-in
 `streamlit.testing.v1.AppTest` headless harness plus a live server smoke
 test instead of pixel screenshots — see Phase 5 notes below and the run
 report for what that verification actually covered.
+
+**Result:** Shipped both selected features — Conformal Prediction
+Intervals (13 tests) and K-Fold Cross-Validation (12 tests) for ML Lab,
+merged `feature/conformal-prediction-intervals` and
+`feature/kfold-cross-validation` into `claude/adoring-meitner-7xxgfq`
+with `--no-ff`. Full suite 454 → 479 green, zero regressions; app
+launches cleanly post-merge. Playwright was blocked by this session's
+egress policy (`connect_rejected`/403, confirmed via the agent-proxy
+status endpoint, not a setup issue), so the usual screenshot matrix
+wasn't captured — verified instead via Streamlit's `AppTest` headless
+harness and live runs against `samples/sales_data.csv`. **Recommended
+for Run 26:** silhouette-score cluster validation (small, clean,
+closes a real gap in `clustering.py`), or another fresh sweep if that's
+judged too small alone — full reasoning in `RUN_REPORT_2026-08-11-run25.md`.

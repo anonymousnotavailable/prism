@@ -2,6 +2,52 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 25)
+
+### Added
+- **Conformal Prediction Intervals** (`modules/mllab.py`) — ML Lab's
+  regression baseline now offers distribution-free uncertainty
+  quantification alongside its point predictions, closing a real gap:
+  the app already had SHAP explainability and OLS regression diagnostics
+  but no interval estimate on the Random Forest's own predictions.
+  Split-conformal: fits a Random Forest on a 60% train split, scores
+  absolute residuals on a held-out 20% calibration split, and widens
+  predictions on the remaining 20% test split by the finite-sample-
+  corrected (1-alpha) quantile of those residuals — a genuine marginal
+  coverage guarantee with no normality assumption, unlike the parametric
+  confidence bands elsewhere in the app. New "Prediction Intervals"
+  section under ML Lab's regression results: a target-coverage slider,
+  target-vs-empirical coverage readout, mean interval width, a shaded-
+  band chart, and a plain-English verdict. 13 new tests, including
+  empirical coverage landing near target on synthetic data and explicit
+  edge cases (too few rows, non-numeric/all-null target, invalid alpha).
+- **K-Fold Cross-Validation** (`modules/mllab.py`) — ML Lab's baseline
+  model comparison previously ran off exactly one 80/20 train/test split
+  (confirmed zero cross-validation anywhere in the codebase, and zero
+  direct unit test coverage on `run_baseline_models` itself before this
+  run). `run_cross_validation()` runs the same Baseline and Random
+  Forest models through StratifiedKFold (classification) or KFold
+  (regression) via a single sklearn Pipeline passed to
+  `cross_validate()` — preprocessing refit inside every fold, no
+  leakage — reporting mean ± std per metric instead of one noisy point
+  estimate. k auto-reduces (and flags) when it exceeds the rarest
+  class's member count. New "Cross-Validation" section under ML Lab's
+  baseline results (both classification and regression): a fold-count
+  slider, per-model mean±std metrics, a per-fold score box plot, and a
+  plain-English verdict. 12 new tests, including informative features
+  scoring measurably higher than noise and edge cases (too few rows,
+  single-class target, empty feature list, k<2, NaN rows).
+
+Both features are pure local scikit-learn/statsmodels compute — no
+Gemini calls, no free-tier rate-limit exposure. Full suite 454 → 479
+green, zero regressions. Selected via a fresh Phase 2 web research
+sweep (`.prism/research_2026-08-11-run25.md`) after 16 consecutive prior
+runs reused an earlier sweep; both close verified, non-cosmetic ML-
+methodology gaps rather than duplicating the agentic-AI-theme work
+Runs 22-23 already shipped (Anomaly Drivers narration, Explore Mode
+click-through) — see `.prism/routine_log.md` for the full selection
+rationale.
+
 ## 2026-08-11 (Run 24)
 
 ### Added
