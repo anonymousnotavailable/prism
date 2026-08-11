@@ -2,6 +2,49 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 32)
+
+### Added
+- **Atlas: Bayesian A/B Test + Power Analysis voice/typed commands** — the
+  intent router (`modules/atlas.py`) now has four new `APP_COMMAND`
+  actions, extending Run 17's zero-Gemini keyword fast path: `run_bayesian_ab`
+  / `run_power_analysis` navigate to Stats Lab and auto-run the panel using
+  a deterministic best-guess column pairing (two new pure functions —
+  `bayesian_ab.auto_select_columns()` / `power_analysis.auto_select_inputs()`
+  — mirroring each panel's own selectbox eligibility rules), falling back to
+  "navigate there and let the user configure it" when no obvious pairing
+  exists rather than guessing further; `explain_bayesian_ab` /
+  `explain_power_analysis` are voice/typed counterparts to each panel's
+  existing "✨ Explain this" button. Read-only compute — no confirmation
+  guard needed. 14 new tests.
+- **Text Analytics** (`modules/text_analytics.py`, new module) — added to
+  Stats Lab after Power Analysis, gated on the dataset having a column that
+  reads as actual prose (average >= 3 words/cell, not just any
+  high-cardinality "text"-typed column). Three pieces: a lexicon-based
+  sentiment scorer (~90-word hand-curated polarity list, -3..+3, with
+  token-window negation flipping and intensifier/diminisher scaling —
+  documented as a heuristic first read, not a trained classifier), TF-IDF
+  keyword extraction ranked by summed corpus weight, and NMF topic modeling
+  (topic count auto-clipped to what the corpus can support). Pure
+  numpy/pandas/scikit-learn — no new pip dependency. Three new charts
+  (sentiment distribution, top terms, topic shares) and a cached "✨
+  Explain this" Gemini narration, same layout convention as the panels
+  beside it. 36 new tests.
+
+### Verification
+- Full pytest suite: 738 -> 788, zero regressions.
+- Playwright/Chromium not retried (7th consecutive confirmed-blocked run,
+  sandbox egress policy). Verified instead via: full pytest suite at every
+  stage; a live `streamlit run` smoke test (HTTP 200, clean logs) on each
+  feature branch and the final merged branch; and
+  `streamlit.testing.v1.AppTest` driving the real `app.py` end-to-end,
+  worked around the confirmed "second real `.run()` throws on an unrelated
+  multiselect widget" harness quirk by monkeypatching `st.chat_input`/
+  `st.button` to fire exactly once within a single `.run()` call — 7 Atlas
+  scenarios and 2 Text Analytics scenarios, all zero exceptions, including
+  a recovered 50/50 sentiment split exactly matching a synthetic corpus's
+  known construction.
+
 ## 2026-08-11 (Run 31)
 
 ### Added

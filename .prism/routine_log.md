@@ -2298,3 +2298,80 @@ additions. AppTest confirmed the "any second .run() throws" quirk is broader tha
 with the pre-set-result-then-single-run pattern. Found and fixed a real same-column-selection crash
 bug in both new modules during AppTest verification (3 regression tests added) before merging.
 Pushed. Full detail in `RUN_REPORT_2026-08-11-run31.md`.
+
+## Run 32 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `86685fa` (Run 31's tip) per this run's git
+constraint. No reinstall needed — 738 tests green before any changes, matching Run 31's final count
+exactly.
+
+Per this run's brief, one slot was pre-committed to the Atlas/JARVIS copilot track (15 runs
+overdue — last real slice was Run 17's keyword fast path, `a4aff81`; Run 31 explicitly logged it as
+"doubly-overdue" but deferred again for capacity). Read `modules/atlas.py` in full before starting:
+confirmed the router's established two-layer pattern (`classify_intent_fast()` keyword match first,
+`classify_intent()`'s single Gemini call as fallback, `COMMAND_REGISTRY` dispatch table populated by
+`app.py`) and matched it exactly rather than inventing a new mechanism. Light research check: current
+LLM-copilot/tool-calling best practice (deterministic fast-path before a model round-trip for
+unambiguous commands, graceful no-op fallback, never silently guessing on context-dependent phrasing)
+is exactly what the existing pattern already does — no fit concerns, nothing to change about the
+approach itself.
+
+**Selected: (1) Atlas intent-router extension** — four new APP_COMMAND actions wired end-to-end:
+`run_bayesian_ab` / `run_power_analysis` (navigate to Stats Lab, auto-pick a best-guess column
+pairing via two new pure functions — `bayesian_ab.auto_select_columns()` /
+`power_analysis.auto_select_inputs()`, mirroring each panel's own selectbox eligibility rules — and
+run it; falls back to "navigate there and let the user configure it" when no obvious pairing exists,
+never guessing past that point) and `explain_bayesian_ab` / `explain_power_analysis` (voice/typed
+counterparts to each panel's existing "✨ Explain this" button, reusing the same narrate_*() calls
+and narration cache). Kept deliberately small per the brief's own scope note — no Web Speech API, no
+animated HUD styling, that's future scope. **(2) Text Analytics** (`modules/text_analytics.py`, new
+module) — chosen after a broader gap sweep since the Atlas slot was pre-committed and this pick
+needed its own research: grepped `modules/*.py` + `app.py` for sentiment/tfidf/nlp/topic-model/
+changepoint/cusum coverage (all zero real hits — confirmed with word-boundary-safe patterns after an
+initial naive `grep "shap"` false-positived on "shape"/"reshape" substrings and briefly suggested
+SHAP explainability was missing; it is not — `modules/mllab.py` + ML Lab's SHAP panel is fully
+shipped). Text analytics — lexicon sentiment, TF-IDF keywords, NMF topics over a free-text column —
+was a genuine, complete gap: nothing in Prism had ever read the *content* of a "text"-typed column,
+only counted its nulls/uniques. Picked over changepoint detection (the other real gap found) because
+it's broader-utility for a general-purpose EDA tool (most real datasets have some free-text field —
+reviews, comments, support tickets) and offered more technical surface per module (three real
+techniques — lexicon+negation/intensifier scoring, TF-IDF ranking, NMF factorization — vs. one
+formula for changepoint). Logging changepoint/CUSUM detection as an open Run 33+ candidate.
+
+**Why these over alternatives:** both zero new pip dependencies (Atlas slice touches no new library;
+text_analytics is pure numpy/pandas/scikit-learn, all already pinned — nltk/textblob/vaderSentiment
+deliberately NOT added despite being the "normal" sentiment-analysis choice, to keep the footprint
+flat), zero Gemini calls in the core compute path (Atlas's fast-path additions are literally
+*zero-Gemini* by design, matching the existing pattern's whole point; text_analytics's narration
+layer is the same opt-in click-gated pattern every other module uses), M effort each. Both are
+read-only/non-destructive so neither needed `guarded()`/`push_undo_snapshot()`.
+
+Plan: branch `feature/atlas-stats-panels` and `feature/text-analytics` off
+`claude/adoring-meitner-7xxgfq`, tests first, then implement, full suite must stay green, merge both
+with `--no-ff`, push.
+
+## Run 32 — 2026-08-11 — result
+
+Shipped both: Atlas wired to Bayesian A/B Test + Power Analysis (4 new APP_COMMAND actions, 14 new
+tests — 5 `auto_select_columns`, 5 `auto_select_inputs`, 4 new fast-path matches) and Text Analytics
+(`modules/text_analytics.py`, new Stats Lab panel, 36 new tests). Suite 738 -> 788, zero regressions.
+No merge conflicts (the two branches touched non-overlapping regions of `app.py`/`visualization.py`
+— Atlas's changes are in the `_cmd_*`/`COMMAND_REGISTRY` region and `modules/atlas.py`; Text
+Analytics's are the Stats Lab panel body and new chart functions).
+
+Playwright/Chromium not retried (7th consecutive confirmed-blocked run). Verified via: full pytest
+suite at every stage; a live `streamlit run` smoke test (HTTP 200, clean logs) on each branch and
+the final merged branch; and `streamlit.testing.v1.AppTest` driving the real `app.py` end-to-end.
+Hit the same "second real `.run()` throws on an unrelated multiselect widget" harness quirk Run 31
+flagged (reproduced it first on an untouched baseline command — genuinely pre-existing, not
+introduced this run) and worked around it with a *new* technique beyond Run 31's "pre-set-result"
+pattern: monkeypatching `st.chat_input`/`st.button` to fire exactly once on the first (and only)
+`.run()` call, so the real `chat_input -> handle_utterance -> dispatch` and
+`button -> compute -> st.rerun()` code paths both get exercised for real, end to end, without ever
+calling `.run()` a second time. 7 Atlas scenarios (both panels' run+explain, no-eligible-columns
+fallback for both, no-Gemini-key graceful narration failure) and 2 Text Analytics scenarios
+(successful run with a recovered 50/50 sentiment split matching the synthetic corpus exactly, and
+silent no-crash when no column qualifies as prose) all passed with zero exceptions.
+
+Full reasoning, verification transcript, and Run 33 recommendation in
+`RUN_REPORT_2026-08-11-run32.md`.
