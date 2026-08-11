@@ -284,6 +284,11 @@ def run_baseline_models(
         # already covers; re-fitting a second time just to explain it would
         # waste both compute and the point of reusing this same run.
         "fitted_rf_model": fitted_models["Random Forest"],
+        # Kept for ROC/PR curves (see compute_roc_pr_curves below) — both
+        # fitted models plus the actual test labels, so curves can be built
+        # without a second fit.
+        "fitted_models": fitted_models,
+        "y_test": y_test,
         "X_train_transformed": X_train_transformed,
         "X_test_transformed": X_test_transformed,
         "feature_names": feature_names,
@@ -321,6 +326,165 @@ def build_confusion_matrix_chart(confusion: np.ndarray, labels: list) -> go.Figu
     )
     fig.update_layout(title="Confusion Matrix (Random Forest)", margin=dict(t=50, b=10, l=10, r=10))
     return fig
+
+
+# ==========================================================================
+# ROC-AUC / Precision-Recall curves (binary classification)
+# ==========================================================================
+# Accuracy alone is misleading whenever classes are imbalanced — exactly
+# the case ML Lab's own check_class_imbalance()/SMOTE flow already handles
+# — since a model can score high accuracy just by favoring the majority
+# class. ROC-AUC is the standard threshold-independent quality measure, but
+# it can look deceptively good even for a model that performs poorly on the
+# minority class; the Precision-Recall curve (and its summary, average
+# precision / PR-AUC) is the standard complement for skewed data, since it
+# ignores true negatives and focuses on the class that actually matters.
+# Deliberately binary-only: multiclass ROC/PR requires choosing a
+# one-vs-rest scheme with its own UI (per-class curves or a macro-average),
+# which is out of scope here — compute_roc_pr_curves() returns None for
+# anything other than exactly 2 classes, and callers should treat that as
+# "not applicable," not an error.
+
+_ROC_AUC_BANDS = [
+    (0.9, "outstanding"),
+    (0.8, "excellent"),
+    (0.7, "acceptable"),
+    (0.6, "poor"),
+    (0.5, "no better than random guessing"),
+]
+
+
+def compute_roc_pr_curves(baseline_result: dict) -> Optional[dict]:
+    """ROC and Precision-Recall curves for every model in baseline_result
+    that supports predict_proba, for binary classification only.
+
+    Returns None if the task isn't classification, isn't binary (some
+    dataset targets have >2 classes), or no model in the result supports
+    probability predictions. Otherwise returns:
+        {"roc": {model_name: {"fpr", "tpr", "auc"}},
+         "pr": {model_name: {"precision", "recall", "ap"}},
+         "positive_label": the class treated as positive,
+         "baseline_rate": share of the test set that is the positive class
+                           (the PR curve's "no-skill" reference line)}
+    """
+    from sklearn.metrics import auc, average_precision_score, precision_recall_curve, roc_curve
+
+    if baseline_result.get("task_type") != "classification":
+        return None
+
+    confusion_labels = baseline_result.get("confusion_labels")
+    if not confusion_labels or len(confusion_labels) != 2:
+        return None
+
+    y_test = baseline_result.get("y_test")
+    X_test_transformed = baseline_result.get("X_test_transformed")
+    fitted_models = baseline_result.get("fitted_models") or {}
+    if y_test is None or X_test_transformed is None or not fitted_models:
+        return None
+
+    # Convention: the second label in sorted order (confusion_labels is
+    # already sorted, see run_baseline_models) is treated as "positive" —
+    # matches the diagonal ordering already used by the confusion matrix.
+    positive_label = confusion_labels[-1]
+    y_true_binary = (y_test == positive_label).astype(int).to_numpy()
+    if y_true_binary.sum() == 0 or y_true_binary.sum() == len(y_true_binary):
+        return None  # test set only has one class present — curves are undefined
+
+    roc_data: dict[str, dict] = {}
+    pr_data: dict[str, dict] = {}
+    for name, model in fitted_models.items():
+        if not hasattr(model, "predict_proba"):
+            continue
+        classes = list(model.classes_)
+        if positive_label not in classes:
+            continue
+        pos_idx = classes.index(positive_label)
+        y_scores = model.predict_proba(X_test_transformed)[:, pos_idx]
+
+        fpr, tpr, _ = roc_curve(y_true_binary, y_scores)
+        roc_data[name] = {"fpr": fpr, "tpr": tpr, "auc": float(auc(fpr, tpr))}
+
+        precision, recall, _ = precision_recall_curve(y_true_binary, y_scores)
+        pr_data[name] = {
+            "precision": precision,
+            "recall": recall,
+            "ap": float(average_precision_score(y_true_binary, y_scores)),
+        }
+
+    if not roc_data:
+        return None
+
+    return {
+        "roc": roc_data,
+        "pr": pr_data,
+        "positive_label": positive_label,
+        "baseline_rate": float(y_true_binary.mean()),
+    }
+
+
+def build_roc_chart(curves: dict) -> go.Figure:
+    fig = go.Figure()
+    for name, d in curves["roc"].items():
+        fig.add_trace(go.Scatter(x=d["fpr"], y=d["tpr"], mode="lines", name=f"{name} (AUC={d['auc']:.3f})"))
+    fig.add_trace(
+        go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(dash="dash", color="gray"), name="Random (AUC=0.500)")
+    )
+    fig.update_layout(
+        title="ROC Curve", xaxis_title="False Positive Rate", yaxis_title="True Positive Rate",
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def build_pr_chart(curves: dict) -> go.Figure:
+    fig = go.Figure()
+    for name, d in curves["pr"].items():
+        fig.add_trace(go.Scatter(x=d["recall"], y=d["precision"], mode="lines", name=f"{name} (AP={d['ap']:.3f})"))
+    baseline_rate = curves.get("baseline_rate", 0.0)
+    fig.add_trace(
+        go.Scatter(
+            x=[0, 1], y=[baseline_rate, baseline_rate], mode="lines",
+            line=dict(dash="dash", color="gray"), name=f"No-skill baseline ({baseline_rate:.3f})",
+        )
+    )
+    fig.update_layout(
+        title="Precision-Recall Curve", xaxis_title="Recall", yaxis_title="Precision",
+        margin=dict(t=50, b=10, l=10, r=10), yaxis_range=[0, 1.02],
+    )
+    return fig
+
+
+def _roc_auc_band(score: float) -> str:
+    for threshold, label in _ROC_AUC_BANDS:
+        if score >= threshold:
+            return label
+    return "worse than random guessing"
+
+
+def roc_pr_verdict(curves: Optional[dict]) -> str:
+    """Plain-English read of the ROC-AUC / PR-AUC for the Random Forest
+    model (falls back to whichever model is present), flagging when the
+    positive class is rare enough that the Precision-Recall curve should be
+    trusted over ROC-AUC alone.
+    """
+    if not curves or not curves.get("roc"):
+        return ""
+
+    model_name = "Random Forest" if "Random Forest" in curves["roc"] else next(iter(curves["roc"]))
+    roc_auc = curves["roc"][model_name]["auc"]
+    band = _roc_auc_band(roc_auc)
+    ap = curves.get("pr", {}).get(model_name, {}).get("ap")
+    baseline_rate = curves.get("baseline_rate", 0.5)
+
+    parts = [f"{model_name}: ROC-AUC {roc_auc:.3f} ({band})."]
+    if ap is not None:
+        parts.append(f"Precision-Recall AUC (average precision) {ap:.3f} vs. a no-skill baseline of {baseline_rate:.3f}.")
+    if baseline_rate < 0.3 or baseline_rate > 0.7:
+        parts.append(
+            "The positive class is imbalanced in the test set — ROC-AUC can look better than the model really "
+            "performs on the minority class here, so weight the Precision-Recall curve more heavily than ROC-AUC alone."
+        )
+    return " ".join(parts)
 
 
 def build_feature_importance_chart(importances: pd.Series, top_n: int = 15) -> go.Figure:
