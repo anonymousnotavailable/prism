@@ -67,12 +67,12 @@ def prepare_series(df: pd.DataFrame, datetime_col: str, numeric_col: str) -> tup
     return series, freq, None
 
 
-def run_forecast(series: pd.Series, periods: int, freq: str) -> dict:
-    """Fit a forecast model and project `periods` steps ahead with a 95%
-    confidence band. Returns a dict with "model_used", "forecast" (a
-    DataFrame indexed by future dates with forecast/lower/upper columns),
-    "history" (the input series), and "warning" (set if ETS failed over to
-    SARIMAX) — or "error" if both models failed.
+def _fit_and_forecast(series: pd.Series, periods: int, freq: str) -> dict:
+    """Core fit-and-project logic shared by run_forecast() and the
+    rolling-origin backtester: tries ETS first, falls back to SARIMAX.
+    Returns a dict with "model_used", "forecast", "warning" — or "error"
+    if both models failed. Does not touch st.session_state or do any I/O,
+    so it's safe to call in a tight backtest loop.
     """
     seasonal_periods = _infer_seasonal_periods(freq)
     use_seasonal = seasonal_periods >= 2 and len(series) >= 2 * seasonal_periods
@@ -114,7 +114,25 @@ def run_forecast(series: pd.Series, periods: int, freq: str) -> dict:
             return {"error": f"Forecasting failed with both Exponential Smoothing and SARIMAX: {e}"}
 
     forecast_df.index.name = series.index.name or "date"
-    return {"model_used": model_used, "forecast": forecast_df, "history": series, "warning": warning}
+    return {"model_used": model_used, "forecast": forecast_df, "warning": warning}
+
+
+def run_forecast(series: pd.Series, periods: int, freq: str) -> dict:
+    """Fit a forecast model and project `periods` steps ahead with a 95%
+    confidence band. Returns a dict with "model_used", "forecast" (a
+    DataFrame indexed by future dates with forecast/lower/upper columns),
+    "history" (the input series), and "warning" (set if ETS failed over to
+    SARIMAX) — or "error" if both models failed.
+    """
+    outcome = _fit_and_forecast(series, periods, freq)
+    if "error" in outcome:
+        return outcome
+    return {
+        "model_used": outcome["model_used"],
+        "forecast": outcome["forecast"],
+        "history": series,
+        "warning": outcome["warning"],
+    }
 
 
 def forecast_caveat(n_history: int, periods: int, model_used: str) -> str:
@@ -157,6 +175,147 @@ def build_forecast_chart(history: pd.Series, forecast_df: pd.DataFrame, title: s
         )
     )
     fig.update_layout(title=title, margin=dict(t=50, b=10, l=10, r=10))
+    return fig
+
+
+# ==========================================================================
+# Rolling-origin (walk-forward) backtesting — Hyndman & Athanasopoulos'
+# "time series cross-validation": fit on an expanding window, forecast the
+# next `horizon` periods, score against what actually happened, then slide
+# the origin forward and repeat. Standard practice for validating a
+# forecast model's real accuracy instead of trusting a single full-history
+# fit with no held-out check at all.
+# ==========================================================================
+
+MIN_BACKTEST_WINDOWS = 2
+
+# Lewis (1982) MAPE interpretation bands — a widely-cited rule of thumb for
+# how good a forecast accuracy score actually is.
+MAPE_EXCELLENT = 10.0
+MAPE_GOOD = 20.0
+MAPE_REASONABLE = 50.0
+
+
+def can_backtest(series: pd.Series, freq: str, horizon: int) -> tuple[bool, Optional[str]]:
+    """Whether `series` has enough history to run at least
+    MIN_BACKTEST_WINDOWS rolling-origin backtest windows at this horizon."""
+    if horizon <= 0:
+        return False, "Horizon must be at least 1 period."
+    needed = MIN_HISTORY_POINTS + horizon * MIN_BACKTEST_WINDOWS
+    if len(series) < needed:
+        return False, (
+            f"Need at least {needed} observations to run {MIN_BACKTEST_WINDOWS} backtest windows "
+            f"at a {horizon}-period horizon — only {len(series)} available. Try a shorter horizon."
+        )
+    return True, None
+
+
+def rolling_origin_backtest(series: pd.Series, freq: str, horizon: int, n_windows: int = 5) -> dict:
+    """Rolling-origin (walk-forward) backtest: fits on an expanding window
+    ending at each of several origins, forecasts `horizon` periods past
+    that origin, and scores the forecast against the actual held-out
+    values. This is the time-series-safe analogue of k-fold CV — origins
+    always slide forward in time, never shuffled, so no future data ever
+    leaks into a training window.
+
+    Returns a dict with "windows" (per-window origin/train_size/mae/rmse/
+    mape/model_used), "mean_mae"/"mean_rmse"/"mean_mape" (averaged across
+    windows that produced a usable score), and "n_windows_run" — or
+    "error" if fewer than MIN_BACKTEST_WINDOWS windows could be fit at all.
+    Never mutates the input series.
+    """
+    ok, reason = can_backtest(series, freq, horizon)
+    if not ok:
+        return {"error": reason}
+
+    n = len(series)
+    max_possible = (n - MIN_HISTORY_POINTS) // horizon
+    n_windows = max(MIN_BACKTEST_WINDOWS, min(n_windows, max_possible))
+
+    windows = []
+    for w in range(n_windows):
+        train_end = n - horizon * (n_windows - w)
+        train = series.iloc[:train_end]
+        test = series.iloc[train_end:train_end + horizon]
+        if len(test) < horizon or len(train) < MIN_HISTORY_POINTS:
+            continue
+
+        outcome = _fit_and_forecast(train, horizon, freq)
+        if "error" in outcome:
+            continue
+
+        actual = test.to_numpy()
+        predicted = outcome["forecast"]["forecast"].to_numpy()
+        errors = actual - predicted
+        mae = float(np.mean(np.abs(errors)))
+        rmse = float(np.sqrt(np.mean(errors ** 2)))
+
+        # Safe MAPE: skip points where the actual is ~0 (undefined % error)
+        # rather than exploding to infinity or silently returning garbage.
+        nonzero_mask = np.abs(actual) > 1e-9
+        mape = float(np.mean(np.abs(errors[nonzero_mask] / actual[nonzero_mask])) * 100) if nonzero_mask.any() else None
+
+        windows.append({
+            "origin": train.index[-1],
+            "train_size": len(train),
+            "test_start": test.index[0],
+            "actual": test,
+            "predicted": pd.Series(predicted, index=test.index),
+            "mae": round(mae, 4),
+            "rmse": round(rmse, 4),
+            "mape": round(mape, 2) if mape is not None else None,
+            "model_used": outcome["model_used"],
+        })
+
+    if len(windows) < MIN_BACKTEST_WINDOWS:
+        return {"error": "Could not fit enough backtest windows — the series may be too short or unstable for this horizon."}
+
+    mapes = [w["mape"] for w in windows if w["mape"] is not None]
+    return {
+        "windows": windows,
+        "mean_mae": round(float(np.mean([w["mae"] for w in windows])), 4),
+        "mean_rmse": round(float(np.mean([w["rmse"] for w in windows])), 4),
+        "mean_mape": round(float(np.mean(mapes)), 2) if mapes else None,
+        "n_windows_run": len(windows),
+        "horizon": horizon,
+    }
+
+
+def backtest_verdict(mean_mape: Optional[float]) -> str:
+    """Plain-English read of backtested forecast accuracy using Lewis
+    (1982)'s widely-cited MAPE interpretation bands."""
+    if mean_mape is None:
+        return "MAPE unavailable (actual values too close to zero to score) — check MAE/RMSE instead."
+    if mean_mape < MAPE_EXCELLENT:
+        return f"Mean backtested MAPE {mean_mape:.1f}% — excellent forecast accuracy."
+    if mean_mape < MAPE_GOOD:
+        return f"Mean backtested MAPE {mean_mape:.1f}% — good forecast accuracy."
+    if mean_mape < MAPE_REASONABLE:
+        return f"Mean backtested MAPE {mean_mape:.1f}% — reasonable forecast accuracy, treat forecasts as directional."
+    return f"Mean backtested MAPE {mean_mape:.1f}% — unreliable; this model/series combination doesn't backtest well."
+
+
+def build_backtest_chart(backtest_result: dict, title: str) -> go.Figure:
+    """One subplot per backtest window: actual vs predicted over the held-
+    out horizon, so it's visually obvious where the model over/under-shot."""
+    windows = backtest_result["windows"]
+    fig = make_subplots(
+        rows=len(windows), cols=1, shared_xaxes=False,
+        subplot_titles=[f"Origin {w['origin']:%Y-%m-%d} (train n={w['train_size']})" for w in windows],
+        vertical_spacing=0.08 if len(windows) > 1 else 0.0,
+    )
+    for i, w in enumerate(windows, start=1):
+        fig.add_trace(
+            go.Scatter(x=w["actual"].index, y=w["actual"].values, mode="lines+markers", name="Actual",
+                       line=dict(color="#4c9be8"), showlegend=(i == 1)),
+            row=i, col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=w["predicted"].index, y=w["predicted"].values, mode="lines+markers", name="Backtested forecast",
+                       line=dict(color="#e8974c", dash="dash"), showlegend=(i == 1)),
+            row=i, col=1,
+        )
+    fig.update_layout(title=title, height=max(250, 220 * len(windows)), margin=dict(t=60, b=10, l=10, r=10))
     return fig
 
 
