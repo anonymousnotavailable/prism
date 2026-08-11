@@ -15,6 +15,7 @@ from modules.visualization import (
     EXPLORE_CARDINALITY_MIN,
     EXPLORE_MAX_SUGGESTIONS,
     suggest_encodings,
+    suggestion_to_builder_state,
 )
 
 
@@ -162,3 +163,91 @@ def test_every_suggestion_is_buildable_by_build_manual_chart():
     for c in ranked:
         fig = build_manual_chart(df, c["chart_type"], c["col_x"], c["col_y"], color=c["color"])
         assert fig is not None
+
+
+# --- suggestion_to_builder_state(): "Load into Manual Builder" click-through ---
+# Turns a suggest_encodings() suggestion into the exact Manual Chart Builder
+# widget session_state keys/values needed to preload it — the click-through
+# that makes Explore Mode actionable instead of just informational (open
+# backlog item since Run 20, built Run 23).
+
+def test_scatter_suggestion_maps_x_y_and_chart_type():
+    suggestion = {
+        "chart_type": "Scatter", "col_x": "spend", "col_y": "revenue",
+        "color": None, "reason": "strong correlation", "score": 0.95,
+    }
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_x"] == "spend"
+    assert state["manual_y"] == "revenue"
+    assert state["manual_chart_type"] == "Scatter"
+
+
+def test_histogram_suggestion_has_no_col_y_maps_to_none_sentinel():
+    suggestion = {
+        "chart_type": "Histogram", "col_x": "amount", "col_y": None,
+        "color": None, "reason": "right-skewed", "score": 0.8,
+    }
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_x"] == "amount"
+    assert state["manual_y"] == "(none)"  # the Manual Builder's "no Y-axis" sentinel
+    assert state["manual_chart_type"] == "Histogram"
+
+
+def test_bar_suggestion_maps_categorical_x_and_numeric_y():
+    suggestion = {
+        "chart_type": "Bar", "col_x": "segment", "col_y": "revenue",
+        "color": None, "reason": "varies strongly across segment groups", "score": 0.92,
+    }
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_x"] == "segment"
+    assert state["manual_y"] == "revenue"
+    assert state["manual_chart_type"] == "Bar"
+
+
+def test_no_color_maps_to_none_sentinel():
+    suggestion = {"chart_type": "Scatter", "col_x": "a", "col_y": "b", "color": None, "reason": "r", "score": 0.5}
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_color"] == "(none)"
+
+
+def test_color_present_is_passed_through():
+    # suggest_encodings doesn't emit a color today, but the mapping should
+    # honor it if a future suggestion source does — keeps this function
+    # correct rather than coincidentally correct for today's only caller.
+    suggestion = {"chart_type": "Scatter", "col_x": "a", "col_y": "b", "color": "segment", "reason": "r", "score": 0.5}
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_color"] == "segment"
+
+
+def test_facet_and_aggregation_channels_reset_to_defaults():
+    # A stale facet/facet-row pick from a previous manual build can collide
+    # with the newly-loaded x/y/color (the Manual Builder's facet options
+    # dynamically exclude the current x/y/color) — resetting avoids a
+    # Streamlit "value not in options" error on the next rerun.
+    suggestion = {"chart_type": "Bar", "col_x": "segment", "col_y": "revenue", "color": None, "reason": "r", "score": 0.5}
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert state["manual_facet"] == "(none)"
+    assert state["manual_facet_row"] == "(none)"
+    assert state["manual_agg"] == "Mean"
+
+
+def test_returns_exactly_the_manual_builder_widget_keys():
+    suggestion = {"chart_type": "Line", "col_x": "date", "col_y": "users", "color": None, "reason": "r", "score": 0.5}
+
+    state = suggestion_to_builder_state(suggestion)
+
+    assert set(state.keys()) == {
+        "manual_x", "manual_y", "manual_chart_type", "manual_color", "manual_facet", "manual_facet_row", "manual_agg",
+    }

@@ -3006,6 +3006,23 @@ elif st.session_state.active_section == "Visualize":
                     )
                     st.plotly_chart(fig, use_container_width=True, key=f"explore_chart_{idx}")
                     st.caption(f"💡 {suggestion['reason']} (score {suggestion['score']:.2f})")
+                    # The click-through that makes Explore Mode actionable
+                    # instead of just informational: preload the Manual Chart
+                    # Builder's widgets with this suggestion's encoding and
+                    # jump straight to a rendered chart there, no re-picking
+                    # axes by hand. Writes into st.session_state BEFORE the
+                    # Manual Chart Builder's own st.selectbox()es run later in
+                    # this same script (see suggestion_to_builder_state's
+                    # docstring) then st.rerun()s so those widgets pick up the
+                    # new values on next render — the standard Streamlit
+                    # "preload a keyed widget" pattern.
+                    if st.button("📥 Load into Manual Builder", key=f"explore_load_{idx}", use_container_width=True):
+                        for widget_key, value in visualization.suggestion_to_builder_state(suggestion).items():
+                            st.session_state[widget_key] = value
+                        st.session_state.manual_chart_fig = fig
+                        st.session_state.manual_chart_error = None
+                        st.toast(f"Loaded '{suggestion['reason']}' into Manual Builder below. 📥")
+                        st.rerun()
                 except Exception:
                     # A suggestion is a hint, not a guarantee — skip silently
                     # rather than breaking the whole Explore Mode panel over

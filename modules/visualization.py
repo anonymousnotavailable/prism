@@ -475,6 +475,44 @@ def suggest_encodings(
     return ranked[:max_suggestions]
 
 
+# The "(none)" sentinel string the Manual Chart Builder's optional selectboxes
+# (Y-axis, Color, Facet columns/rows) use in app.py — a suggestion's None
+# needs to become this exact string, or Streamlit's selectbox raises
+# "value not in options" when the widget is instantiated with it preloaded.
+MANUAL_BUILDER_NONE_SENTINEL = "(none)"
+
+
+def suggestion_to_builder_state(suggestion: dict) -> dict:
+    """Translate one `suggest_encodings()` suggestion into the exact Manual
+    Chart Builder widget `st.session_state` keys/values needed to preload it
+    — the "Load into Manual Builder" click-through that makes Explore Mode
+    actionable instead of just informational (open backlog item since Run
+    20, built Run 23).
+
+    Facet and aggregation channels are always reset to their defaults
+    (`"(none)"` / `"Mean"`) rather than carried over from whatever the user
+    had picked before: the Manual Builder's facet options dynamically
+    exclude the current X/Y/color (see app.py), so a stale facet value can
+    collide with the newly-loaded encoding and Streamlit would raise a
+    "value not in options" error on the next rerun instead of silently
+    dropping it.
+
+    Pure and Streamlit-free by design (matches every other function in this
+    module) so it's directly unit-testable — app.py is responsible for
+    actually writing the returned dict into `st.session_state` before the
+    Manual Chart Builder's widgets are instantiated in the same rerun.
+    """
+    return {
+        "manual_x": suggestion["col_x"],
+        "manual_y": suggestion["col_y"] if suggestion["col_y"] is not None else MANUAL_BUILDER_NONE_SENTINEL,
+        "manual_chart_type": suggestion["chart_type"],
+        "manual_color": suggestion.get("color") or MANUAL_BUILDER_NONE_SENTINEL,
+        "manual_facet": MANUAL_BUILDER_NONE_SENTINEL,
+        "manual_facet_row": MANUAL_BUILDER_NONE_SENTINEL,
+        "manual_agg": "Mean",
+    }
+
+
 def _cap_facet_categories(df: pd.DataFrame, facet: Optional[str], max_categories: int = MAX_FACET_CATEGORIES) -> pd.DataFrame:
     """Keep only rows whose `facet` value is among its `max_categories` most
     frequent. Facets are full subplots (not just a color split), so an
