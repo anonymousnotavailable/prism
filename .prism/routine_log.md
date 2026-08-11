@@ -1019,3 +1019,27 @@ Both features are additive, module-boundary-respecting, and Gemini-call-
 free at the level being added (the "Generate Key Insights" call itself
 already existed — verification is purely local recomputation, same as
 Run 9's original insight_verifier).
+
+**Outcome:** both features built on their own branches (TDD: tests first),
+merged cleanly to `main` (no conflicts). Full suite 285 → 310/310 green
+(296/296 standalone for the badge feature, 299/299 standalone for facet,
+310/310 after both merges). Live-verified via Playwright: desktop 1440px
+dark + light (Arctic) and mobile 390px dark, `samples/sales_data.csv` —
+built a faceted Bar chart (region × mean quantity, split by product) and
+confirmed a correct 2×3 subplot grid in both desktop themes, zero
+horizontal overflow on mobile, zero console/page errors throughout. Same
+14th-consecutive-run sandbox constraint (no live `GEMINI_API_KEY`) meant
+the fact-check badges' actual rendering couldn't be eyeballed live — the
+AI Analyst tab correctly shows its Gemini-setup warning instead of the
+"Generate Key Insights" button, confirming the gate itself works;
+covered the badge/caption logic with 11 unit tests instead, same
+fallback strategy every run since Run 9. Mobile+light simultaneous
+coverage wasn't captured (same sidebar-expander-on-mobile automation gap
+Runs 10 and 13 logged — now recurred 3x, flagged for a future fix rather
+than re-logging again). Hit and fixed the known `_cffi_backend` sandbox
+gap (documented fix, same as Runs 12-13). `.env`/secrets hygiene clean.
+Merged `feature/key-insights-verification-badges` and
+`feature/chart-builder-facet-encoding` to `main` (not pushed individually
+— matches the convention recent runs established of only pushing `main`).
+Updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run14.md`. Pushed
+`main` to `origin`.
