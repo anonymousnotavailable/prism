@@ -387,6 +387,43 @@ def plot_did_pre_trend(pre_trend_check: dict, group_col: str, outcome_col: str, 
     return fig
 
 
+def plot_bayesian_ab_posteriors(result: dict) -> Optional[go.Figure]:
+    """Overlaid Beta posterior density curves for the control and treatment
+    variants, for bayesian_ab.bayesian_ab_test() results — the visual
+    complement to the P(treatment beats control) number: how much the two
+    curves overlap is literally what that probability measures. Shaded
+    fill under each curve, x-range zoomed to where the density actually
+    lives (padded around both variants' credible intervals) rather than
+    the full [0, 1] range, since real conversion rates are usually a small
+    slice of it. Returns None if there's nothing usable to plot.
+    """
+    if not result or not result.get("ok"):
+        return None
+    from scipy import stats as scipy_stats
+
+    ctrl, trt = result["control"], result["treatment"]
+    lo = min(ctrl["summary"]["ci_low"], trt["summary"]["ci_low"])
+    hi = max(ctrl["summary"]["ci_high"], trt["summary"]["ci_high"])
+    pad = (hi - lo) * 0.4 or 0.05
+    x = np.linspace(max(0.0, lo - pad), min(1.0, hi + pad), 400)
+
+    fig = go.Figure()
+    for label, v, color in (("Control", ctrl, "#94a3b8"), ("Treatment", trt, "#22D3EE")):
+        y = scipy_stats.beta.pdf(x, v["posterior_alpha"], v["posterior_beta"])
+        fig.add_trace(go.Scatter(
+            x=x, y=y, mode="lines", fill="tozeroy",
+            name=f"{label}: {v['value']} (n={v['trials']}, {v['successes']}/{v['trials']})",
+            line=dict(color=color, width=2.5),
+        ))
+    fig.update_layout(
+        title=f"Posterior distributions: {result['success_col']} rate by {result['variant_col']}",
+        xaxis_title="Conversion rate", yaxis_title="Posterior density",
+        xaxis=dict(tickformat=".0%"),
+        height=360, margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 

@@ -29,6 +29,7 @@ from modules import (
     auto_analyst,
     auto_insights,
     autocleaner,
+    bayesian_ab,
     causal_inference,
     cleaning,
     clustering,
@@ -168,6 +169,8 @@ _DEFAULTS = {
     "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
     "survival_result": None,  # last survival.survival_analysis() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
     "survival_narration": None,  # cached Gemini narration of survival_result, avoids re-spending a call per rerun
+    "bayesian_ab_result": None,  # last bayesian_ab.bayesian_ab_test() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
+    "bayesian_ab_narration": None,  # cached Gemini narration of bayesian_ab_result, avoids re-spending a call per rerun
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
@@ -4443,6 +4446,122 @@ elif st.session_state.active_section == "Stats Lab":
                     else:
                         st.session_state.survival_narration = narration
                         st.rerun()
+
+        # ------------------------------------------------------------------
+        # Bayesian A/B Test — beta-binomial posterior, P(treatment beats
+        # control), and expected loss (see modules/bayesian_ab.py). The
+        # Bayesian counterpart to the frequentist chi-square test above:
+        # a posterior distribution per variant instead of one p-value.
+        # Only rendered when the dataset has a low-cardinality grouping
+        # column (the variant) and a binary success/failure column — same
+        # "stay silent rather than force it" convention as Survival Analysis.
+        # ------------------------------------------------------------------
+        _bayesian_success_cols = [
+            c for c, t in column_types.items()
+            if t in ("categorical", "text", "boolean") and c in df.columns and df[c].nunique(dropna=True) == 2
+        ]
+        _bayesian_variant_cols = [
+            c for c, t in column_types.items()
+            if t in ("categorical", "text", "boolean") and c in df.columns
+            and 2 <= df[c].nunique(dropna=True) <= 8
+        ]
+        if _bayesian_success_cols and _bayesian_variant_cols:
+            st.divider()
+            st.markdown("#### 🎲 Bayesian A/B Test — probability treatment beats control")
+            st.caption(
+                "For conversion-rate experiments: models each variant's success rate as a Beta posterior "
+                "and reports P(treatment beats control) directly, plus a credible interval and an "
+                "expected-loss number for deciding before that probability is fully conclusive. Unlike a "
+                "fixed-N significance test, this can be checked at any time without a peeking penalty — "
+                "the Power / Sample-Size Planning tool below is the frequentist alternative that pre-commits "
+                "to a sample size instead."
+            )
+            bv1, bv2 = st.columns(2)
+            bayesian_variant_col = bv1.selectbox("Variant column", _bayesian_variant_cols, key="bayesian_variant_col")
+            _bayesian_success_options = [c for c in _bayesian_success_cols if c != bayesian_variant_col]
+            if not _bayesian_success_options:
+                st.info("Pick a different variant column — no remaining binary outcome column to compare against it.")
+            else:
+                bayesian_success_col = bv2.selectbox("Outcome column (success / failure)", _bayesian_success_options, key="bayesian_success_col")
+
+                _bayesian_levels = sorted(df[bayesian_variant_col].dropna().unique().tolist(), key=str)
+                bayesian_control_value, bayesian_treatment_value = None, None
+                if len(_bayesian_levels) == 2:
+                    bayesian_control_value, bayesian_treatment_value = _bayesian_levels[0], _bayesian_levels[1]
+                    st.caption(f"Comparing **{bayesian_control_value}** (control) against **{bayesian_treatment_value}** (treatment).")
+                elif len(_bayesian_levels) > 2:
+                    bc1, bc2 = st.columns(2)
+                    bayesian_control_value = bc1.selectbox("Control variant", _bayesian_levels, key="bayesian_control_value")
+                    _treatment_options = [lv for lv in _bayesian_levels if lv != bayesian_control_value]
+                    bayesian_treatment_value = bc2.selectbox("Treatment variant", _treatment_options, key="bayesian_treatment_value")
+
+                if st.button("Run Bayesian A/B Test", key="bayesian_ab_run_btn"):
+                    with st.spinner("Computing posterior distributions…"):
+                        st.session_state.bayesian_ab_result = bayesian_ab.bayesian_ab_test(
+                            df, bayesian_variant_col, bayesian_success_col,
+                            control_value=bayesian_control_value, treatment_value=bayesian_treatment_value,
+                        )
+                    st.session_state.bayesian_ab_narration = None
+                    st.rerun()  # same same-pass-staleness reason as the Causal Effect Estimator above
+
+                bayesian_result = st.session_state.bayesian_ab_result
+                if bayesian_result is None:
+                    ui.render_empty_state(
+                        "🎲", "No Bayesian A/B test yet", 'Click "Run Bayesian A/B Test" above to see the posteriors.'
+                    )
+                elif not bayesian_result["ok"]:
+                    st.warning(bayesian_result["error"])
+                else:
+                    for w in bayesian_result["warnings"]:
+                        st.caption(f"⚠ {w}")
+
+                    bayesian_fig = visualization.plot_bayesian_ab_posteriors(bayesian_result)
+                    if bayesian_fig is not None:
+                        st.plotly_chart(bayesian_fig, use_container_width=True)
+
+                    ctrl, trt = bayesian_result["control"], bayesian_result["treatment"]
+                    compare_df = pd.DataFrame([
+                        {
+                            "Variant": role["value"], "Role": role_name, "n": role["trials"],
+                            "Successes": role["successes"], "Observed rate": f"{role['observed_rate']:.2%}",
+                            "Posterior mean": f"{role['summary']['mean']:.2%}",
+                            "95% credible interval": f"[{role['summary']['ci_low']:.2%}, {role['summary']['ci_high']:.2%}]",
+                        }
+                        for role_name, role in (("Control", ctrl), ("Treatment", trt))
+                    ])
+                    st.dataframe(compare_df, use_container_width=True, hide_index=True)
+
+                    p = bayesian_result["prob_treatment_beats_control"]["value"]
+                    loss = bayesian_result["expected_loss"]
+                    lift = bayesian_result["lift"]
+                    bm1, bm2, bm3 = st.columns(3)
+                    bm1.metric("P(treatment beats control)", f"{p:.1%}")
+                    bm2.metric(
+                        "Relative lift",
+                        f"{lift['relative_mean']:.1%}" if lift["relative_mean"] is not None else "n/a",
+                    )
+                    bm3.metric(
+                        "Expected loss if wrong",
+                        f"{min(loss['choose_treatment'], loss['choose_control']):.4f}",
+                        help="Average regret of picking the currently-leading variant, if it actually turns out to be the worse one.",
+                    )
+
+                    if p >= 0.95 or p <= 0.05:
+                        st.success(bayesian_result["recommendation"])
+                    else:
+                        st.info(bayesian_result["recommendation"])
+
+                    if st.session_state.bayesian_ab_narration:
+                        st.info(st.session_state.bayesian_ab_narration)
+                    elif st.button("✨ Explain this", key="bayesian_ab_narrate_btn"):
+                        model = ai_analyst.get_model()
+                        with st.spinner("Gemini is interpreting this…"):
+                            narration, narr_error = bayesian_ab.narrate_bayesian_ab(model, bayesian_result)
+                        if narr_error:
+                            st.warning(narr_error)
+                        else:
+                            st.session_state.bayesian_ab_narration = narration
+                            st.rerun()
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.

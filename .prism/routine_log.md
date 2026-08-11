@@ -2228,3 +2228,59 @@ power/sample-size analysis remain open, confirmed-real gaps for Run 31+.
 
 Full reasoning, verification transcript, and Run 31 recommendation in
 `RUN_REPORT_2026-08-11-run30.md`.
+
+## Run 31 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `a072ed6` (Run 30's tip) per this run's git
+constraint. Cold start needed no reinstall — system Python already has every dependency
+(statsmodels, scipy, sklearn, streamlit all present) — 669 tests green before any changes,
+matching Run 30's final count exactly. No stale local branches to clean up, working tree clean.
+
+Confirmed both of Run 30's recommended gaps are still genuinely open via a fresh grep sweep
+(`bayesian|posterior|beta.binomial|credible interval` and `power.analysis|sample.size|
+statsmodels.stats.power` across `modules/*.py` and `app.py` — zero real hits either way). Ran the
+brief's requested light WebSearch sanity check on both: Bayesian A/B testing's beta-binomial
+conjugate update, credible-interval framing, and "probability B beats A" decision rule all match
+current documented best practice (GrowthBook, Test Science, MetricGate) with no fit concerns;
+power/sample-size analysis is well served by `statsmodels.stats.power` (already available via the
+pinned `statsmodels` dependency — zero new pip installs for either feature) with one documented
+pitfall (post-hoc/observed power on already-collected data is a near-deterministic function of the
+p-value and is widely criticized — Hoenig & Heisey 2001) folded into the module's framing as a
+forward-looking planning tool rather than a retroactive validity stamp. Full detail in
+`.prism/research_2026-08-11-run31.md`.
+
+Also checked the Atlas/JARVIS track per this run's brief: last touched at Run 17 (`a4aff81`), 14
+runs ago — genuinely overdue by the routine's own "several runs" bar. Considered it seriously for
+the second slot but did not force it: the realistic "small incremental slice" available there
+(Web Speech API integration, TTS latency/quality polish) is UX polish, not the kind of verifiable
+computational depth this run's primary filter asks to prioritize, whereas both stats picks involve
+real derivations (closed-form Bayesian posterior update + decision rule; root-finding power solvers
+tied to real effect-size estimation from user-uploaded data). Logging Atlas as a strong, now
+doubly-overdue Run 32 candidate instead of shipping a token slice just to check the box.
+
+**Selected: (1) Bayesian A/B Testing** (`modules/bayesian_ab.py`, new module) — beta-binomial
+conjugate posterior per variant (configurable prior, defaults to uninformative Beta(1,1)), 95%
+credible intervals via `scipy.stats.beta.ppf`, P(B beats A) via closed-form exact formula for
+integer prior/posterior parameters (falls back to Monte Carlo sampling otherwise), expected loss
+of each decision, and a plain-English recommendation combining both signals. Placed in Stats Lab,
+gated on two binary/categorical columns being available (a "variant" grouping column + a
+success/conversion column), same "stay silent unless the shape fits" convention as Survival
+Analysis. **(2) Power / Sample-Size Analysis** (`modules/power_analysis.py`, new module) — wraps
+`statsmodels.stats.power.TTestIndPower` (two-sample means, Cohen's d) and
+`NormalIndPower`/`proportion_effectsize` (two-sample proportions) to solve required-N-for-target-
+power and achieved-power-for-given-N in both directions; can estimate the effect size directly from
+two real columns in the loaded dataset (pilot-data mode) instead of requiring the user to already
+know Cohen's d. Placed in Stats Lab immediately after the new Bayesian A/B section — the two
+features are a deliberate pairing (frequentist pre-commit-to-N experiment planning next to a
+Bayesian always-valid alternative for reading results), not a coincidence of scheduling.
+
+**Why these over the alternatives:** both are pure numpy/scipy/statsmodels local compute (zero
+Gemini calls in the core estimation path — Gemini is only used for the existing optional
+`narrate_*` plain-English layer, same pattern as every other stats module, gated behind a user
+click), M effort each, zero new pip dependencies, and both were this run's own brief's pre-named
+primary/fallback picks with research confirming neither is a poor fit. Neither touches the Atlas/
+JARVIS copilot track this run (0/1), logged above as the reasoned choice, not an oversight.
+
+Plan: branch `feature/bayesian-ab-testing` and `feature/power-analysis` off
+`claude/adoring-meitner-7xxgfq`, tests first, then implement, full suite must stay green, merge
+both with `--no-ff`, push.
