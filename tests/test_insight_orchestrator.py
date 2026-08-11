@@ -149,6 +149,20 @@ def _drift_raw():
     }
 
 
+def _verifier_raw():
+    return {
+        "findings": [
+            "Revenue is strongly correlated with spend at 0.91.",
+            "Average tenure is 14.2 months across all customers.",
+        ],
+        "verification": [
+            {"status": "flagged", "checked": 1, "matched": 0},
+            {"status": "confirmed", "checked": 1, "matched": 1},
+        ],
+        "columns": ["revenue", "spend", "tenure"],
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Normalization
 # ─────────────────────────────────────────────────────────────────────────
@@ -224,6 +238,31 @@ def test_normalize_drift_filters_below_threshold():
     assert len(claims) == 1
     assert claims[0].subjects == frozenset({"revenue"})
     assert claims[0].severity == "high"  # 82 >= 75
+
+
+def test_normalize_verifier_only_surfaces_flagged_findings():
+    # confirmed findings are already badged in the Auto Analyst tab — only
+    # a flagged (unmatched-number) finding is worth cross-checking here.
+    claims = normalize_findings({"verifier": _verifier_raw()})
+    assert len(claims) == 1
+    assert claims[0].detector == "verifier"
+    assert "0.91" in claims[0].message or "correlated" in claims[0].message
+
+
+def test_normalize_verifier_extracts_subjects_from_finding_text():
+    claims = normalize_findings({"verifier": _verifier_raw()})
+    assert claims[0].subjects == frozenset({"revenue", "spend"})
+
+
+def test_normalize_verifier_no_flagged_findings_produces_no_claims():
+    raw = _verifier_raw()
+    raw["verification"] = [{"status": "confirmed", "checked": 1, "matched": 1}] * 2
+    assert normalize_findings({"verifier": raw}) == []
+
+
+def test_normalize_verifier_empty_findings_is_safe():
+    assert normalize_findings({"verifier": {"findings": [], "verification": [], "columns": []}}) == []
+    assert normalize_findings({"verifier": None}) == []
 
 
 def test_normalize_unknown_detector_key_is_ignored():
@@ -381,6 +420,18 @@ def test_top_list_capped_at_max_top():
     result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": many_drift_reports})
     assert len(result.top) == MAX_TOP
     assert len(result.groups) > MAX_TOP
+
+
+def test_verifier_claim_agrees_with_auto_insights_on_shared_subject():
+    # A flagged Auto Analyst finding about revenue/ad_spend, plus an
+    # independent Auto-Insights claim about the same pair, should collapse
+    # into one grouped topic — the whole point of routing verifier output
+    # through the same subject-based grouping as every other detector.
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "verifier": _verifier_raw()})
+    assert result.silent is False
+    matching = [g for g in result.groups if g.subjects == frozenset({"revenue", "spend"})]
+    assert matching, [g.subjects for g in result.groups]
+    assert {c.detector for c in matching[0].claims} >= {"auto_insights", "verifier"}
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -749,3 +749,56 @@ Overview-tab detectors this orchestrator synthesizes. A future run could
 extend the orchestrator (or add a parallel one) to also cross-check Auto
 Analyst's verified/flagged findings once that tab's findings are
 available at the same point in the render pass.
+
+## Run 10 — 2026-08-11
+
+Scoped to a single focused cycle for token efficiency (reused Run 9's
+standing backlog instead of re-running the full four-source-class web
+sweep; skipped a fresh full audit since Run 9 already covered the app
+end to end two days prior with no new regressions surfaced this pass).
+
+**Shipped:** closed the exact gap Run 9's log flagged as "not built" —
+`insight_verifier` (Auto Analyst's static numeric fact-checker) is now
+wired into the Agentic Insight Orchestrator via a new `verifier` adapter
+in `modules/insight_orchestrator.py`. Only "flagged" findings (a quoted
+number that didn't match anything recomputed from the DataFrame) become
+claims; subjects are extracted by matching column names against the
+free-text finding (the only detector whose raw output has no structured
+per-column field). Wired into `app.py`'s `_build_orchestration_input()`.
+Satisfies the standing agentic-AI-analysis theme by extending genuine
+cross-tab agent synthesis rather than adding a new standalone detector.
+No new UI surface — same "🧠 Agent Summary" panel, same silent-below-
+threshold convention. 5 new tests, full suite 247/247 green. Verified
+live (Playwright, desktop 1440px + mobile 390px, dark theme, `samples/
+stock_data.csv`): app boots clean, Agent Summary renders correctly with
+the new detector wired in and silent (as designed) since no Auto Analyst
+run had occurred. Could not exercise the flagged-finding path live —
+Gemini reports "ONLINE" in this sandbox's Atlas badge but no
+`GEMINI_API_KEY`/`.env`/`st.secrets` is actually configured here (`get_
+model()` builds a client object without validating the key, so the badge
+is not proof of connectivity) — same standing sandbox constraint every
+prior run has logged; unit tests cover the flagged-path logic directly
+instead. Merged `feature/verifier-agent-summary-integration` to `main`.
+Light-theme screenshot pass was skipped this run (theme-selector
+automation didn't find the expected control in time; no UI was added, so
+this is a documentation gap, not a design-review gap — flagged for
+whichever run next touches theming automation).
+
+**Not built (backlog, unchanged from Run 9):** PyGWalker-style drag-and-
+drop chart builder (effort L, longest-standing item), live-Gemini
+verification (tenth consecutive run with no real API key in the
+sandbox), DuckDB/polars-backed Auto Cleaner path for large datasets,
+light-theme dataframe/chart repaint-lag (cosmetic, not re-attempted).
+
+**Process note:** this run's trigger asked for the full 8-phase routine
+to repeat in a loop "until the session is 100% used" while also using
+"less tokens" / "no credits" — those two directives are mutually
+exclusive (every loop iteration costs both). Ran one complete, safely
+verified cycle instead of an open-ended loop, consistent with the hard
+guardrails (no architecture rewrites, conservative where damage is
+possible) and this session's git instructions, which take precedence
+over the routine prompt's phrasing. Recommend the next run continue with
+the PyGWalker chart builder (competitor-parity, 5+ runs unaddressed) or
+a second agentic-theme slice (e.g. a proactive/unprompted Atlas surface
+of the top Agent Summary finding — the JARVIS "at most one copilot slice
+per run" track).
