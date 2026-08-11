@@ -2914,6 +2914,34 @@ elif st.session_state.active_section == "Visualize":
                         st.plotly_chart(fig, use_container_width=True, key=f"auto_chart_{idx}_{title}")
 
     st.divider()
+    st.subheader("🧭 Explore Mode")
+    st.caption(
+        "Auto-ranked chart suggestions — correlation strength, group differences, time trends, "
+        "and skew, computed deterministically (no Gemini call) so this works even offline."
+    )
+    explore_suggestions = visualization.suggest_encodings(df, chart_column_types)
+    if not explore_suggestions:
+        ui.render_empty_state(
+            "🧭", "Nothing strongly signals yet", "Add more numeric or moderate-cardinality categorical columns to unlock suggestions."
+        )
+    else:
+        explore_cols = st.columns(2)
+        for idx, suggestion in enumerate(explore_suggestions):
+            with explore_cols[idx % 2]:
+                try:
+                    fig = visualization.build_manual_chart(
+                        df, suggestion["chart_type"], suggestion["col_x"], suggestion["col_y"],
+                        color=suggestion["color"],
+                    )
+                    st.plotly_chart(fig, use_container_width=True, key=f"explore_chart_{idx}")
+                    st.caption(f"💡 {suggestion['reason']} (score {suggestion['score']:.2f})")
+                except Exception:
+                    # A suggestion is a hint, not a guarantee — skip silently
+                    # rather than breaking the whole Explore Mode panel over
+                    # one edge-case column combination.
+                    continue
+
+    st.divider()
     st.subheader("Manual Chart Builder")
     st.caption("Auto mode above not showing what you need? Pick the axes and chart type yourself.")
 

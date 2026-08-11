@@ -317,6 +317,164 @@ def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     return charts, top_corr
 
 
+# --- Explore Mode: PyGWalker-style auto-suggested encodings -----------------
+# The oldest standing backlog item (first logged Run 13, unbuilt through Run
+# 19): instead of only letting the user hand-pick X/Y/color in the Manual
+# Chart Builder, rank candidate charts by how much signal they're likely to
+# reveal and surface the top ones automatically — the "explore mode" a
+# PyGWalker/Tableau-style tool offers on load. Entirely deterministic
+# (correlation, ANOVA-style effect size, skew) — zero extra Gemini calls, so
+# it works even when the API is rate-limited or unavailable.
+EXPLORE_CARDINALITY_MIN = 2
+EXPLORE_CARDINALITY_MAX = 15
+EXPLORE_MAX_SUGGESTIONS = 6
+# A categorical/numeric split only "explains" real signal if there's a
+# meaningful group difference; near-zero effect sizes would just clutter the
+# ranking with flat bars, so they're filtered out below this floor.
+EXPLORE_MIN_EFFECT_SIZE = 0.01
+# Below this |skew|, a histogram looks like an ordinary bell curve — not
+# worth flagging as "a look at this distribution is likely to be useful".
+EXPLORE_MIN_SKEW = 1.0
+
+
+def _eta_squared(df: pd.DataFrame, cat_col: str, num_col: str) -> float:
+    """ANOVA-style effect size: the fraction of `num_col`'s total variance
+    explained by splitting on `cat_col`'s groups (0 = no group difference,
+    1 = groups fully separate the values). Returns 0.0 when there isn't
+    enough data or variance to compute a meaningful ratio."""
+    valid = df[[cat_col, num_col]].dropna()
+    if valid.empty:
+        return 0.0
+    groups = valid.groupby(cat_col)[num_col]
+    counts = groups.size()
+    if counts.shape[0] < 2:
+        return 0.0
+    overall_mean = valid[num_col].mean()
+    ss_total = ((valid[num_col] - overall_mean) ** 2).sum()
+    if ss_total <= 0:
+        return 0.0
+    ss_between = float(((groups.mean() - overall_mean) ** 2 * counts).sum())
+    return max(0.0, min(1.0, ss_between / ss_total))
+
+
+def suggest_encodings(
+    df: pd.DataFrame,
+    column_types: dict[str, str],
+    max_suggestions: int = EXPLORE_MAX_SUGGESTIONS,
+) -> list[dict]:
+    """Rank candidate chart encodings by how much signal they're likely to
+    reveal, for the Visualize tab's "Explore Mode" — a PyGWalker-style
+    "here's what's worth looking at" panel shown before the user touches the
+    Manual Chart Builder.
+
+    Four deterministic signal sources, each producing candidates shaped for
+    `build_manual_chart` plus a plain-English `reason` and a 0-1 `score`:
+      - numeric x numeric pairs, scored by |correlation| -> Scatter
+      - categorical x numeric, scored by ANOVA eta-squared effect size -> Bar
+        (only for categoricals with EXPLORE_CARDINALITY_MIN..MAX distinct
+        values — a constant column has nothing to split on, and a
+        near-unique ID column would just be noise)
+      - the first datetime column x numeric, scored by |correlation with
+        time ordinal| -> Line
+      - single numeric columns with |skew| >= EXPLORE_MIN_SKEW -> Histogram
+
+    Returns the top `max_suggestions` by score, descending, deduplicated by
+    (chart_type, col_x, col_y). Returns [] when nothing clears the signal
+    thresholds (e.g. a tiny or entirely flat dataset) — callers should show
+    an empty state rather than an error.
+    """
+    categorical_cols = [c for c, t in column_types.items() if t == "categorical"]
+    numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+    datetime_cols = [c for c, t in column_types.items() if t == "datetime"]
+
+    candidates: list[dict] = []
+
+    if len(numeric_cols) >= 2:
+        corr = df[numeric_cols].corr()
+        for col_x, col_y, value in get_top_correlations(corr, n=len(numeric_cols)):
+            candidates.append(
+                {
+                    "chart_type": "Scatter",
+                    "col_x": col_x,
+                    "col_y": col_y,
+                    "color": None,
+                    "reason": f"{describe_correlation(value)} correlation between {col_x} and {col_y}",
+                    "score": round(abs(value), 3),
+                }
+            )
+
+    for cat_col in categorical_cols:
+        nunique = df[cat_col].nunique(dropna=True)
+        if not (EXPLORE_CARDINALITY_MIN <= nunique <= EXPLORE_CARDINALITY_MAX):
+            continue
+        for num_col in numeric_cols:
+            eta_sq = _eta_squared(df, cat_col, num_col)
+            if eta_sq < EXPLORE_MIN_EFFECT_SIZE:
+                continue
+            candidates.append(
+                {
+                    "chart_type": "Bar",
+                    "col_x": cat_col,
+                    "col_y": num_col,
+                    "color": None,
+                    "reason": f"{num_col} varies strongly across {cat_col} groups (η²={eta_sq:.2f})",
+                    "score": round(eta_sq, 3),
+                }
+            )
+
+    if datetime_cols and numeric_cols:
+        dt_col = datetime_cols[0]
+        ordinal = pd.to_datetime(df[dt_col], errors="coerce").map(
+            lambda ts: ts.toordinal() if pd.notna(ts) else np.nan
+        )
+        for num_col in numeric_cols:
+            valid = pd.DataFrame({"t": ordinal, "y": df[num_col]}).dropna()
+            if valid.shape[0] < 3 or valid["y"].std() == 0 or valid["t"].std() == 0:
+                continue
+            trend_corr = valid["t"].corr(valid["y"])
+            if pd.isna(trend_corr):
+                continue
+            candidates.append(
+                {
+                    "chart_type": "Line",
+                    "col_x": dt_col,
+                    "col_y": num_col,
+                    "color": None,
+                    "reason": f"{describe_correlation(trend_corr)} trend over time in {num_col}",
+                    "score": round(abs(trend_corr), 3),
+                }
+            )
+
+    for num_col in numeric_cols:
+        series = df[num_col].dropna()
+        if series.shape[0] < 5 or series.std() == 0:
+            continue
+        skew = float(series.skew())
+        if pd.isna(skew) or abs(skew) < EXPLORE_MIN_SKEW:
+            continue
+        candidates.append(
+            {
+                "chart_type": "Histogram",
+                "col_x": num_col,
+                "col_y": None,
+                "color": None,
+                "reason": f"{num_col} is {'right' if skew > 0 else 'left'}-skewed (skew={skew:.2f}) — worth a look",
+                "score": round(min(abs(skew) / 5, 1.0), 3),
+            }
+        )
+
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    seen: set[tuple] = set()
+    ranked: list[dict] = []
+    for c in candidates:
+        key = (c["chart_type"], c["col_x"], c["col_y"])
+        if key in seen:
+            continue
+        seen.add(key)
+        ranked.append(c)
+    return ranked[:max_suggestions]
+
+
 def _cap_facet_categories(df: pd.DataFrame, facet: Optional[str], max_categories: int = MAX_FACET_CATEGORIES) -> pd.DataFrame:
     """Keep only rows whose `facet` value is among its `max_categories` most
     frequent. Facets are full subplots (not just a color split), so an
