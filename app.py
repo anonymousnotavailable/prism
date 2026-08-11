@@ -41,6 +41,7 @@ from modules import (
     domains,
     drift,
     enrichment,
+    experiment_design,
     forecasting,
     geo,
     hellmode,
@@ -3964,6 +3965,10 @@ elif st.session_state.active_section == "Stats Lab":
         if st.button("Run Hypothesis Sweep", key="run_hypothesis_sweep_btn"):
             with st.spinner(ui.get_loading_message()):
                 sweep_result_new = hypothesis_sweep.sweep_hypotheses(df, column_types)
+                # Post-hoc power check on every significant t-test row — no
+                # extra Gemini call, pure statsmodels. See annotate_power()'s
+                # docstring for why it's scoped to t-tests only.
+                sweep_result_new = hypothesis_sweep.annotate_power(sweep_result_new)
                 st.session_state.hypothesis_sweep_result = sweep_result_new
                 # Agentic follow-up, same spinner: does the sweep's own strongest
                 # finding hold up once you control for a third variable? No
@@ -3997,6 +4002,13 @@ elif st.session_state.active_section == "Stats Lab":
                     "after false-discovery-rate correction — no reliable relationships found."
                 )
             else:
+                def _power_badge(row: dict) -> str:
+                    check = row.get("power_check")
+                    if check is None:
+                        return "—"
+                    pct = f"{check['achieved_power']:.0%}"
+                    return f"⚠️ {pct}" if check["underpowered"] else f"✅ {pct}"
+
                 sweep_df = pd.DataFrame(
                     [
                         {
@@ -4007,6 +4019,7 @@ elif st.session_state.active_section == "Stats Lab":
                             "p (raw)": f"{r['p_value']:.4g}",
                             "p (FDR-adjusted)": f"{r['p_adj']:.4g}",
                             "n": r["n"],
+                            "Power": _power_badge(r),
                         }
                         for r in significant_rows
                     ]
@@ -4016,6 +4029,33 @@ elif st.session_state.active_section == "Stats Lab":
                 sweep_chart = hypothesis_sweep.build_sweep_chart(sweep_result)
                 if sweep_chart is not None:
                     st.plotly_chart(sweep_chart, use_container_width=True)
+
+                # Power check detail — a "Power" badge in the table above is
+                # easy to skim past; underpowered t-test findings get a
+                # plain-English callout with a concrete follow-up sample size,
+                # same "don't just flag it, tell them what to do next"
+                # pattern as the confounder cross-check below.
+                underpowered_rows = [
+                    r for r in significant_rows
+                    if r.get("power_check") and r["power_check"]["underpowered"]
+                ]
+                if underpowered_rows:
+                    with st.expander(
+                        f"⚠️ {len(underpowered_rows)} significant t-test result"
+                        f"{'s' if len(underpowered_rows) != 1 else ''} may be underpowered",
+                        expanded=False,
+                    ):
+                        st.caption(
+                            "A significant p-value from a small sample doesn't mean the effect "
+                            "is trustworthy — these tests had low statistical power to detect an "
+                            "effect this size in the first place, which is exactly the kind of "
+                            "result that fails to replicate."
+                        )
+                        for r in underpowered_rows:
+                            st.markdown(
+                                f"**{r['col_a']} vs {r['col_b']}** — "
+                                f"{experiment_design.interpret_power_check(r['power_check'])}"
+                            )
 
                 # Confounder cross-check — the sweep's own agentic follow-up
                 # question ("does the strongest FDR-significant pair hold up
@@ -4122,6 +4162,71 @@ elif st.session_state.active_section == "Stats Lab":
                             hypothesis_sweep.verify_narration(narration, sweep_result)
                         )
                         st.rerun()
+
+        st.markdown("#### 🧮 Experiment Design — sample size & power calculator")
+        st.caption(
+            "Plan an A/B test *before* running it: how many users per variant do you need to "
+            "reliably detect a lift this size? Built on the same statsmodels power-analysis "
+            "primitives (Cohen's h / Cohen's d) as the post-hoc power check above — no dataset "
+            "required, this is a standalone planning tool."
+        )
+        exp_kind = st.radio(
+            "Metric type",
+            ["Conversion rate (e.g. signup %, click-through rate)", "Continuous metric (e.g. revenue, time on page)"],
+            key="exp_design_kind",
+            horizontal=True,
+        )
+        exp_c1, exp_c2, exp_c3 = st.columns(3)
+        exp_alpha = exp_c1.selectbox("Significance level (α)", [0.01, 0.05, 0.10], index=1, key="exp_design_alpha")
+        exp_power = exp_c2.selectbox("Desired power", [0.80, 0.90, 0.95], index=0, key="exp_design_power")
+        exp_ratio = exp_c3.number_input(
+            "Group B : Group A ratio", min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="exp_design_ratio",
+            help="1.0 = equal split between control and variant.",
+        )
+
+        if exp_kind.startswith("Conversion"):
+            pc1, pc2 = st.columns(2)
+            exp_baseline = pc1.number_input(
+                "Baseline conversion rate (%)", min_value=0.1, max_value=99.9, value=20.0, step=0.5,
+                key="exp_design_baseline",
+            ) / 100.0
+            exp_mde = pc2.number_input(
+                "Minimum detectable lift (absolute pp)", min_value=0.1, max_value=99.0, value=5.0, step=0.5,
+                key="exp_design_mde",
+            ) / 100.0
+            if st.button("Calculate sample size", key="exp_design_calc_proportions_btn"):
+                exp_result = experiment_design.sample_size_two_proportions(
+                    exp_baseline, exp_mde, alpha=exp_alpha, power=exp_power, ratio=exp_ratio,
+                )
+                if exp_result.get("error"):
+                    st.warning(exp_result["error"])
+                else:
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Group A (n)", f"{exp_result['n_group_a']:,}")
+                    m2.metric("Group B (n)", f"{exp_result['n_group_b']:,}")
+                    m3.metric("Total", f"{exp_result['total_n']:,}")
+                    st.markdown(experiment_design.interpret_sample_size_proportions(exp_result))
+        else:
+            mc1, mc2 = st.columns(2)
+            exp_mean_diff = mc1.number_input(
+                "Minimum detectable mean difference", value=5.0, step=0.5, key="exp_design_mean_diff",
+            )
+            exp_std_dev = mc2.number_input(
+                "Estimated standard deviation", min_value=0.0001, value=10.0, step=0.5, key="exp_design_std_dev",
+            )
+            if st.button("Calculate sample size", key="exp_design_calc_means_btn"):
+                exp_result = experiment_design.sample_size_two_means(
+                    exp_mean_diff, exp_std_dev, alpha=exp_alpha, power=exp_power, ratio=exp_ratio,
+                )
+                if exp_result.get("error"):
+                    st.warning(exp_result["error"])
+                else:
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Group A (n)", f"{exp_result['n_group_a']:,}")
+                    m2.metric("Group B (n)", f"{exp_result['n_group_b']:,}")
+                    m3.metric("Total", f"{exp_result['total_n']:,}")
+                    st.caption(f"Cohen's d = {exp_result['cohens_d']:.2f}")
+                    st.markdown(experiment_design.interpret_sample_size_means(exp_result))
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.

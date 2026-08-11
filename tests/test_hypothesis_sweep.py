@@ -8,6 +8,7 @@ from statsmodels.stats.multitest import multipletests
 
 from modules.hypothesis_sweep import (
     DEFAULT_ALPHA,
+    annotate_power,
     build_sweep_chart,
     cross_check_confounders,
     fingerprint_sweep,
@@ -430,3 +431,76 @@ def test_cross_check_confounders_skips_when_no_significant_ttest_or_pearson_pair
     }
     df = _correlated_df()
     assert cross_check_confounders(df, _column_types(df), fake_result) == []
+
+
+# --- group_sizes on ttest rows, and annotate_power() -----------------------
+
+def _ttest_df(n_per_group: int = 100, d: float = 1.0, seed: int = 7) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    group_a = rng.normal(loc=0.0, scale=1.0, size=n_per_group)
+    group_b = rng.normal(loc=d, scale=1.0, size=n_per_group)  # planted mean shift
+    value = np.concatenate([group_a, group_b])
+    group = ["a"] * n_per_group + ["b"] * n_per_group
+    return pd.DataFrame({"value": value, "group": group})
+
+
+def test_ttest_row_carries_group_sizes():
+    df = _ttest_df(n_per_group=50)
+    result = sweep_hypotheses(df, {"value": "numeric", "group": "categorical"})
+    row = next(r for r in result["tested"] if r["test"] == "ttest")
+    assert row["group_sizes"] == {"a": 50, "b": 50}
+
+
+def test_non_ttest_rows_have_no_group_sizes():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    non_ttest = [r for r in result["tested"] if r["test"] != "ttest"]
+    assert non_ttest and all(r["group_sizes"] is None for r in non_ttest)
+
+
+def test_annotate_power_flags_underpowered_significant_ttest():
+    # Small n, small-ish planted effect -> significant sometimes, but even
+    # when it is, power should be well under 80%.
+    df = _ttest_df(n_per_group=12, d=1.2, seed=3)
+    result = sweep_hypotheses(df, {"value": "numeric", "group": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "ttest")
+    if row["significant"]:
+        assert row["power_check"] is not None
+        assert row["power_check"]["n1"] == 12 and row["power_check"]["n2"] == 12
+    else:
+        assert row["power_check"] is None
+
+
+def test_annotate_power_flags_well_powered_significant_ttest():
+    df = _ttest_df(n_per_group=500, d=0.8, seed=1)
+    result = sweep_hypotheses(df, {"value": "numeric", "group": "categorical"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "ttest")
+    assert row["significant"] is True
+    assert row["power_check"]["underpowered"] is False
+    assert row["power_check"]["achieved_power"] > 0.95
+
+
+def test_annotate_power_skips_nonsignificant_and_nonttest_rows():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    annotated = annotate_power(result)
+    for row in annotated["tested"]:
+        if row["test"] != "ttest" or not row["significant"]:
+            assert row["power_check"] is None
+
+
+def test_annotate_power_handles_empty_result():
+    assert annotate_power({"tested": []}) == {"tested": []}
+    assert annotate_power(None) is None
+
+
+def test_annotate_power_does_not_mutate_input():
+    df = _ttest_df(n_per_group=500, d=0.8, seed=1)
+    result = sweep_hypotheses(df, {"value": "numeric", "group": "categorical"})
+    original_row = next(r for r in result["tested"] if r["test"] == "ttest")
+    assert "power_check" not in original_row
+    annotate_power(result)
+    # original untouched after annotate_power runs
+    assert "power_check" not in original_row
