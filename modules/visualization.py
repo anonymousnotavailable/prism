@@ -30,6 +30,13 @@ TOP_N_CATEGORIES = 10
 MANUAL_CHART_TYPES = ["Histogram", "Box", "Bar", "Pie", "Scatter", "Line"]
 # Chart types where a Y-axis column is mandatory (not just an optional grouping).
 MANUAL_CHART_TYPES_REQUIRING_Y = {"Scatter", "Line"}
+# Chart types where an optional third "Color" column can split/group the marks —
+# the encoding-channel slice toward a PyGWalker/Tableau-style grammar-of-graphics
+# builder (Pie already encodes its one category via slices, so it's excluded).
+MANUAL_CHART_TYPES_SUPPORTING_COLOR = {"Histogram", "Box", "Bar", "Scatter", "Line"}
+# Aggregation functions offered for Bar charts with a numeric Y-axis, keyed by
+# the label shown in the UI.
+MANUAL_CHART_AGG_FUNCS = {"Mean": "mean", "Sum": "sum", "Median": "median", "Min": "min", "Max": "max"}
 
 
 def get_overview_stats(df: pd.DataFrame) -> pd.DataFrame:
@@ -134,13 +141,15 @@ def plot_datetime_trend(df: pd.DataFrame, datetime_col: str, numeric_col: str) -
     return fig
 
 
-def plot_scatter(df: pd.DataFrame, col_x: str, col_y: str) -> go.Figure:
-    """Scatter plot between two numeric columns with an OLS trendline."""
+def plot_scatter(df: pd.DataFrame, col_x: str, col_y: str, color: Optional[str] = None) -> go.Figure:
+    """Scatter plot between two numeric columns with an OLS trendline.
+    An optional `color` column splits the trendline per group instead of
+    fitting one line across the whole dataset."""
     try:
-        fig = px.scatter(df, x=col_x, y=col_y, trendline="ols", title=f"{col_y} vs {col_x}")
+        fig = px.scatter(df, x=col_x, y=col_y, color=color, trendline="ols", title=f"{col_y} vs {col_x}")
     except Exception:
         # statsmodels missing or the trendline fit failed — fall back to a plain scatter
-        fig = px.scatter(df, x=col_x, y=col_y, title=f"{col_y} vs {col_x}")
+        fig = px.scatter(df, x=col_x, y=col_y, color=color, title=f"{col_y} vs {col_x}")
     fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
     return fig
 
@@ -271,33 +280,58 @@ def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     return charts, top_corr
 
 
-def build_manual_chart(df: pd.DataFrame, chart_type: str, col_x: str, col_y: Optional[str] = None) -> go.Figure:
+def build_manual_chart(
+    df: pd.DataFrame,
+    chart_type: str,
+    col_x: str,
+    col_y: Optional[str] = None,
+    color: Optional[str] = None,
+    agg: str = "mean",
+) -> go.Figure:
     """Build a chart from explicit user picks — the manual escape hatch next to
-    the automatic per-dtype chart picker above.
+    the automatic per-dtype chart picker above. A lightweight grammar-of-
+    graphics builder: X and Y are the required axes, `color` is an optional
+    third encoding channel that splits/groups the marks (a PyGWalker/Tableau-
+    style "pill" without the drag-and-drop), and `agg` picks how a Bar
+    chart's numeric Y is summarized per X category.
 
     chart_type: one of MANUAL_CHART_TYPES ("Histogram", "Box", "Bar", "Pie", "Scatter", "Line").
     col_y is required for "Scatter"/"Line" and optional (used as a grouping) for "Box"/"Bar".
+    color is only meaningful for MANUAL_CHART_TYPES_SUPPORTING_COLOR; silently ignored
+    elsewhere (Pie) and silently dropped if it duplicates col_x/col_y (no self-encoding).
+    agg is one of MANUAL_CHART_AGG_FUNCS's values, only used by "Bar" with a numeric col_y.
     Raises ValueError for an invalid combination, so callers can surface it as a friendly message.
     """
     if chart_type in MANUAL_CHART_TYPES_REQUIRING_Y and not col_y:
         raise ValueError(f"{chart_type} needs a Y-axis column.")
+    if color is not None and color not in df.columns:
+        raise ValueError(f"Unknown color column: {color}")
+    if color in (col_x, col_y):
+        color = None  # would just re-encode an axis — ignore rather than error
+    agg_label = next((label for label, fn in MANUAL_CHART_AGG_FUNCS.items() if fn == agg), agg.title())
 
     if chart_type == "Histogram":
-        fig = px.histogram(df, x=col_x, nbins=30, title=f"Histogram of {col_x}")
+        fig = px.histogram(df, x=col_x, color=color, nbins=30, title=f"Histogram of {col_x}")
     elif chart_type == "Box":
         if col_y:
-            fig = px.box(df, x=col_x, y=col_y, title=f"{col_y} by {col_x}")
+            fig = px.box(df, x=col_x, y=col_y, color=color, title=f"{col_y} by {col_x}")
         else:
-            fig = px.box(df, y=col_x, title=f"Spread of {col_x}", points="outliers")
+            fig = px.box(df, y=col_x, color=color, title=f"Spread of {col_x}", points="outliers")
     elif chart_type == "Pie":
         counts = df[col_x].value_counts(dropna=True).head(TOP_N_CATEGORIES)
         fig = px.pie(values=counts.values, names=counts.index.astype(str), title=f"Distribution of {col_x}")
     elif chart_type == "Bar":
         if col_y and pd.api.types.is_numeric_dtype(df[col_y]):
-            grouped = df.groupby(col_x)[col_y].mean().sort_values(ascending=False).head(TOP_N_CATEGORIES)
+            group_cols = [col_x, color] if color else [col_x]
+            grouped = df.groupby(group_cols)[col_y].agg(agg).reset_index()
+            top_x = (
+                df.groupby(col_x)[col_y].agg(agg).sort_values(ascending=False).head(TOP_N_CATEGORIES).index
+            )
+            grouped = grouped[grouped[col_x].isin(top_x)]
             fig = px.bar(
-                x=grouped.index.astype(str), y=grouped.values,
-                title=f"Mean {col_y} by {col_x}", labels={"x": col_x, "y": f"Mean {col_y}"},
+                grouped, x=col_x, y=col_y, color=color, barmode="group",
+                title=f"{agg_label} {col_y} by {col_x}" + (f", split by {color}" if color else ""),
+                labels={col_y: f"{agg_label} {col_y}"},
             )
         else:
             counts = df[col_x].value_counts(dropna=True).head(TOP_N_CATEGORIES)
@@ -306,10 +340,11 @@ def build_manual_chart(df: pd.DataFrame, chart_type: str, col_x: str, col_y: Opt
                 title=f"Top {TOP_N_CATEGORIES} values in {col_x}", labels={"x": col_x, "y": "Count"},
             )
     elif chart_type == "Scatter":
-        fig = plot_scatter(df, col_x, col_y)
+        fig = plot_scatter(df, col_x, col_y, color=color)
     elif chart_type == "Line":
-        subset = df[[col_x, col_y]].dropna().sort_values(col_x)
-        fig = px.line(subset, x=col_x, y=col_y, title=f"{col_y} over {col_x}")
+        cols = [c for c in [col_x, col_y, color] if c]
+        subset = df[cols].dropna().sort_values(col_x)
+        fig = px.line(subset, x=col_x, y=col_y, color=color, title=f"{col_y} over {col_x}")
     else:
         raise ValueError(f"Unknown chart type: {chart_type}")
 

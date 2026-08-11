@@ -712,6 +712,70 @@ def proactive_alert_text(result: Optional[OrchestrationResult], last_alerted_fin
     return {"text": text, "fingerprint": fingerprint}
 
 
+# Detectors that already actively surface their own findings the instant
+# they're computed, so a lone claim from them would just duplicate what the
+# user has already seen: auto_insights drives its own ambient alert via
+# atlas.raise_alert() on upload; every other listed detector only produces
+# output because the user just ran it on its own tab and is looking straight
+# at the result. confounder_detection is deliberately absent from this set —
+# it runs silently in the background on every upload (same as auto_insights)
+# but, unlike auto_insights, has no proactive announcement of its own today.
+_TIER2_ALREADY_SURFACED_DETECTORS = frozenset({
+    "auto_insights", "causal_att", "causal_cate", "anomaly", "drift", "hypothesis_sweep", "verifier",
+})
+
+
+def proactive_alert_text_tier2(result: Optional[OrchestrationResult], last_alerted_fingerprint: Optional[str]) -> Optional[dict]:
+    """JARVIS-copilot slice, tier 2: a narrower companion to
+    proactive_alert_text() (tier 1) for a different gap. Tier 1 only speaks
+    up for genuine cross-detector agreement/contradiction, and only after a
+    third detector fires (the two-detector baseline is already covered by
+    the ambient upload announcement). But that ambient announcement is
+    itself only driven by auto_insights' own high-severity count —
+    confounder_detection runs on every upload too, silently, with no
+    proactive surfacing of its own. A freshly detected Simpson's-paradox-
+    style confounder is exactly the kind of finding a data scientist would
+    want flagged, so this tier fires for it even at the plain two-detector
+    baseline.
+
+    Deliberately narrow, same discipline as tier 1:
+
+    - Only the #1 ranked group, and only when it's a lone claim from a
+      single detector (agreement/contradiction stays tier 1's job).
+    - Only "high" severity — a medium/low lone claim isn't worth
+      interrupting for.
+    - Only detectors not already in `_TIER2_ALREADY_SURFACED_DETECTORS` —
+      today that means confounder_detection specifically; if a future
+      detector is added that also runs silently with no alert of its own,
+      it's a candidate for exclusion from that set, not this function.
+    - Fires at most once per distinct fingerprint, same convention as tier 1
+      (callers should track tier 1 and tier 2 fingerprints separately —
+      they can legitimately differ on the same OrchestrationResult).
+
+    Returns None if nothing should be announced, else a dict with a spoken
+    `text` (safe to pass straight to atlas.say_only()) and the new
+    `fingerprint` the caller should persist so this doesn't refire on the
+    same result.
+    """
+    if result is None or result.silent or not result.top:
+        return None
+
+    top = result.top[0]
+    if top.agreement or top.contradiction:
+        return None
+    if top.severity != "high":
+        return None
+    if len(top.detectors) != 1 or top.detectors[0] in _TIER2_ALREADY_SURFACED_DETECTORS:
+        return None
+
+    fingerprint = fingerprint_result(result)
+    if fingerprint == last_alerted_fingerprint:
+        return None
+
+    text = f"Heads up — {top.claims[0].message}"
+    return {"text": text, "fingerprint": fingerprint}
+
+
 def severity_icon(severity: str) -> str:
     """Emoji icon for UI display — mirrors modules.auto_insights.severity_icon."""
     return {"high": "\U0001F534", "medium": "\U0001F7E1", "low": "\U0001F535"}.get(severity, "⚪")
