@@ -802,3 +802,37 @@ the PyGWalker chart builder (competitor-parity, 5+ runs unaddressed) or
 a second agentic-theme slice (e.g. a proactive/unprompted Atlas surface
 of the top Agent Summary finding — the JARVIS "at most one copilot slice
 per run" track).
+
+## Run 11 — 2026-08-11
+
+Reused Run 9/10's standing backlog and research (no fresh audit/research
+sweep — same token-efficiency reasoning Run 10 logged). Shipped exactly
+what Run 10 recommended: Atlas now proactively speaks up, unprompted, the
+moment the Agent Summary orchestrator's top finding becomes a genuinely
+new cross-detector agreement or contradiction — no click on "Generate
+Executive Summary," no Overview tab visit needed. Selective by design
+(agreement/contradiction only, not a lone severity claim already shown
+elsewhere; silent at the baseline two-detector upload state the existing
+ambient announcement already covers; fires once per distinct fingerprint).
+Moved the orchestration computation out of the Overview-tab-only render
+path to run every rerun regardless of active tab, so the alert isn't
+blind to work done on other tabs (e.g. the Causal Effect Estimator).
+Zero extra Gemini calls. 8 new tests, full suite 255/255 green. Verified
+live via Playwright (desktop dark/light, mobile dark) against
+`samples/stock_data.csv`: ran the Causal Effect Estimator and confirmed
+Atlas's side panel spoke up automatically with the correct agreement
+message, Agent Summary panel matching beneath it, no traceback. Merged
+`feature/atlas-proactive-orchestration-alert` to `main`; fresh-clone
+sanity check (pytest 255/255, `streamlit run app.py` boots clean, HTTP
+200) passed post-merge. Pushed `main` and fast-forwarded the session
+branch to match.
+
+**Not built (backlog, unchanged from Run 10):** PyGWalker-style drag-and-
+drop chart builder (effort L, now 6+ runs unaddressed — recommended as
+next run's primary focus), live-Gemini verification (11th consecutive
+run with no real API key in the sandbox), DuckDB/polars-backed Auto
+Cleaner path for large datasets, light-theme dataframe/chart repaint-lag
+(cosmetic, not re-attempted). New candidate logged: a possible second,
+still-selective tier for lone high-severity third-detector findings
+(deliberately not built this run to keep the proactive-alert surface
+narrow).
