@@ -171,6 +171,8 @@ _DEFAULTS = {
     "forecast_error": None,  # error from the last forecast attempt, if any
     "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
     "stl_decomp_error": None,  # error from the last decomposition attempt, if any
+    "forecast_backtest_result": None,  # forecasting.rolling_origin_backtest() output for the Backtest panel
+    "forecast_backtest_error": None,  # error from the last backtest attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -320,6 +322,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.forecast_error = None
     st.session_state.stl_decomp_result = None
     st.session_state.stl_decomp_error = None
+    st.session_state.forecast_backtest_result = None
+    st.session_state.forecast_backtest_error = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -4211,6 +4215,49 @@ elif st.session_state.active_section == "Forecasting":
                 mime="text/csv",
                 use_container_width=True,
             )
+
+            st.markdown("##### Backtest this forecast")
+            st.caption(
+                "Before trusting the forecast above, validate it: fits the same model on progressively "
+                "earlier cutoffs, forecasts forward, and scores against what actually happened — the "
+                "standard way to check forecast accuracy (Hyndman & Athanasopoulos' 'time series "
+                "cross-validation') instead of taking a single full-history fit on faith."
+            )
+            if st.button("Run Backtest", key="run_backtest_btn", use_container_width=True):
+                bt_series, bt_freq, bt_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+                if bt_prep_error:
+                    st.session_state.forecast_backtest_result = None
+                    st.session_state.forecast_backtest_error = bt_prep_error
+                else:
+                    ok, reason = forecasting.can_backtest(bt_series, bt_freq, forecast_horizon)
+                    if not ok:
+                        st.session_state.forecast_backtest_result = None
+                        st.session_state.forecast_backtest_error = reason
+                    else:
+                        with st.spinner(ui.get_loading_message()):
+                            bt_result = forecasting.rolling_origin_backtest(bt_series, bt_freq, forecast_horizon, n_windows=5)
+                        if "error" in bt_result:
+                            st.session_state.forecast_backtest_result = None
+                            st.session_state.forecast_backtest_error = bt_result["error"]
+                        else:
+                            st.session_state.forecast_backtest_result = bt_result
+                            st.session_state.forecast_backtest_error = None
+
+            if st.session_state.forecast_backtest_error:
+                st.warning(st.session_state.forecast_backtest_error)
+            elif st.session_state.forecast_backtest_result is not None:
+                bt_result = st.session_state.forecast_backtest_result
+                bt1, bt2, bt3 = st.columns(3)
+                bt1.metric("Mean MAE", f"{bt_result['mean_mae']:.2f}")
+                bt2.metric("Mean RMSE", f"{bt_result['mean_rmse']:.2f}")
+                bt3.metric("Mean MAPE", f"{bt_result['mean_mape']:.1f}%" if bt_result["mean_mape"] is not None else "n/a")
+                st.markdown(forecasting.backtest_verdict(bt_result["mean_mape"]))
+                st.caption(f"Ran {bt_result['n_windows_run']} rolling-origin window(s) at a {bt_result['horizon']}-period horizon.")
+                with st.expander("Window-by-window detail", expanded=False):
+                    st.plotly_chart(
+                        forecasting.build_backtest_chart(bt_result, f"{forecast_num_col} backtest windows"),
+                        use_container_width=True,
+                    )
 
         st.divider()
         st.markdown("#### Time Series Decomposition (STL)")
