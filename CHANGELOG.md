@@ -2,6 +2,31 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 24)
+
+### Added
+- **Streaming out-of-core Excel ingestion** (`modules/data_engine.py`) —
+  closes the oldest open backlog item (4 runs, since Run 20). Large
+  `.xlsx` uploads previously went through a bare `pd.read_excel()` with
+  no row cap threaded through — unlike the CSV path's DuckDB out-of-core
+  reader, a genuinely large workbook fully materialized in memory before
+  any truncation logic ran (pandas' own `OpenpyxlReader.get_sheet_data()`
+  appends every row to a Python list regardless, even though it opens
+  the workbook via openpyxl's `read_only=True` mode). New
+  `_stream_sample_excel()` opens `.xlsx` files via openpyxl's row
+  iterator directly and reservoir-samples in a single pass — a genuine
+  random sample across the whole sheet, not just the first N rows —
+  while never holding more than `max_rows` rows in memory. Gated behind
+  a 15 MB threshold (`LARGE_EXCEL_THRESHOLD_BYTES`), `.xlsx`-only, with
+  a streaming-mode equivalent of the existing banner-row/blank-line
+  header recovery. Falls back silently to the existing `pd.read_excel()`
+  path on any failure (corrupt workbook, missing sheet, empty sheet),
+  same fail-safe design as the DuckDB CSV path. 19 new tests, full suite
+  435 → 454 green. Live-verified against a genuine 400,000-row / 16.8 MB
+  `.xlsx` through the running app: correctly counted all 400,000 rows,
+  triggered Smart Sampling, completed the full upload → sample → profile
+  flow with no traceback.
+
 ## 2026-08-11 (Run 23)
 
 ### Added

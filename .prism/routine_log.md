@@ -1587,3 +1587,27 @@ still gets skipped. On *any* failure (corrupt workbook, sheet not found,
 empty sheet, openpyxl unavailable) it returns `None` and `load_data()`
 silently falls through to the existing `pd.read_excel` path, same
 fail-safe philosophy as the DuckDB CSV path.
+
+**Result:** 19 new tests (`tests/test_data_engine.py` 10 → 29), full
+suite 435 → 454 green, zero regressions, verified on the feature branch,
+post-merge on `main`, and again in a fresh-checkout worktree. Live-
+verified against a genuine 400,000-row/16.8 MB `.xlsx` through the
+running app via Playwright: streaming reader correctly counted all
+400,000 rows, triggered Smart Sampling, completed upload → sample →
+profile with zero tracebacks (screenshots in
+`.prism/runs/2026-08-11-run24/`). No new UI surface, so the 4-viewport/
+2-theme screenshot matrix wasn't applicable — verified the actual
+large-file failure mode live instead. Merged `feature/large-excel-
+ingestion` into `main` with `--no-ff`, updated `CHANGELOG.md`, wrote
+`RUN_REPORT_2026-08-11-run24.md`, pushed `main`.
+
+**Not built (backlog, updated):** the backlog is now down to cosmetic-
+only and explicitly-out-of-scope items — light-theme repaint lag
+(cosmetic, app-wide), mobile-viewport Playwright automation gap (test-
+harness limitation, not an app defect), Atlas/HUD maturity (out of scope
+per run brief), live-Gemini verification (structural, no API key in this
+sandbox). **Recommended for Run 25: a fresh Phase 2 web research sweep**
+— this run closed the last well-scoped, non-cosmetic backlog item
+(Excel ingestion, open since Run 20), so per this routine's own stated
+rule, reusing the backlog is no longer the right call; Run 25 should
+generate new evidence-backed candidates instead.
