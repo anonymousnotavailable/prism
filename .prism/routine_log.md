@@ -956,3 +956,66 @@ actionable from inside a run). New candidate for a future run: extend the
 tier-2 alert pattern to Pie charts' category-share findings if a similar
 "silent detector" gap is ever identified there — not built now since no
 such gap currently exists in Pie's rendering path.
+
+## Run 14 — 2026-08-11
+
+Reused the standing backlog and Run 11's full-app audit rather than
+re-running a fresh four-source-class research sweep or Playwright audit
+(same token-efficiency reasoning Runs 9-13 logged; no new UI has shipped
+since Run 11's audit that would invalidate it). Same process-note
+contradiction in the trigger ("loop until session 100% used" + "use less
+tokens") as every prior run since Run 9 — running one complete, safely
+verified cycle and stopping, per the hard guardrails.
+
+**Backlog audit — DuckDB/polars Auto Cleaner item, verified CLOSED, not
+re-built:** read `modules/data_engine.py`'s `_should_attempt_duckdb`/
+`_duckdb_sample_csv` (Run 8) plus `modules/autocleaner.py` and
+`modules/hellmode.py` in full, per this run's mandatory instructions. The
+DuckDB out-of-core path already reservoir-samples any CSV ≥15MB down to
+`MAX_ROWS` (50k, or up to `HARD_ROW_CEILING`=500k if the user explicitly
+asks to read the whole file) *before* the DataFrame ever reaches
+`autocleaner.scan()`/`build_plan()` — so Auto Cleaner itself never sees an
+unbounded dataset regardless of upload size; every operation inside it
+(including `hellmode.suggest_fuzzy_groups`'s O(n²) rapidfuzz clustering,
+the one genuinely-quadratic op in the module) is already bounded by that
+cap. The only real remaining gap is Excel: `_should_attempt_duckdb`
+explicitly excludes `.xlsx`/`.xls` (no out-of-core reader wired for
+openpyxl), so a huge Excel upload still loads fully into memory before
+`MAX_ROWS` truncation applies — but that's a distinct, narrower "large
+Excel ingestion" gap, not the "Auto Cleaner path" item as originally
+framed, and wasn't picked this run (Excel has no equivalent streaming
+reader available without adding a new dependency, higher risk than this
+cycle's scope). Marking the original backlog item **closed**; logging the
+Excel-specific narrower gap as a new backlog candidate instead.
+
+**Selected features:**
+
+1. **Mandatory agentic-AI-analysis theme:** extend `insight_verifier`'s
+   confirmed/unconfirmed fact-check badge pattern (built Run 9/10 for Auto
+   Analyst's "Run Full Analysis" findings) to the AI Analyst tab's
+   standalone "Generate Key Insights" button — a *second*, separate Gemini
+   call (`ai_analyst.generate_key_insights`, shared with Story Mode and the
+   Report Writer's PDF/HTML export) that renders the exact same
+   `insight-card` HTML pattern but currently has **zero** fact-checking, a
+   genuine coverage gap since it makes the same "plausible but wrong
+   number" claim risk Run 10 patched only for the other call site. Chosen
+   over the alternatives (a new anomaly-narration feature, or extending
+   tier-2 alerts to Pie) because it's the exact "extend the badge pattern
+   to a detector family that doesn't have it" direction this run's prompt
+   named as the strongest candidate, and it closes real, evidenced
+   duplication rather than adding new UI surface.
+2. **Backlog / chart builder:** add a Facet (small-multiples) encoding
+   channel to the Manual Chart Builder (`modules/visualization.py`,
+   `build_manual_chart`), continuing Run 13's grammar-of-graphics slice
+   (Color + Aggregation) with the next encoding channel Run 13's own report
+   explicitly recommended next. Still a selectbox-based control, no custom
+   JS/drag-and-drop component — same no-architecture-rewrite-risk approach
+   as Run 13. Uses Plotly Express's native `facet_col`/`facet_col_wrap`,
+   capped to a small number of facet categories (same top-N capping
+   convention already used for Bar/Pie) so a high-cardinality column can't
+   blow up the subplot grid.
+
+Both features are additive, module-boundary-respecting, and Gemini-call-
+free at the level being added (the "Generate Key Insights" call itself
+already existed — verification is purely local recomputation, same as
+Run 9's original insight_verifier).
