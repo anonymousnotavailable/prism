@@ -1043,3 +1043,101 @@ Merged `feature/key-insights-verification-badges` and
 — matches the convention recent runs established of only pushing `main`).
 Updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run14.md`. Pushed
 `main` to `origin`.
+
+## Run 15 — 2026-08-11
+
+Same token-efficiency reasoning Runs 9-14 logged for this scheduling
+pattern: reused the standing backlog rather than re-running the full
+four-source-class web sweep, and reused Run 11's full-app audit (Run 14
+was the last to ship new UI, and this run's own live Playwright pass
+found nothing broken in the paths it touched). Same process-note
+contradiction in the trigger ("loop until session 100% used" + "use less
+tokens"/"don't use credits") as every prior run since Run 9 — ran one
+complete, safely verified cycle and stopped, per the hard guardrails.
+
+**Important correction to this log's own record-keeping (found this run,
+not a regression):** every run since Run 1 has said some version of
+"merged into `main`, pushed `main` to origin." Checked this run: the
+repo's actual GitHub default branch `main` (origin/main) is at commit
+`dd20c29` — a *different, unrelated* project history (a DuckDB SQL Lab /
+JARVIS-dashboard line) that has never contained any of this routine's 14
+prior runs' work, and there has never been a pull request opened from
+`claude/adoring-meitner-xsga3q` into it (checked via the GitHub API this
+run — zero PRs, open or closed). Every run's "main" was a same-named
+*local* branch inside that run's own session that was never distinct
+from `claude/adoring-meitner-xsga3q` in practice — only the
+`claude/adoring-meitner-xsga3q` branch was ever pushed to `origin`, and
+that's genuinely where all 14 runs' work lives today. This is consistent
+with — not a violation of — this session's hard git-operation rules
+("develop and push only to `claude/adoring-meitner-xsga3q`," "never push
+to a different branch without explicit permission"), which take
+precedence over the scheduling prompt's literal "merge into main and
+push main" phrasing, same precedence call Run 10 and others logged for
+the token-efficiency contradiction. Flagging this explicitly because it
+means **none of this routine's 15 runs of work is visible on the repo's
+actual default branch or in any pull request** — worth the human's
+attention independent of anything else in this report. Not resolving it
+myself (opening a PR) since the guardrails require an explicit user ask
+before creating one and this run's trigger didn't grant that.
+
+**Selected feature (mandatory agentic-AI-analysis theme):** "Suggest a
+chart" auto-encoding recommendation for the Manual Chart Builder
+(`modules/visualization.suggest_chart_encoding`) — the "explore mode"
+auto-suggestion slice Runs 13/14 explicitly named as the remaining scope
+after shipping the Color/Aggregation/Facet encoding channels. Reads the
+loaded data directly (deterministic, no Gemini call) and ranks
+candidates the same way `auto_analyst.suggest_followup_hypothesis`
+already ranks Stats Lab candidates: strongest numeric/numeric
+correlation → Scatter (colored by a low-cardinality categorical when
+useful); else largest one-way ANOVA F-statistic numeric/categorical pair
+→ Bar of the mean (faceted by a second categorical when useful); else a
+datetime+numeric trend → Line; else a lone numeric or categorical column
+→ Histogram or a Bar of counts. A "✨ Suggest a chart" button pre-fills
+every Manual Chart Builder selectbox and shows the reasoning as a plain-
+English caption. Chosen over alternatives (extending the tier-2 alert
+pattern to Pie, the still-open draggable-pill interaction model, the
+narrower large-Excel-ingestion gap Run 14 identified) because it directly
+closes the PyGWalker backlog item's *named* remaining piece, serves the
+mandatory theme with genuine "read the data and recommend" agentic
+behavior, and — being fully deterministic — was the one candidate this
+run could verify **completely live**, unlike most recent features
+blocked by this sandbox's missing `GEMINI_API_KEY` (15th consecutive run
+with that constraint, still not actionable from inside a run).
+
+**Outcome:** built on `feature/chart-suggestion-encoding` (TDD: 11 tests
+written first in `tests/test_chart_suggestion.py`, including a test that
+every suggestion branch actually builds a real chart via
+`build_manual_chart` without raising). Full suite 310 → 321/321 green,
+merged into `claude/adoring-meitner-xsga3q` with no conflicts, full suite
+re-verified green post-merge. Hit and fixed the known `_cffi_backend`
+sandbox gap (same documented fix as Runs 12-14). Live-verified via
+Playwright end-to-end (desktop 1440px dark + light Arctic, mobile 390px
+dark; `samples/sales_data.csv`): clicked "Suggest a chart," got "'quantity'
+looks like it varies meaningfully across 'region' groups," and the
+resulting Bar-of-means chart rendered correctly with all six selectboxes
+pre-filled to match, in all three viewport/theme combinations — no
+overflow, no clipping, glass panels consistent, reason caption readable
+in both themes. This is the first run since at least Run 9 to get a
+**complete** 3-way live screenshot pass (desktop dark, desktop light,
+mobile dark) for a new feature with zero automation gaps — the past
+several runs' recurring "mobile sidebar-expander" Playwright gap didn't
+apply here since the new control lives in main content, not the sidebar.
+Screenshots in `.prism/runs/2026-08-11-run15/`. `.env`/secrets hygiene
+re-checked (clean — `.gitignore` covers `.env`, `.venv/`, `venv/`,
+`.streamlit/secrets.toml`). Updated `CHANGELOG.md`, wrote
+`RUN_REPORT_2026-08-11-run15.md`. Pushed `claude/adoring-meitner-xsga3q`
+to `origin` (confirmed via fetch — no PR opened, per guardrails).
+
+**Not built (backlog, updated):** PyGWalker builder's remaining
+interaction-model gap (draggable pill UI, true multi-step "explore mode"
+beyond this run's single-suggestion version) — still open. Tier-2 alert
+pattern for Pie charts — still open, no forcing gap identified yet.
+Large-Excel out-of-core ingestion (Run 14's narrower spinoff of the
+Auto Cleaner item) — still open. Light-theme dataframe/chart repaint lag
+(cosmetic) — not re-attempted. Live-Gemini verification — 15th
+consecutive run blocked by sandbox constraint. **New, higher-priority
+item for the next run: resolve the main-branch/PR gap logged above** —
+either get explicit sign-off to open a PR from `claude/adoring-meitner-
+xsga3q` into `main`, or confirm with the human that the feature branch is
+the intended long-term home, before adding much more unmerged history on
+top of it.
