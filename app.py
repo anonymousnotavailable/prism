@@ -4243,14 +4243,16 @@ elif st.session_state.active_section == "Forecasting":
             st.plotly_chart(decomp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
-# Clustering tab — KMeans on standardized numeric columns with an
-# elbow-method K suggestion, a 2D PCA scatter colored by cluster, and an
-# optional Gemini pass to name/describe each segment in one line.
+# Clustering tab — KMeans on standardized numeric columns with a hybrid
+# elbow + silhouette-score K suggestion, a 2D PCA scatter colored by
+# cluster, a silhouette-score verdict on how well-separated the resulting
+# clusters actually are, and an optional Gemini pass to name/describe each
+# segment in one line.
 # --------------------------------------------------------------------------
 elif st.session_state.active_section == "Clustering":
     ui.render_help_expander(
-        "Pick numeric columns to segment your data with KMeans — an elbow-method suggestion "
-        "picks K for you, and a 2D PCA scatter shows the resulting clusters."
+        "Pick numeric columns to segment your data with KMeans — an elbow + silhouette-score "
+        "suggestion picks K for you, and a 2D PCA scatter shows the resulting clusters."
     )
 
     st.subheader("Clustering & Segmentation")
@@ -4284,18 +4286,29 @@ elif st.session_state.active_section == "Clustering":
                     "need at least 4 to cluster."
                 )
             else:
-                suggested_k, inertias = clustering.suggest_k(df, selected_cluster_cols)
+                suggested_k, inertias, silhouettes = clustering.suggest_k(df, selected_cluster_cols)
                 max_k = max(2, min(clustering.MAX_K, clean_row_count - 1))
 
-                if inertias:
-                    with st.expander("Elbow method chart", expanded=False):
-                        st.plotly_chart(clustering.build_elbow_chart(inertias), use_container_width=True)
+                if inertias or silhouettes:
+                    with st.expander("Elbow & silhouette charts (how K was suggested)", expanded=False):
+                        chart_col1, chart_col2 = st.columns(2)
+                        with chart_col1:
+                            if inertias:
+                                st.plotly_chart(clustering.build_elbow_chart(inertias), use_container_width=True)
+                        with chart_col2:
+                            if silhouettes:
+                                st.plotly_chart(clustering.build_silhouette_chart(silhouettes), use_container_width=True)
+                        st.caption(
+                            "K is suggested by narrowing to a candidate range with the elbow method (inertia "
+                            "drop-off), then picking the K in that range with the best silhouette score — a "
+                            "measure of how well-separated the resulting clusters actually are."
+                        )
 
                 k_choice = st.slider(
                     "Number of clusters (K)", min_value=2, max_value=max_k,
                     value=min(suggested_k, max_k), key="cluster_k",
                 )
-                st.caption(f"Elbow-method suggestion: K={min(suggested_k, max_k)}")
+                st.caption(f"Elbow + silhouette suggestion: K={min(suggested_k, max_k)}")
 
                 if st.button("Run Clustering", type="primary", use_container_width=True):
                     st.session_state.cluster_result = clustering.run_clustering(df, selected_cluster_cols, k_choice)
@@ -4317,6 +4330,8 @@ elif st.session_state.active_section == "Clustering":
                             ),
                             use_container_width=True,
                         )
+
+                        st.caption(clustering.silhouette_verdict(cluster_result.get("silhouette_score")))
 
                         st.markdown("**Cluster stats** (mean of each column, per cluster)")
                         st.dataframe(cluster_result["cluster_stats"], use_container_width=True)

@@ -1698,3 +1698,67 @@ harness and live runs against `samples/sales_data.csv`. **Recommended
 for Run 26:** silhouette-score cluster validation (small, clean,
 closes a real gap in `clustering.py`), or another fresh sweep if that's
 judged too small alone — full reasoning in `RUN_REPORT_2026-08-11-run25.md`.
+
+## Run 26 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `f61cb4b` (Run 25's
+tip) per this run's git constraint — never touched `main`. Cold start
+needed no reinstall this time (`pip install -r requirements.txt
+-r requirements-dev.txt` reported everything already satisfied in this
+sandbox image) — 479 tests green before any changes, matching Run 25's
+final count exactly, confirming a clean baseline. Playwright/Chromium
+egress checked again via `curl $HTTPS_PROXY/__agentproxy/status`: still
+absent from the allowlist (`recentRelayFailures` shows unrelated hosts
+being 403'd, and `cdn.playwright.dev` was never reachable in earlier
+runs either) — same blocker as Run 25, so the plan is AppTest headless
+harness + live server verification again, documented rather than
+skipped.
+
+**Selected: (1) Silhouette-score cluster validation** for
+`modules/clustering.py` (Run 25's explicit first-listed recommendation)
+and **(2) ROC-AUC / Precision-Recall curves for ML Lab classification**
+(`modules/mllab.py`), found by re-reading `run_baseline_models()`
+directly this run.
+
+Confirmed both gaps are real before building: `grep -rn
+"silhouette" modules/*.py tests/*.py` → zero hits; `clustering.py`'s
+`suggest_k()` only ever computes KMeans inertia (elbow method) with no
+independent cluster-quality score, and the Clustering tab in `app.py`
+(~line 4250-4340) never surfaces any per-K quality signal beyond the
+elbow chart. Separately, `grep -rln "roc_auc|roc_curve|
+precision_recall_curve|calibration" modules/*.py` returned only
+`hellmode.py` (an unrelated string match on "recalibration") — reading
+`run_baseline_models()` in full confirmed classification metrics are
+capped at accuracy + weighted F1 + a confusion matrix, with no ROC or
+Precision-Recall curve at all, despite the tab already supporting SMOTE
+class-imbalance correction and a class-imbalance detector — exactly the
+scenario (skewed classes) where accuracy is most misleading and PR
+curves matter most.
+
+**Web-search sanity check (per this run's Phase 2 instruction) before
+committing to either pick:** both are still current, uncontested best
+practice in 2026 sources — "In modern data science workflows, it is
+best practice to use the Elbow Method to define a candidate range and
+the Silhouette Score to select the final, most robust model" (multiple
+2025/2026 sources agree), and on the classification side: "the
+consensus is to use both ROC-AUC and Precision-Recall curves together,
+with PR-AUC being particularly valuable for understanding performance
+on the minority class" — directly on point given this app's existing
+SMOTE/imbalance-handling surface. No fresh full research sweep was run
+this time since both picks are well-scoped, verifiably open, and
+sanity-checked, satisfying the run brief's "backlog still well-scoped"
+branch rather than the "backlog exhausted" branch.
+
+**Theme coverage check:** neither feature touches the Atlas/JARVIS
+copilot track (0 features on that track this run, well under the
+1/run cap) and neither is the agentic-AI-analysis theme (last shipped
+Runs 22/23, not mandatory every run per this run's brief) — both are
+pure statistical/ML-rigor closures on existing tabs (Clustering, ML
+Lab), matching "reject cosmetic polish, prefer statistical rigor / ML /
+reproducibility." Both are pure local scikit-learn compute — zero
+Gemini calls, zero free-tier rate-limit exposure to design around.
+
+Plan: branch `feature/silhouette-cluster-validation` and
+`feature/roc-pr-curves` off `claude/adoring-meitner-7xxgfq`, tests
+first, then implement, full suite must stay green, merge both with
+`--no-ff`, push.
