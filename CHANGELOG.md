@@ -2,6 +2,47 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 27)
+
+### Added
+- **Population Stability Index (PSI)** (`modules/drift.py`) — the Drift tab
+  now computes PSI for every shared numeric column, alongside the existing
+  ad-hoc mean-shift/TVD scores. PSI bins the comparison dataset onto the
+  baseline dataset's own quantile edges and measures how much probability
+  mass moved between bins — the industry-standard drift metric in credit-
+  risk/model-monitoring practice, with universally-cited thresholds
+  (< 0.10 stable, 0.10-0.25 moderate shift, > 0.25 significant shift
+  warranting a model/segment review). Shown in the drift summary table and
+  as a plain-English verdict in each column's detail expander. Handles
+  constant/near-constant baselines, empty series, NaNs, and empty-bin
+  edge cases (an epsilon floor avoids log(0)/divide-by-zero when one
+  dataset has no points at all in a tail bin) without raising. 17 new
+  tests.
+- **Rolling-Origin Forecast Backtesting** (`modules/forecasting.py`) — the
+  Forecasting tab can now validate a forecast before you trust it: fits
+  the same ETS/SARIMAX model on progressively earlier cutoffs (an
+  expanding training window that only ever slides forward in time, never
+  shuffled), forecasts the held-out horizon from each cutoff, and scores
+  the forecast against what actually happened — Hyndman & Athanasopoulos'
+  "time series cross-validation," the standard way to check real forecast
+  accuracy instead of trusting a single full-history fit with a parametric
+  CI band and no held-out check at all (which is what `run_forecast()` did
+  previously). Reports mean MAE/RMSE/MAPE across the backtest windows plus
+  a plain-English verdict using Lewis (1982)'s widely-cited MAPE bands
+  (excellent/good/reasonable/unreliable), and a window-by-window actual-
+  vs-predicted chart. 16 new tests, including a mathematical invariant
+  check (RMSE >= MAE), safe-MAPE handling when actuals are near zero, and
+  confirming the backtest never mutates the input series.
+
+### Notes
+- Playwright/Chromium remained blocked by this session's sandbox egress
+  policy for a 3rd consecutive run (`cdn.playwright.dev` → 403 "CONNECT
+  tunnel failed", confirmed directly via `curl`) — no UI screenshots this
+  run either. Verified instead via the full pytest suite (510 → 543
+  green, zero regressions), a live `streamlit run` smoke test (HTTP 200,
+  clean logs), and direct function-level runs against real sample data
+  (`samples/stock_data.csv` for both PSI and rolling-origin backtesting).
+
 ## 2026-08-11 (Run 26)
 
 ### Added

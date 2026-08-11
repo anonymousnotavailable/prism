@@ -1848,3 +1848,24 @@ zero free-tier rate-limit exposure.
 Plan: branch `feature/psi-drift-metric` and `feature/forecast-backtesting`
 off `claude/adoring-meitner-7xxgfq`, tests first, then implement, full
 suite must stay green, merge both with `--no-ff`, push.
+
+## Run 27 — 2026-08-11 — result
+
+Shipped both selected features: Population Stability Index (PSI) for the
+Drift tab (`modules/drift.py`, 17 tests) and rolling-origin (walk-forward)
+forecast backtesting for the Forecasting tab (`modules/forecasting.py`,
+16 tests). Merged `feature/psi-drift-metric` and `feature/forecast-
+backtesting` into `claude/adoring-meitner-7xxgfq` with `--no-ff`, both
+clean merges (one trivial `app.py` auto-merge, no conflicts). Full suite
+510 → 543 green, zero regressions; app launches cleanly post-merge
+(HTTP 200, clean `streamlit run` logs). Playwright still blocked by
+sandbox egress policy for a 3rd consecutive run (`curl` to
+`cdn.playwright.dev` → 403 "CONNECT tunnel failed") — verified instead
+via the full test suite, a live server smoke test, and direct
+function-level runs against `samples/stock_data.csv` (PSI correctly
+flagged a synthetic 63%-mean-shift as "significant" at PSI 8.28; the
+backtest correctly scored a low-noise real stock-price series at ~8.3%
+mean MAPE, "excellent"). Both features diversified away from ML Lab
+into the Drift and Forecasting tabs after three consecutive ML-Lab-
+adjacent runs (24-26). Full reasoning, research sweep, and Run 28
+recommendation in `RUN_REPORT_2026-08-11-run27.md`.
