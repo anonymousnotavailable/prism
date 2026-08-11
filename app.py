@@ -161,6 +161,8 @@ _DEFAULTS = {
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
+    "hypothesis_sweep_confounder_check": None,  # hypothesis_sweep.cross_check_confounders() result for the last sweep
+    "hypothesis_sweep_confounder_narrations": {},  # cache of confounder_detection.narrate_confounder_finding() results, keyed like confounder_narrations
     "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -3845,10 +3847,18 @@ elif st.session_state.active_section == "Stats Lab":
 
         if st.button("Run Hypothesis Sweep", key="run_hypothesis_sweep_btn"):
             with st.spinner(ui.get_loading_message()):
-                st.session_state.hypothesis_sweep_result = hypothesis_sweep.sweep_hypotheses(df, column_types)
+                sweep_result_new = hypothesis_sweep.sweep_hypotheses(df, column_types)
+                st.session_state.hypothesis_sweep_result = sweep_result_new
+                # Agentic follow-up, same spinner: does the sweep's own strongest
+                # finding hold up once you control for a third variable? No
+                # extra Gemini call — see cross_check_confounders()'s docstring.
+                st.session_state.hypothesis_sweep_confounder_check = hypothesis_sweep.cross_check_confounders(
+                    df, column_types, sweep_result_new
+                )
             st.session_state.hypothesis_sweep_narration = None
             st.session_state.hypothesis_sweep_narration_fingerprint = None
             st.session_state.hypothesis_sweep_narration_verification = None
+            st.session_state.hypothesis_sweep_confounder_narrations = {}
 
         sweep_result = st.session_state.hypothesis_sweep_result
         if sweep_result is None:
@@ -3890,6 +3900,60 @@ elif st.session_state.active_section == "Stats Lab":
                 sweep_chart = hypothesis_sweep.build_sweep_chart(sweep_result)
                 if sweep_chart is not None:
                     st.plotly_chart(sweep_chart, use_container_width=True)
+
+                # Confounder cross-check — the sweep's own agentic follow-up
+                # question ("does the strongest FDR-significant pair hold up
+                # once you control for a third variable?"), same pattern as
+                # Overview's Confounder Check panel but scoped to this sweep.
+                sweep_confounder_scan = st.session_state.hypothesis_sweep_confounder_check
+                if sweep_confounder_scan:
+                    n_sweep_pairs = len(sweep_confounder_scan)
+                    st.markdown(
+                        f"**🧭 Confounder cross-check** — {n_sweep_pairs} significant "
+                        f"pair{'s' if n_sweep_pairs != 1 else ''} worth a second look"
+                    )
+                    st.caption(
+                        "Surviving FDR correction across many tests doesn't mean a pair is "
+                        "causally clean — these still flip sign or weaken once a third "
+                        "variable is controlled for."
+                    )
+                    for scan in sweep_confounder_scan:
+                        x_col, y_col = scan["x"], scan["y"]
+                        for finding in scan["findings"]:
+                            verdict = finding["verdict"]
+                            badge = "🔴 Paradox" if verdict == "paradox" else "🟡 Confounded"
+                            label = (
+                                f"{badge} — **{x_col}** vs **{y_col}**, controlling for **{finding['confounder']}**"
+                            )
+                            with st.expander(label, expanded=False):
+                                st.caption(
+                                    f"Pooled correlation: r = {finding['overall_r']:.2f}  •  "
+                                    f"Adjusted: r = {finding['adjusted_r']:.2f}"
+                                )
+                                if finding["type"] == "categorical":
+                                    sweep_group_df = pd.DataFrame(finding["detail"])[["group", "r", "n"]]
+                                    sweep_group_df.columns = [finding["confounder"], "r within group", "n"]
+                                    st.dataframe(sweep_group_df, use_container_width=True, hide_index=True)
+                                else:
+                                    st.caption(f"n = {finding['detail']['n']}")
+                                sweep_cache_key = (x_col, y_col, finding["confounder"])
+                                sweep_cached = st.session_state.hypothesis_sweep_confounder_narrations.get(sweep_cache_key)
+                                if sweep_cached:
+                                    st.info(sweep_cached)
+                                elif st.button(
+                                    "✨ Explain this",
+                                    key=f"sweep_confounder_narrate_{x_col}_{y_col}_{finding['confounder']}",
+                                ):
+                                    sweep_confounder_model = ai_analyst.get_model()
+                                    with st.spinner("Gemini is interpreting this…"):
+                                        sweep_conf_narration, sweep_conf_error = confounder_detection.narrate_confounder_finding(
+                                            sweep_confounder_model, x_col, y_col, finding
+                                        )
+                                    if sweep_conf_error:
+                                        st.warning(sweep_conf_error)
+                                    else:
+                                        st.session_state.hypothesis_sweep_confounder_narrations[sweep_cache_key] = sweep_conf_narration
+                                        st.rerun()
 
                 # AI narration — cached per fingerprint of this exact sweep result,
                 # same pattern as anomaly narration: only a genuinely different

@@ -250,6 +250,55 @@ def verify_narration(narration: str, result: Optional[dict]) -> dict:
     return insight_verifier.verify_finding(narration or "", reference_numbers)
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# CONFOUNDER CROSS-CHECK — the sweep's own agentic follow-up question.
+# Auto-Insights' strong correlations already get stress-tested by
+# modules.confounder_detection ("...but does it hold up once you control
+# for a third variable?" — see that module's docstring for why this
+# matters, Simpson's Paradox in particular). A sweep finding that survives
+# FDR correction across dozens of tests is a *stronger* claim than a single
+# eyeballed correlation, which makes it more likely to get taken at face
+# value — exactly the kind of finding worth auto-questioning, not less.
+# ═══════════════════════════════════════════════════════════════════════
+def cross_check_confounders(
+    df: pd.DataFrame, column_types: dict[str, str], result: Optional[dict], top_k: int = 3
+) -> list[dict]:
+    """For the sweep's strongest significant numeric/numeric (Pearson)
+    findings, auto-run the same paradox/attenuation check Auto-Insights'
+    correlations get, via `confounder_detection.auto_scan_for_confounding`'s
+    `correlation_pairs=` hook — the pair's already-computed effect size is
+    reused directly, nothing is recomputed from scratch.
+
+    Deterministic, no Gemini call. Only Pearson pairs are eligible (t-test/
+    ANOVA/chi-square pairs don't have a single "r" for a confounder to
+    attenuate or flip the sign of). Returns
+    `auto_scan_for_confounding()`'s own shape — [{x, y, overall_r,
+    findings: [...]}] — empty when nothing significant survived FDR
+    correction, no pair was a Pearson pair, or every candidate confounder
+    came back "robust". Never raises: a malformed `result` just yields an
+    empty list, same non-blocking contract as `sweep_reference_numbers`.
+    """
+    try:
+        tested = result.get("tested") if result else None
+        if not tested:
+            return []
+        significant_pearson = [
+            r for r in tested
+            if r.get("significant") and r.get("test") == "pearson" and r.get("effect_size") is not None
+        ]
+        if not significant_pearson:
+            return []
+        pairs = [(r["col_a"], r["col_b"], float(r["effect_size"])) for r in significant_pearson[:top_k]]
+    except (TypeError, AttributeError, KeyError):
+        return []
+
+    from modules import confounder_detection
+
+    return confounder_detection.auto_scan_for_confounding(
+        df, column_types, correlation_pairs=pairs, top_k_pairs=top_k
+    )
+
+
 def build_sweep_chart(result: dict, top_n: int = 15):
     """Horizontal bar chart of the top significant findings by |effect size|."""
     import plotly.express as px
