@@ -162,3 +162,34 @@ def test_fast_path_navigate_unknown_tab_falls_through():
     # "go to" a phrase that isn't one of Prism's real tab names must not
     # be force-matched to the nearest tab — better to let Gemini handle it.
     assert classify_intent_fast("go to the moon") is None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# classify_intent_fast — Stats Lab panels (Run 32)
+# ═══════════════════════════════════════════════════════════════════════
+def test_fast_path_run_bayesian_ab_variants():
+    for phrase in ("run a bayesian ab test", "run bayesian ab test", "bayesian ab test", "Bayesian A/B Test"):
+        intent = classify_intent_fast(phrase)
+        assert intent is not None
+        assert intent["action"] == "run_bayesian_ab"
+        assert intent["type"] == "APP_COMMAND"
+        assert intent["spoken_reply"]
+
+
+def test_fast_path_run_power_analysis_variants():
+    for phrase in ("run a power analysis", "run power analysis", "power analysis", "sample size calculator"):
+        intent = classify_intent_fast(phrase)
+        assert intent is not None
+        assert intent["action"] == "run_power_analysis"
+
+
+def test_fast_path_explain_bayesian_ab():
+    intent = classify_intent_fast("explain the bayesian test")
+    assert intent is not None
+    assert intent["action"] == "explain_bayesian_ab"
+
+
+def test_fast_path_explain_power_analysis():
+    intent = classify_intent_fast("explain the power analysis")
+    assert intent is not None
+    assert intent["action"] == "explain_power_analysis"

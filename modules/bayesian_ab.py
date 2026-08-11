@@ -222,6 +222,38 @@ def _coerce_binary(series: pd.Series) -> Optional[pd.Series]:
     return (series == positive_value).astype(int)
 
 
+def auto_select_columns(df: pd.DataFrame, column_types: dict[str, str]) -> Optional[dict]:
+    """Best-guess (variant_col, success_col) pair for a zero-configuration
+    invocation — e.g. Atlas's voice/typed "run a bayesian ab test" command,
+    which has no column pickers to fall back on. Same eligibility rule as
+    the Stats Lab UI's own selectboxes (a 2-8-level categorical/text/
+    boolean column as the variant, a different 2-level one as the outcome),
+    just resolved to a single deterministic pick instead of leaving it to
+    the user: the first eligible variant column in `df`'s own column order,
+    then the first eligible outcome column (other than the chosen variant
+    column) in that same order.
+
+    Returns None (never raises) when no such pair exists — the caller
+    should fall back to "navigate there and let the user pick" rather than
+    guess further. Pure function of `df`/`column_types`, so it's cheap to
+    call on every rerun and easy to unit test without any app/session-state
+    dependency.
+    """
+    if df is None or df.empty or not column_types:
+        return None
+    eligible_cols = [c for c in df.columns if column_types.get(c) in ("categorical", "text", "boolean")]
+    variant_candidates = [c for c in eligible_cols if 2 <= df[c].nunique(dropna=True) <= 8]
+    if not variant_candidates:
+        return None
+    for variant_col in variant_candidates:
+        success_candidates = [
+            c for c in eligible_cols if c != variant_col and df[c].nunique(dropna=True) == 2
+        ]
+        if success_candidates:
+            return {"variant_col": variant_col, "success_col": success_candidates[0]}
+    return None
+
+
 def bayesian_ab_test(
     df: pd.DataFrame,
     variant_col: str,

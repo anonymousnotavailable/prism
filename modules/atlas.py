@@ -84,7 +84,8 @@ markdown code fences, just the JSON object — matching exactly this shape:
 {{"type": "APP_COMMAND" | "DATA_QUESTION" | "CHITCHAT",
   "action": "navigate" | "load_sample" | "clean_nulls" | "auto_clean" | "generate_dictionary" |
              "propose_plan" | "execute_plan" | "generate_report" | "build_dashboard" | "run_recipe" |
-             "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" | "none",
+             "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" |
+             "run_bayesian_ab" | "run_power_analysis" | "explain_bayesian_ab" | "explain_power_analysis" | "none",
   "target": "<tab name, column name, or null>",
   "question": "<the data question if type is DATA_QUESTION, else null>",
   "spoken_reply": "<1-2 sentences, in character, said aloud>"}}
@@ -100,6 +101,18 @@ Rules:
   ("clean this up") rather than specifically about missing values.
 - "generate_dictionary": the user wants every column documented ("document this dataset",
   "generate a data dictionary", "explain what each column means").
+- "run_bayesian_ab": the user wants a Bayesian A/B test run ("run a bayesian ab test",
+  "bayesian a/b test", "test my variants", "which variant is winning"). Navigates to Stats
+  Lab and, if the dataset has an obvious variant + success-column pairing, runs it right
+  away; otherwise asks the user to pick columns there.
+- "run_power_analysis": the user wants a sample-size or power calculation ("run a power
+  analysis", "how many samples do I need", "sample size calculator", "is my sample big
+  enough"). Navigates to Stats Lab and, if the dataset has usable columns, plans it right
+  away (required-N at 80% power by default); otherwise asks the user to configure it there.
+- "explain_bayesian_ab" / "explain_power_analysis": the user wants the most recently
+  computed Bayesian A/B test or power-analysis result explained in plain English ("explain
+  the bayesian test", "what does the power analysis mean", "walk me through those results").
+  Only meaningful after the corresponding run_* action already produced a result.
 - "propose_plan": the user wants Atlas to figure out an exploration plan for the loaded
   dataset before running anything ("plan this", "what should we do with this data",
   "make a plan", "analyze this dataset", "figure out what to do", "what's the game plan").
@@ -163,6 +176,19 @@ _FAST_PATH_EXACT = {
     "cancel": {"action": "cancel", "spoken_reply": "Cancelled."},
     "stop": {"action": "cancel", "spoken_reply": "Cancelled."},
     "never mind": {"action": "cancel", "spoken_reply": "Cancelled."},
+    # Stats Lab panels (Run 32) — unambiguous regardless of conversation
+    # context, same fast-path rationale as demo/story mode above.
+    "run a bayesian ab test": {"action": "run_bayesian_ab", "spoken_reply": "Running a Bayesian A/B test."},
+    "run bayesian ab test": {"action": "run_bayesian_ab", "spoken_reply": "Running a Bayesian A/B test."},
+    "bayesian ab test": {"action": "run_bayesian_ab", "spoken_reply": "Running a Bayesian A/B test."},
+    "bayesian a/b test": {"action": "run_bayesian_ab", "spoken_reply": "Running a Bayesian A/B test."},
+    "run a power analysis": {"action": "run_power_analysis", "spoken_reply": "Running a power analysis."},
+    "run power analysis": {"action": "run_power_analysis", "spoken_reply": "Running a power analysis."},
+    "power analysis": {"action": "run_power_analysis", "spoken_reply": "Running a power analysis."},
+    "sample size calculator": {"action": "run_power_analysis", "spoken_reply": "Running a power analysis."},
+    "explain the bayesian test": {"action": "explain_bayesian_ab", "spoken_reply": "Let me walk you through it."},
+    "explain the bayesian ab test": {"action": "explain_bayesian_ab", "spoken_reply": "Let me walk you through it."},
+    "explain the power analysis": {"action": "explain_power_analysis", "spoken_reply": "Let me walk you through it."},
 }
 
 

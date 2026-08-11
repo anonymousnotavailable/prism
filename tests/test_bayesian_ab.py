@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from modules.bayesian_ab import (
+    auto_select_columns,
     bayesian_ab_test,
     beta_posterior,
     expected_loss,
@@ -286,3 +287,46 @@ def test_plot_bayesian_ab_posteriors_returns_figure_with_two_traces():
 def test_plot_bayesian_ab_posteriors_none_for_failed_result():
     fig = plot_bayesian_ab_posteriors({"ok": False, "error": "boom"})
     assert fig is None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# auto_select_columns — Atlas's zero-configuration voice/typed invocation
+# ─────────────────────────────────────────────────────────────────────────
+def test_auto_select_columns_picks_eligible_variant_and_success():
+    df = _ab_frame(n_control=50, n_treatment=50)
+    picked = auto_select_columns(df, {"variant": "categorical", "converted": "categorical"})
+    assert picked == {"variant_col": "variant", "success_col": "converted"}
+
+
+def test_auto_select_columns_skips_variant_with_no_other_binary_column():
+    # 'variant' is a valid 2-8-level grouping column, but the only other
+    # column is numeric — no eligible outcome column to pair it with.
+    df = pd.DataFrame({"variant": ["a", "b", "a", "b"], "revenue": [1.0, 2.0, 3.0, 4.0]})
+    picked = auto_select_columns(df, {"variant": "categorical", "revenue": "numeric"})
+    assert picked is None
+
+
+def test_auto_select_columns_ignores_high_cardinality_column_as_variant():
+    df = pd.DataFrame({
+        "user_id": [f"u{i}" for i in range(20)],
+        "converted": ["yes", "no"] * 10,
+    })
+    picked = auto_select_columns(df, {"user_id": "text", "converted": "categorical"})
+    assert picked is None  # user_id has 20 levels, well past the 8-level cap
+
+
+def test_auto_select_columns_none_for_empty_or_missing_types():
+    assert auto_select_columns(pd.DataFrame(), {}) is None
+    assert auto_select_columns(None, {}) is None
+    df = _ab_frame(n_control=10, n_treatment=10)
+    assert auto_select_columns(df, {}) is None
+
+
+def test_auto_select_columns_variant_and_success_are_different_columns():
+    df = pd.DataFrame({
+        "group": ["a", "b", "a", "b", "a", "b", "a", "b"],
+        "flag": ["x", "y", "x", "y", "x", "y", "x", "y"],
+    })
+    picked = auto_select_columns(df, {"group": "categorical", "flag": "categorical"})
+    assert picked is not None
+    assert picked["variant_col"] != picked["success_col"]
