@@ -4811,6 +4811,22 @@ elif st.session_state.active_section == "ML Lab":
                     mllab.build_confusion_matrix_chart(baseline_result["confusion_matrix"], baseline_result["confusion_labels"]),
                     use_container_width=True,
                 )
+
+            roc_pr_curves = mllab.compute_roc_pr_curves(baseline_result)
+            if roc_pr_curves is not None:
+                st.markdown("**ROC & Precision-Recall Curves** (binary classification)")
+                roc_col, pr_col = st.columns(2)
+                with roc_col:
+                    st.plotly_chart(mllab.build_roc_chart(roc_pr_curves), use_container_width=True)
+                with pr_col:
+                    st.plotly_chart(mllab.build_pr_chart(roc_pr_curves), use_container_width=True)
+                st.caption(mllab.roc_pr_verdict(roc_pr_curves))
+            elif baseline_result["task_type"] == "classification" and baseline_result["confusion_labels"] and len(baseline_result["confusion_labels"]) > 2:
+                st.caption(
+                    "ROC & Precision-Recall curves are shown for binary classification only — this target has "
+                    f"{len(baseline_result['confusion_labels'])} classes."
+                )
+
             if baseline_result["feature_importances"] is not None:
                 st.plotly_chart(
                     mllab.build_feature_importance_chart(baseline_result["feature_importances"]), use_container_width=True
