@@ -2,6 +2,64 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 33)
+
+### Fixed
+- **Stats Lab: Text Analytics panel unreachable when `testable_cols < 2`**
+  — the whole Stats Lab section (including Text Analytics, Bayesian A/B,
+  Power Analysis, and Survival Analysis) was nested inside a top-level
+  `if len(testable_cols) < 2: <empty state>` gate. Text Analytics reads a
+  free-text column via NLP, not numeric/categorical values, so a dataset
+  with 1 testable column plus a good text column could never reach it.
+  Moved Text Analytics to its own independent
+  `text_analytics.eligible_text_columns()`-gated block at the section
+  level; left Bayesian A/B / Power Analysis / Survival Analysis inside the
+  gate since they legitimately need numeric/categorical columns. Found
+  during this run's Phase 1 audit (flagged as a backlog item by Run 32).
+
+### Added
+- **Changepoint Detection** (`modules/changepoint.py`, new module) — added
+  to the Forecasting tab after STL Decomposition, reusing the existing
+  datetime/numeric column pickers. Binary segmentation over a normalized
+  CUSUM statistic (no `ruptures` dependency — pure numpy, the
+  tractable-to-verify textbook sibling of PELT), with each candidate split
+  confirmed via a permutation test and a Bonferroni-style correction across
+  the recursion tree to control the compounding false-positive rate binary
+  segmentation is otherwise prone to. Detects mean-shift level changes (a
+  pricing change, an outage, a policy switch) with a chart (series +
+  segment means + vertical changepoint markers), a results table, and a
+  cached "✨ Explain this" Gemini narration. 22 new tests.
+- **Granger Causality** (`modules/granger_causality.py`, new module) —
+  added to the Forecasting tab after Changepoint Detection, with its own
+  "Potential cause (X)" / "Effect (Y)" column pickers (gated on 2+ numeric
+  columns). Auto-checks both series for stationarity via Augmented
+  Dickey-Fuller and auto-differences (capped at 2) if needed, picks the lag
+  order via `statsmodels.tsa.api.VAR.select_order()`'s AIC-minimizing
+  choice, then runs `grangercausalitytests` in both directions (X→Y and
+  Y→X — Granger causality isn't symmetric, and a detected feedback loop is
+  itself informative). Explicitly frames every result as predictive
+  precedence, not proof of true causation, same convention as
+  `causal_inference.py` and `did.py`. Zero new pip dependencies —
+  statsmodels already pinned. 21 new tests.
+
+### Verification
+- Full pytest suite: 788 -> 831, zero regressions (22 changepoint + 21
+  Granger causality tests; the Text Analytics bugfix is pure UI
+  restructuring with no new test path of its own, confirmed via AppTest
+  instead).
+- Playwright/Chromium not retried (8th consecutive confirmed-blocked run,
+  sandbox egress policy). Verified instead via: full pytest suite at every
+  stage; a live `streamlit run` smoke test (HTTP 200, clean logs) on each
+  feature branch and the final merged branch; and
+  `streamlit.testing.v1.AppTest` driving the real `app.py` end-to-end (one
+  fresh instance per scenario, exactly one `.run()` call each, working
+  around the confirmed "second real `.run()` throws on an unrelated
+  multiselect widget" harness quirk by pre-seeding session state with a
+  precomputed result instead of chaining multiple `.run()` calls) — 3
+  Changepoint Detection scenarios, 3 Granger Causality scenarios, and 1
+  scenario confirming the Text Analytics bugfix reaches the panel with
+  only 1 numeric column present, all zero exceptions.
+
 ## 2026-08-11 (Run 32)
 
 ### Added

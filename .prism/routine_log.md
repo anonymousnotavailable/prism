@@ -2433,3 +2433,31 @@ Plan: branch `feature/changepoint-detection` and `feature/granger-causality` off
 detection` since it's the more natural home — both land in the Forecasting/Stats Lab area — rather
 than its own tiny branch), tests first, then implement, full suite must stay green, merge both with
 `--no-ff`, push.
+
+## Run 33 — 2026-08-11 — result
+
+Shipped both: Changepoint Detection (`modules/changepoint.py`, 22 tests — CUSUM binary
+segmentation, no `ruptures` dependency, Bonferroni-corrected across the recursion tree to control
+compounding false positives) and Granger Causality (`modules/granger_causality.py`, 21 tests —
+ADF-driven auto-differencing, AIC-selected lag via `VAR.select_order`, bidirectional
+`grangercausalitytests`), both new Forecasting-tab panels after STL Decomposition. Also shipped the
+Phase 1 audit bugfix (Text Analytics panel unreachable when `testable_cols < 2`), folded into the
+changepoint-detection branch as planned. Suite 788 -> 831, zero regressions. No merge conflicts
+(both branches built sequentially off the same base, changepoint merged first, granger-causality
+branched off the already-merged base so it never needed a conflict resolution).
+
+Playwright/Chromium not retried (8th consecutive confirmed-blocked run). Verified via: full pytest
+suite at every stage; a live `streamlit run` smoke test (HTTP 200, clean logs) on each branch; and
+`streamlit.testing.v1.AppTest` driving the real `app.py`, one fresh instance per scenario with
+exactly one `.run()` call each (confirmed again this run: *any* second `.run()` on a single AppTest
+instance throws `TypeError: 'NoneType' object is not iterable` on an unrelated widget — reproduced
+before writing new code, worked around by pre-seeding session state with a precomputed result
+instead of chaining `.click().run()` sequences, extending Run 30/31's documented workaround). 3
+Changepoint scenarios (panel renders; full verdict+chart+table render with a precomputed 1-shift
+result; tiny-dataset graceful render), 3 Granger Causality scenarios (panel renders; full
+verdict+metrics+chart render with a precomputed forward-significant/reverse-not result;
+single-numeric-column dataset gracefully hides the panel), and 1 scenario confirming the Text
+Analytics bugfix reaches the panel with only 1 numeric column present — all zero exceptions.
+
+Full reasoning, verification transcript, and Run 34 recommendation in
+`RUN_REPORT_2026-08-11-run33.md`.
