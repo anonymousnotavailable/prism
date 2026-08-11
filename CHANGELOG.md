@@ -2,6 +2,32 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 28)
+
+### Added
+- **Multiclass ROC/PR curves** (`modules/mllab.py`) — `compute_roc_pr_curves()`
+  now supports classification targets with 3+ classes via a one-vs-rest
+  (OvR) scheme, extending its prior binary-only restriction. Each class
+  gets its own ROC and Precision-Recall curve plus a macro-averaged
+  AUC/AP summary (the standard multiclass extension per scikit-learn's
+  own documented approach). The ML Lab tab shows a model selector and the
+  per-class curves side by side, with a plain-English verdict naming the
+  single weakest-performing class (the one most likely being confused
+  with the others — worth checking in the confusion matrix first). 22
+  tests (was 9) in `tests/test_mllab_roc_pr.py`.
+- **"Export as Python Script" for ML Lab** (`modules/mllab.py`) — a new
+  `export_baseline_script()` generates a standalone, runnable .py file
+  reproducing the exact ColumnTransformer preprocessing pipeline, 80/20
+  train/test split, optional SMOTE resampling, and both baseline models
+  (Logistic/Linear Regression + Random Forest) for the current ML Lab
+  run — mirroring the existing `cleaning.export_script()` pattern
+  (cited as a top DA/DS industry priority — "analyses that can be re-run
+  as data updates") but scoped specifically to the ML Lab baseline-model
+  pipeline. Available as a download button next to the feature-importance
+  chart. 11 new tests, including subprocess round-trip tests that
+  actually execute the generated script against a real CSV and confirm
+  it runs clean with matching metric output.
+
 ## 2026-08-11 (Run 27)
 
 ### Added

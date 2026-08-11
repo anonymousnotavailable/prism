@@ -1869,3 +1869,108 @@ mean MAPE, "excellent"). Both features diversified away from ML Lab
 into the Drift and Forecasting tabs after three consecutive ML-Lab-
 adjacent runs (24-26). Full reasoning, research sweep, and Run 28
 recommendation in `RUN_REPORT_2026-08-11-run27.md`.
+
+## Run 28 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `c98bdfb` (Run 27's
+tip) per this run's git constraint. Cold start needed no reinstall —
+system Python already had every dependency; 543 tests green before any
+changes, matching Run 27's final count exactly. No stale local branches
+to clean up.
+
+Playwright checked again per routine brief: skipped retrying (3
+consecutive runs confirmed blocked by sandbox egress policy, per this
+run's own instructions not to re-litigate it) — same AppTest + live-
+server + direct function-level fallback as Runs 25-27.
+
+Reused Run 27's ranked candidate table (`.prism/research_2026-08-11-
+run27.md`) rather than a fresh sweep — it was explicitly left with two
+viable, well-scoped, still-current unbuilt candidates and Run 27's own
+recommendation pointed straight at them, satisfying this run's "reuse if
+still current" branch. Re-verified currency before committing: read
+`modules/mllab.py` in full — confirmed `compute_roc_pr_curves()` still
+carries its own "Deliberately binary-only... out of scope here" comment
+and returns `None` for any target with >2 classes (`confusion_labels`
+length check), and the ML Lab UI (`app.py` ~4885-4898) still just shows
+a "shown for binary classification only" caveat message for multiclass
+targets — the gap is real and unbuilt. Also read `modules/cleaning.py`
+in full — confirmed `export_script()` only replays the *cleaning* log
+(null handling, dtype conversion, dedup, joins); nothing in `mllab.py`
+or elsewhere generates a runnable script for the ML Lab baseline-model
+pipeline itself (preprocessing + train/test split + SMOTE + model fit),
+confirming candidate #6 (reproducible-script export) is still open in
+its ML-Lab-scoped form.
+
+**Selected: (1) Multiclass ROC/PR curves (one-vs-rest) for ML Lab**
+(`modules/mllab.py`) — extends `compute_roc_pr_curves()` beyond its
+current binary-only restriction to N-class targets via a one-vs-rest
+scheme (per-class ROC/PR curves plus a macro-averaged AUC/AP summary),
+the standard multiclass extension per scikit-learn's own documented
+approach and 2026 ML-evaluation practice. This was Run 27's own #5
+candidate, explicitly deprioritized then only to diversify away from ML
+Lab for one run — that diversification already happened (PSI + forecast
+backtesting landed in Drift/Forecasting, not ML Lab), so revisiting is a
+clean incremental slice, not a third straight run stacking on the same
+tab. And **(2) "Export as Python Script" for the ML Lab baseline model
+run** (`modules/mllab.py` + `app.py`) — a scoped-down version of Run
+27's candidate #6, deliberately narrowed to just the ML Lab baseline-
+model pipeline (not clustering/forecasting/stats-lab too, which Run 27
+correctly flagged as too broad for one slice). Generates a standalone
+runnable .py reproducing the exact preprocessing pipeline, train/test
+split, optional SMOTE resampling, and model fit/metrics for the current
+ML Lab run, mirroring the existing pattern in `cleaning.export_script()`
+(itself cited as a top industry-priority in Run 27's DA/DS job-posting
+research: "analyses that can be re-run as data updates").
+
+**Why these over the alternatives:** DBSCAN/hierarchical clustering
+(Run 27's other offered option) was set aside this run — it would put
+2 of 2 features on Clustering/ML-adjacent statistical surfaces in the
+same run Run 27's diversification effort was meant to protect, whereas
+pairing multiclass ROC/PR (statistical rigor) with script export (a
+genuinely different capability — code generation, not more statistics)
+keeps this run technically deep without re-concentrating everything on
+one tab's math. Both are small/S-M effort, fully local (multiclass
+ROC/PR is pure scikit-learn; script export is pure Python string
+templating, zero Gemini calls, zero free-tier exposure), and neither
+touches the Atlas/JARVIS copilot track (0/1 this run).
+
+Plan: branch `feature/multiclass-roc-pr` and `feature/mllab-script-export`
+off `claude/adoring-meitner-7xxgfq`, tests first, then implement, full
+suite must stay green, merge both with `--no-ff`, push.
+
+## Run 28 — 2026-08-11 — result
+
+Shipped both selected features: Multiclass (one-vs-rest) ROC/PR curves
+for ML Lab (`modules/mllab.py`, 22 tests, was 9) and "Export as Python
+Script" for the ML Lab baseline model run (`modules/mllab.py`, 11 new
+tests, including subprocess round-trip tests that actually execute the
+generated script). Merged `feature/multiclass-roc-pr` and `feature/
+mllab-script-export` into `claude/adoring-meitner-7xxgfq` with `--no-ff`
+— both clean merges (one trivial `app.py`/`modules/mllab.py` auto-merge
+on the second, no conflicts). Full suite 543 → 564 green, zero
+regressions; app launches cleanly post-merge (HTTP 200, clean
+`streamlit run` logs, checked twice — once per feature branch before
+merging and once after both merges landed). Playwright/Chromium not
+retried this run (4th consecutive run confirmed-blocked by sandbox
+egress policy, per this run's own instruction not to keep re-litigating
+it) — verified instead via the full test suite, two live-server smoke
+tests, and direct function-level runs against `samples/hr_data.csv`
+(a real 6-class `department` target: multiclass verdict correctly
+reported macro-AUC 1.000 across all 6 classes and named a weakest class;
+the exported script for that exact same run configuration was executed
+standalone via `python3 exported_hr.py` and printed matching
+accuracy/F1/confusion-matrix output, proving the export is a literal,
+faithful reproduction and not just plausible-looking text).
+
+Reused Run 27's ranked candidate table rather than a fresh Phase 2
+sweep — both picks (multiclass ROC/PR, candidate #5; a scoped-down
+reproducible-script-export slice, candidate #6) were re-verified still
+open by direct code reading before committing (see selection log above
+this entry). DBSCAN/hierarchical clustering (candidate #3, Run 27's
+other offered option) was deliberately set aside to avoid re-
+concentrating both of this run's features on Clustering/ML-adjacent
+statistics — still open for Run 29 if warranted, no reason it's
+gotten worse.
+
+Full reasoning, verification transcript, and Run 29 recommendation in
+`RUN_REPORT_2026-08-11-run28.md`.
