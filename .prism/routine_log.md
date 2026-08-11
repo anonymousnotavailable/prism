@@ -1194,3 +1194,32 @@ repaint-lag (cosmetic). Live-Gemini verification (structural constraint).
 Mobile+light simultaneous screenshots (automation gap). **New:** the four
 remaining un-fact-checked narration call sites named above — strong,
 well-scoped next-run candidates, same pattern as this run's sweep fix.
+
+## Run 18 — 2026-08-11
+
+Reused the standing backlog (10th consecutive run, same token-efficiency
+reasoning) — no fresh research sweep. **Shipped one feature (mandatory
+agentic-AI theme):** extended `insight_verifier`-style fact-check badges
+to the four remaining narration call sites Run 17 identified —
+`anomaly.narrate_anomalies()`/`narrate_ensemble_disagreement()`,
+`auto_insights.narrate_insights()`, `insight_orchestrator.narrate_orchestration()`
+— closing every uncovered `narrate_*` helper in the app. 22 new tests,
+full suite 360 → 382/382 green. Live Playwright pass (desktop/mobile,
+`samples/indian_startup_funding_messy.csv`): zero console/page errors.
+Could not visually exercise the new badges (18th consecutive run with no
+`GEMINI_API_KEY` in this sandbox) — relied on unit tests, same fallback
+as every constrained run. Caught and corrected a false "local main 83
+commits behind" checkout warning by verifying `git merge-base` before
+pushing — turned out to be a stale message, main was already current;
+worth a sanity check every run per Run 15's precedent. Merged
+`feature/narration-fact-check-completion` into `main` with `--no-ff`,
+updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run18.md`, pushed.
+
+**Not built (backlog, unchanged):** PyGWalker "explore mode" (now 5 runs
+open, oldest item). Large Excel ingestion. Light-theme repaint-lag
+(cosmetic). Live-Gemini verification (structural constraint). Mobile+light
+simultaneous screenshots (automation gap, not the highest-value use of
+this run's non-visual-change Phase 5 budget). Atlas voice/HUD JARVIS slice
+beyond the keyword fast path (Run 17) — unused Atlas-track budget this
+run, fair game next run. Recommended next-run focus: PyGWalker explore
+mode (novel depth) or an Atlas voice slice (Web Speech API, still unbuilt).

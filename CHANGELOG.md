@@ -2,6 +2,28 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 18)
+
+### Added
+- **Narration fact-check completion** (`modules/anomaly.py`,
+  `modules/auto_insights.py`, `modules/insight_orchestrator.py`) — extends
+  the insight_verifier-style "plausible but wrong number" safety net to
+  every remaining `narrate_*` helper in the app: `narrate_anomalies()` and
+  `narrate_ensemble_disagreement()` (Anomaly Detection panel),
+  `narrate_insights()` (Auto-Insights executive summary), and
+  `narrate_orchestration()` (Agent Summary panel). Each gets its own
+  `*_reference_numbers()` builder — anomaly's from the flagged
+  DataFrame/methods_summary the narration was built from, auto_insights'
+  and the orchestrator's from the source insight messages / ranked
+  headlines (already deterministic, non-LLM text) — plus a
+  `verify_narration()` wrapper reusing `insight_verifier.verify_finding()`.
+  All four wired into `app.py` with the same cached-verification +
+  `build_verification_caption()` pattern Runs 15-17 established for
+  Report Writer, Story Mode, Demo Mode, and Hypothesis Sweep. Closes Run
+  17's exact logged backlog item — every Gemini-narrated surface in Prism
+  is now fact-checked against its own real numbers, with zero extra
+  Gemini calls. 22 new tests.
+
 ## 2026-08-11 (Run 17)
 
 ### Added
