@@ -2,6 +2,37 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 10)
+
+### Added
+- **Agentic Insight Orchestrator now cross-checks Auto Analyst's own
+  fact-checker** (`modules/insight_orchestrator.py`) — Run 9 shipped the
+  orchestrator over the six Overview-tab detectors but deliberately left
+  out `insight_verifier` (Auto Analyst's static, non-LLM safety net that
+  recomputes every quoted number in a Gemini-synthesized finding against
+  the real DataFrame) because its findings live on a different tab. This
+  run wires it in: a new `verifier` adapter reads Auto Analyst's
+  synthesized findings plus `insight_verifier.verify_findings()`'s
+  parallel per-finding results, and turns every **"flagged"** finding (a
+  quoted number that didn't match anything recomputable — "confirmed" and
+  "unverifiable" findings are already badged in-tab and would just be
+  noise here) into a `Claim`. Free-text findings have no structured
+  per-column field like the other detectors, so subjects are extracted by
+  matching the dataset's own column names against the finding text
+  (whole-word, case-insensitive) — this lets a flagged Auto Analyst claim
+  join the same subject-based grouping as every other detector, so a
+  flagged number about a column another detector already flagged now
+  surfaces as agreement/contradiction context in one place instead of
+  staying siloed on a separate tab the user has to remember to check.
+  5 new tests (`tests/test_insight_orchestrator.py`) cover the adapter's
+  flagged-only filter, subject extraction, empty/None safety, and that a
+  verifier claim participates in cross-detector grouping exactly like the
+  other six. Full suite: 247/247 passing (242 baseline + 5 new). No new UI
+  surface — reuses the existing "🧠 Agent Summary" panel and its silent-
+  below-threshold convention; verified live (Playwright, desktop + mobile,
+  `samples/stock_data.csv`) that the panel still renders cleanly with the
+  new detector wired in and silently at zero when Auto Analyst hasn't run.
+
 ## 2026-08-10 (Run 9)
 
 ### Added

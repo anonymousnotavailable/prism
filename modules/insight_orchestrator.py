@@ -1,8 +1,8 @@
 """
 Agentic Insight Orchestrator — synthesizes findings across Prism's
 independent detector modules (auto_insights, confounder_detection,
-causal_inference's ATT + CATE, anomaly, drift) into one ranked "what
-matters most" list.
+causal_inference's ATT + CATE, anomaly, drift, and Auto Analyst's own
+insight_verifier safety net) into one ranked "what matters most" list.
 
 Why this exists: Prism has grown a whole bench of self-contained analysis
 agents that each run and render independently — Auto-Insights flags a
@@ -295,6 +295,68 @@ def _adapt_drift(raw: Any) -> list:
     return claims
 
 
+def _subjects_in_text(text: str, columns: list) -> frozenset:
+    """Best-effort subject extraction for free-text findings: which of the
+    dataset's own column names are mentioned (whole-word, case-insensitive)
+    in a synthesized Auto Analyst sentence. Unlike every other adapter,
+    verifier findings have no structured per-column field to read — the
+    finding is a sentence Gemini wrote, so this is the only way to let a
+    flagged finding join the same subject-based grouping as the other
+    detectors."""
+    if not text or not columns:
+        return frozenset()
+    lowered = text.lower()
+    found = set()
+    for col in columns:
+        if not col:
+            continue
+        if re.search(r"\b" + re.escape(str(col).lower()) + r"\b", lowered):
+            found.add(col)
+    return frozenset(found)
+
+
+def _adapt_verifier(raw: Any) -> list:
+    """raw = {"findings": [str, ...], "verification": [dict, ...], "columns":
+    [str, ...]} — Auto Analyst's synthesized findings, modules.insight_
+    verifier.verify_findings()'s parallel per-finding result, and the
+    dataset's column names (for subject extraction, see _subjects_in_text).
+
+    Only "flagged" findings (a quoted number didn't match anything
+    recomputed straight from the DataFrame) become claims — "confirmed"
+    findings are already badged in the Auto Analyst tab and would just be
+    noise here, and "unverifiable" (no numeric claim at all) has nothing
+    to cross-check. This is Auto Analyst's own self-verification safety
+    net feeding into the same cross-detector synthesis every other
+    detector's findings go through, rather than a separate, disconnected
+    signal the user has to notice on a different tab."""
+    if not raw:
+        return []
+    findings = raw.get("findings") or []
+    verification = raw.get("verification") or []
+    columns = raw.get("columns") or []
+    claims = []
+    for finding, result in zip(findings, verification):
+        if not isinstance(result, dict) or result.get("status") != "flagged":
+            continue
+        snippet = str(finding).strip()
+        if len(snippet) > 140:
+            snippet = snippet[:137].rstrip() + "..."
+        message = (
+            f"An Auto Analyst finding cites a number that doesn't match what's "
+            f'recomputed from the data: "{snippet}"'
+        )
+        claims.append(
+            Claim(
+                detector="verifier",
+                subjects=_subjects_in_text(str(finding), columns),
+                severity="medium",
+                kind="verifier:unmatched_number",
+                message=message,
+            )
+        )
+    return claims
+
+
 _ADAPTERS = {
     "auto_insights": _adapt_auto_insights,
     "confounder": _adapt_confounder,
@@ -302,6 +364,7 @@ _ADAPTERS = {
     "causal_cate": _adapt_causal_cate,
     "anomaly": _adapt_anomaly,
     "drift": _adapt_drift,
+    "verifier": _adapt_verifier,
 }
 
 

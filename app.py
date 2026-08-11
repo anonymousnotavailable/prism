@@ -735,9 +735,13 @@ def _build_orchestration_input() -> dict:
     surfaces into the dict shape modules.insight_orchestrator.orchestrate_
     insights() expects. Nothing here re-runs detection — auto_insights and
     confounder_scan are computed once on upload (set_active_dataset()); the
-    causal/anomaly/drift entries are whatever the user has already triggered
-    via their own panels this session (None until then, which is fine —
-    the orchestrator stays silent below the detector-count threshold)."""
+    causal/anomaly/drift/verifier entries are whatever the user has already
+    triggered via their own panels this session (None/empty until then,
+    which is fine — the orchestrator stays silent below the detector-count
+    threshold). The verifier entry is Auto Analyst's own insight_verifier
+    safety net (Auto Analyst tab) feeding into the same synthesis as the
+    Overview-tab detectors, so a flagged (numeric-claim-didn't-match)
+    finding surfaces here too instead of staying siloed on a different tab."""
     return {
         "auto_insights": st.session_state.auto_insights,
         "confounder": st.session_state.confounder_scan,
@@ -745,6 +749,11 @@ def _build_orchestration_input() -> dict:
         "causal_cate": st.session_state.cate_result,
         "anomaly": _anomaly_orchestrator_summary(),
         "drift": st.session_state.drift_result,
+        "verifier": {
+            "findings": st.session_state.auto_analyst_findings,
+            "verification": st.session_state.auto_analyst_verification,
+            "columns": list(st.session_state.column_types.keys()) if st.session_state.column_types else [],
+        },
     }
 
 
