@@ -742,7 +742,12 @@ def _build_orchestration_input() -> dict:
     threshold). The verifier entry is Auto Analyst's own insight_verifier
     safety net (Auto Analyst tab) feeding into the same synthesis as the
     Overview-tab detectors, so a flagged (numeric-claim-didn't-match)
-    finding surfaces here too instead of staying siloed on a different tab."""
+    finding surfaces here too instead of staying siloed on a different tab.
+    The hypothesis_sweep entry is Stats Lab's automated, FDR-corrected
+    pairwise test sweep (None/empty until the user has run one) — a formal
+    hypothesis test independently re-deriving a relationship auto_insights
+    only flagged via a raw correlation scan is exactly the kind of
+    cross-detector agreement this orchestrator exists to surface."""
     return {
         "auto_insights": st.session_state.auto_insights,
         "confounder": st.session_state.confounder_scan,
@@ -750,6 +755,7 @@ def _build_orchestration_input() -> dict:
         "causal_cate": st.session_state.cate_result,
         "anomaly": _anomaly_orchestrator_summary(),
         "drift": st.session_state.drift_result,
+        "hypothesis_sweep": st.session_state.hypothesis_sweep_result,
         "verifier": {
             "findings": st.session_state.auto_analyst_findings,
             "verification": st.session_state.auto_analyst_verification,

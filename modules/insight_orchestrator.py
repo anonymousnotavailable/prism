@@ -1,7 +1,8 @@
 """
 Agentic Insight Orchestrator — synthesizes findings across Prism's
 independent detector modules (auto_insights, confounder_detection,
-causal_inference's ATT + CATE, anomaly, drift, and Auto Analyst's own
+causal_inference's ATT + CATE, anomaly, drift, hypothesis_sweep's FDR-
+corrected automated hypothesis tests, and Auto Analyst's own
 insight_verifier safety net) into one ranked "what matters most" list.
 
 Why this exists: Prism has grown a whole bench of self-contained analysis
@@ -74,7 +75,7 @@ class Claim:
     """One normalized finding from a single detector, ready to be grouped
     and cross-checked against claims from other detectors."""
 
-    detector: str            # "auto_insights" | "confounder" | "causal_att" | "causal_cate" | "anomaly" | "drift"
+    detector: str            # "auto_insights" | "confounder" | "causal_att" | "causal_cate" | "anomaly" | "drift" | "hypothesis_sweep" | "verifier"
     subjects: frozenset       # column name(s) this claim is about; empty = dataset-wide
     severity: str             # "high" | "medium" | "low"
     kind: str                 # fine-grained tag, e.g. "confounder:paradox"
@@ -357,6 +358,52 @@ def _adapt_verifier(raw: Any) -> list:
     return claims
 
 
+_HYPOTHESIS_SWEEP_SEVERITY = {"large": "high", "medium": "medium", "small": "low"}
+
+
+def _adapt_hypothesis_sweep(raw: Any) -> list:
+    """raw = hypothesis_sweep.sweep_hypotheses() result: {"tested": [{col_a,
+    col_b, test, test_label, p_adj, significant, effect_size_label, ...}],
+    ...}. Only pairs with significant=True (i.e. still significant *after*
+    Benjamini-Hochberg FDR correction across the whole sweep) become claims
+    — the entire point of the sweep's correction step is that a raw p<0.05
+    out of a batch of N tests is not reportable on its own, so anything that
+    didn't survive it has nothing to contribute here either. Severity reuses
+    the sweep's own small/medium/large effect-size label (the same Cohen's-
+    convention thresholds Stats Lab already applies per test type), so a
+    large-effect relationship outranks a merely-significant-but-tiny one the
+    same way every other detector's severity already does."""
+    if not raw:
+        return []
+    claims = []
+    for row in raw.get("tested", []):
+        if not row.get("significant"):
+            continue
+        col_a, col_b = row.get("col_a"), row.get("col_b")
+        if not col_a or not col_b:
+            continue
+        label = row.get("effect_size_label", "small")
+        severity = _HYPOTHESIS_SWEEP_SEVERITY.get(label, "low")
+        p_adj = row.get("p_adj")
+        p_text = f"{p_adj:.3g}" if isinstance(p_adj, (int, float)) else "n/a"
+        message = (
+            f"Automated hypothesis sweep found a {label}-effect, FDR-significant "
+            f"relationship between '{col_a}' and '{col_b}' "
+            f"({row.get('test_label') or row.get('test', 'test')}, adjusted p={p_text})."
+        )
+        claims.append(
+            Claim(
+                detector="hypothesis_sweep",
+                subjects=frozenset({col_a, col_b}),
+                severity=severity,
+                kind="hypothesis_sweep:significant",
+                message=message,
+                meta={"test": row.get("test"), "p_adj": p_adj, "effect_size": row.get("effect_size")},
+            )
+        )
+    return claims
+
+
 _ADAPTERS = {
     "auto_insights": _adapt_auto_insights,
     "confounder": _adapt_confounder,
@@ -365,6 +412,7 @@ _ADAPTERS = {
     "anomaly": _adapt_anomaly,
     "drift": _adapt_drift,
     "verifier": _adapt_verifier,
+    "hypothesis_sweep": _adapt_hypothesis_sweep,
 }
 
 

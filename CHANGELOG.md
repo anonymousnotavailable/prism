@@ -2,6 +2,48 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 12)
+
+### Added
+- **Hypothesis Sweep wired into the Agentic Insight Orchestrator**
+  (`modules/insight_orchestrator._adapt_hypothesis_sweep`, `app.py`) —
+  Stats Lab's automated, Benjamini-Hochberg FDR-corrected pairwise
+  hypothesis sweep now feeds the same cross-detector "Agent Summary"
+  synthesis every other detector (Auto-Insights, Confounder Check, Causal
+  Effect Estimator, Anomaly Detection, Drift) already goes through. Only
+  pairs that survive FDR correction (`significant=True`) become claims —
+  a pre-correction p<0.05 out of a batch sweep is implicit p-hacking, not
+  a reportable finding, so the adapter deliberately drops anything that
+  didn't survive it. Severity is derived from the sweep's own small/
+  medium/large Cohen's-convention effect-size label, matching the
+  severity vocabulary every other detector's claims already use. This
+  closes a real gap: a formally-tested, multiple-comparisons-corrected
+  relationship (hypothesis_sweep) and a raw correlation-scan flag
+  (auto_insights) covering the same column pair previously rendered as
+  two disconnected panels; they now collapse into one grouped topic with
+  an "agreement" bonus, and — as a side effect of Run 11's proactive Atlas
+  alert reading from the same orchestration result — Atlas can now also
+  speak up unprompted the moment a hypothesis-sweep-confirmed relationship
+  becomes the top cross-detector finding. No new UI surface (same 🧠 Agent
+  Summary panel, same proactive-alert convention); zero extra Gemini
+  calls. 6 new tests (FDR-filtering, effect-size-to-severity mapping,
+  empty/None safety, cross-detector agreement grouping), full suite
+  259/259 green. Verified live (Playwright, desktop 1440px, dark theme,
+  `samples/stock_data.csv`): ran Hypothesis Sweep (6 pairs survived FDR
+  correction out of 15 tested), confirmed the Overview tab's Agent
+  Summary now reads "3 detectors" and correctly ranks the `open`/`high`
+  pair, and confirmed Atlas's proactive side-panel alert fired for it —
+  no traceback, no regression to the existing verifier/causal/confounder
+  agreement paths.
+- **Environment fix**: the sandbox's `cryptography` install was missing
+  its `_cffi_backend` native module, causing every test that imports the
+  Gemini client chain to fail with a Rust panic unrelated to any Prism
+  code (`pyo3_runtime.PanicException` in `cryptography.exceptions`).
+  Reinstalling `cffi` resolves it — a fresh sandbox per run means this
+  may recur; noted here so a future run recognizes it as an environment
+  gap (fix: `pip install --force-reinstall cffi`) rather than a logic
+  regression if it resurfaces.
+
 ## 2026-08-11 (Run 11)
 
 ### Added

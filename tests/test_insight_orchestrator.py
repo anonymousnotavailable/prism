@@ -164,6 +164,33 @@ def _verifier_raw():
     }
 
 
+def _hypothesis_sweep_raw():
+    return {
+        "tested": [
+            {
+                "col_a": "revenue", "col_b": "spend", "test": "pearson",
+                "test_label": "Pearson correlation", "statistic": 0.91, "p_value": 0.0001,
+                "p_adj": 0.0004, "significant": True, "effect_size": 0.91,
+                "effect_size_name": "Pearson r", "effect_size_label": "large", "n": 200,
+            },
+            {
+                "col_a": "region", "col_b": "channel", "test": "chi2",
+                "test_label": "Chi-square", "statistic": 4.1, "p_value": 0.04,
+                "p_adj": 0.09, "significant": False, "effect_size": 0.12,
+                "effect_size_name": "Cramer's V", "effect_size_label": "small", "n": 200,
+            },
+            {
+                "col_a": "tenure", "col_b": "plan_tier", "test": "anova",
+                "test_label": "One-way ANOVA", "statistic": 6.2, "p_value": 0.002,
+                "p_adj": 0.006, "significant": True, "effect_size": 0.04,
+                "effect_size_name": "eta-squared", "effect_size_label": "small", "n": 200,
+            },
+        ],
+        "n_pairs_available": 3, "n_pairs_skipped": 0, "n_tests_run": 3,
+        "n_significant": 2, "alpha": 0.05,
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Normalization
 # ─────────────────────────────────────────────────────────────────────────
@@ -264,6 +291,47 @@ def test_normalize_verifier_no_flagged_findings_produces_no_claims():
 def test_normalize_verifier_empty_findings_is_safe():
     assert normalize_findings({"verifier": {"findings": [], "verification": [], "columns": []}}) == []
     assert normalize_findings({"verifier": None}) == []
+
+
+def test_normalize_hypothesis_sweep_only_surfaces_fdr_significant_pairs():
+    # Only pairs that survived Benjamini-Hochberg correction are reportable
+    # on their own — a pre-correction p<0.05 out of a batch sweep is not.
+    claims = normalize_findings({"hypothesis_sweep": _hypothesis_sweep_raw()})
+    assert len(claims) == 2
+    assert all(c.detector == "hypothesis_sweep" for c in claims)
+    kinds = {frozenset(c.subjects) for c in claims}
+    assert frozenset({"revenue", "spend"}) in kinds
+    assert frozenset({"tenure", "plan_tier"}) in kinds
+    assert frozenset({"region", "channel"}) not in kinds  # not significant post-FDR
+
+
+def test_normalize_hypothesis_sweep_severity_follows_effect_size_label():
+    claims = normalize_findings({"hypothesis_sweep": _hypothesis_sweep_raw()})
+    large = next(c for c in claims if c.subjects == frozenset({"revenue", "spend"}))
+    small = next(c for c in claims if c.subjects == frozenset({"tenure", "plan_tier"}))
+    assert large.severity == "high"
+    assert small.severity == "low"
+
+
+def test_normalize_hypothesis_sweep_empty_and_none_are_safe():
+    assert normalize_findings({"hypothesis_sweep": {"tested": []}}) == []
+    assert normalize_findings({"hypothesis_sweep": None}) == []
+
+
+def test_hypothesis_sweep_claim_agrees_with_auto_insights_on_shared_subject():
+    # The sweep independently re-derives the same revenue/spend relationship
+    # Auto-Insights already flagged via a completely different code path
+    # (a formal FDR-corrected hypothesis test vs. a raw correlation scan) —
+    # that agreement is exactly the cross-detector signal this orchestrator
+    # exists to surface.
+    result = orchestrate_insights(
+        {"auto_insights": _auto_insights_raw(), "hypothesis_sweep": _hypothesis_sweep_raw()}
+    )
+    assert result.silent is False
+    matching = [g for g in result.groups if g.subjects == frozenset({"revenue", "spend"})]
+    assert matching, [g.subjects for g in result.groups]
+    assert {c.detector for c in matching[0].claims} >= {"auto_insights", "hypothesis_sweep"}
+    assert matching[0].agreement is True
 
 
 def test_normalize_unknown_detector_key_is_ignored():
