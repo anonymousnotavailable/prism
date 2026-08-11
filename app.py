@@ -151,6 +151,9 @@ _DEFAULTS = {
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
     "anomaly_narration_verification": None,  # anomaly.verify_narration() result for the narration above
     "anomaly_methods_summary": None,  # per-method flagged counts from the last ensemble "Find Anomalies" run, if any
+    "anomaly_driver_narration": None,  # Gemini-narrated explanation of the last anomaly-drivers result
+    "anomaly_driver_narration_fingerprint": None,  # anomaly.fingerprint_drivers() of the drivers the narration above covers
+    "anomaly_driver_narration_verification": None,  # anomaly.verify_narration() result for the narration above
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -354,6 +357,9 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.anomaly_narration_fingerprint = None
     st.session_state.anomaly_narration_verification = None
     st.session_state.anomaly_methods_summary = None
+    st.session_state.anomaly_driver_narration = None
+    st.session_state.anomaly_driver_narration_fingerprint = None
+    st.session_state.anomaly_driver_narration_verification = None
     st.session_state.orchestration_narration = None
     st.session_state.orchestration_narration_fingerprint = None
     st.session_state.orchestration_narration_verification = None
@@ -2199,6 +2205,9 @@ elif st.session_state.active_section == "Overview":
                 st.session_state.anomaly_narration = None
                 st.session_state.anomaly_narration_fingerprint = None
                 st.session_state.anomaly_narration_verification = None
+                st.session_state.anomaly_driver_narration = None
+                st.session_state.anomaly_driver_narration_fingerprint = None
+                st.session_state.anomaly_driver_narration_verification = None
                 st.rerun()  # see the Agent Summary same-pass-staleness note above
 
             if st.session_state.anomaly_error:
@@ -2220,6 +2229,68 @@ elif st.session_state.active_section == "Overview":
                             "the strongest-consensus anomalies. Table below is sorted by agreement."
                         )
                     st.dataframe(flagged, use_container_width=True)
+
+                    # Anomaly Drivers — IsolationForest/ensemble say *which* rows are
+                    # unusual; this answers *why*, by testing every other column for
+                    # a real difference between flagged and normal rows (Welch's
+                    # t-test / Cohen's d for numeric, chi-square / Cramer's V for
+                    # categorical). Pure statistics, no Gemini call, so it's computed
+                    # unconditionally rather than gated behind a button.
+                    drivers = anomaly.find_anomaly_drivers(df, flagged, column_types)
+                    with st.expander("🔬 What makes these rows anomalous?", expanded=bool(drivers)):
+                        if not drivers:
+                            st.caption(
+                                "No single column significantly distinguishes the flagged rows from "
+                                "the rest (p ≥ 0.05 on every column tested) — the anomalies aren't "
+                                "explained by any one feature alone."
+                            )
+                        else:
+                            driver_rows = []
+                            for d in drivers:
+                                if d["type"] == "numeric":
+                                    detail = f"anomaly mean {d['anomaly_mean']:.3g} vs. normal {d['normal_mean']:.3g}"
+                                else:
+                                    detail = "differs by category"
+                                driver_rows.append(
+                                    {
+                                        "Column": d["column"],
+                                        "Effect size": f"{d['effect_size_name']} = {d['effect_size']:.2f} ({d['effect_size_label']})",
+                                        "Detail": detail,
+                                        "p-value": f"{d['p_value']:.4f}",
+                                    }
+                                )
+                            st.dataframe(pd.DataFrame(driver_rows), use_container_width=True, hide_index=True)
+
+                            driver_fp = anomaly.fingerprint_drivers(drivers)
+                            if (
+                                st.session_state.anomaly_driver_narration
+                                and st.session_state.anomaly_driver_narration_fingerprint == driver_fp
+                            ):
+                                st.info(f"🤖 {st.session_state.anomaly_driver_narration}")
+                                driver_caption = ui.build_verification_caption(
+                                    [st.session_state.anomaly_driver_narration_verification or {"status": "unverifiable"}]
+                                )
+                                if driver_caption:
+                                    st.caption(driver_caption)
+                            elif st.button(
+                                "✨ Explain these drivers with AI",
+                                key="narrate_anomaly_drivers_btn",
+                                help="Ask Gemini to explain what characterizes the anomalous rows",
+                            ):
+                                model = ai_analyst.get_model()
+                                with st.spinner("Gemini is reviewing the drivers…"):
+                                    driver_narration, driver_narr_error = anomaly.narrate_anomaly_drivers(
+                                        model, drivers, len(flagged)
+                                    )
+                                if driver_narr_error:
+                                    st.warning(driver_narr_error)
+                                else:
+                                    st.session_state.anomaly_driver_narration = driver_narration
+                                    st.session_state.anomaly_driver_narration_fingerprint = driver_fp
+                                    st.session_state.anomaly_driver_narration_verification = anomaly.verify_narration(
+                                        driver_narration, anomaly.driver_reference_numbers(drivers)
+                                    )
+                                    st.rerun()
 
                     # AI narration — cached per fingerprint of this exact flagged
                     # set so re-viewing it (tab switch, etc.) doesn't re-spend a
