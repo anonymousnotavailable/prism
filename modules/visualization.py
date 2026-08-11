@@ -460,6 +460,70 @@ def plot_power_curve(result: dict) -> Optional[go.Figure]:
     return fig
 
 
+def plot_sentiment_distribution(result: dict) -> Optional[go.Figure]:
+    """Positive/neutral/negative row-count bar for
+    text_analytics.analyze_sentiment() results — the quick visual read on
+    which way a free-text column leans overall. Returns None if there's
+    nothing usable to plot.
+    """
+    if not result or not result.get("ok"):
+        return None
+    s = result["summary"]
+    labels = ["Positive", "Neutral", "Negative"]
+    values = [s["pct_positive"], s["pct_neutral"], s["pct_negative"]]
+    colors = ["#34D399", "#94a3b8", "#F87171"]
+
+    fig = go.Figure(go.Bar(x=labels, y=values, marker_color=colors, text=[f"{v:.1f}%" for v in values], textposition="outside"))
+    fig.update_layout(
+        title=f"Sentiment across '{result['text_col']}' ({result['n_scored']} rows)",
+        yaxis_title="% of rows", yaxis=dict(range=[0, max(values) * 1.2 + 5]),
+        height=320, margin=dict(l=10, r=10, t=50, b=10), showlegend=False,
+    )
+    return fig
+
+
+def plot_top_terms(result: dict) -> Optional[go.Figure]:
+    """Horizontal bar chart of text_analytics.extract_top_terms() results,
+    ranked by summed TF-IDF weight (highest at top). Returns None if
+    there's nothing usable to plot.
+    """
+    if not result or not result.get("ok") or not result.get("terms"):
+        return None
+    terms = result["terms"][::-1]  # reverse so the highest-scoring term ends up at the top of the horizontal bar
+    fig = go.Figure(go.Bar(
+        x=[t["score"] for t in terms], y=[t["term"] for t in terms], orientation="h",
+        marker_color="#22D3EE",
+    ))
+    fig.update_layout(
+        title=f"Top terms in '{result['text_col']}'",
+        xaxis_title="Summed TF-IDF weight",
+        height=max(320, 24 * len(terms)), margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
+def plot_topic_shares(result: dict) -> Optional[go.Figure]:
+    """Horizontal bar of each topic's dominant-document share for
+    text_analytics.topic_model() results, labeled with each topic's top 3
+    terms so the chart is self-describing without a separate legend.
+    Returns None if there's nothing usable to plot.
+    """
+    if not result or not result.get("ok") or not result.get("topics"):
+        return None
+    topics = result["topics"][::-1]
+    labels = [f"Topic {t['id']}: " + ", ".join(t["top_terms"][:3]) for t in topics]
+    fig = go.Figure(go.Bar(
+        x=[t["doc_share"] for t in topics], y=labels, orientation="h",
+        marker_color="#A78BFA", text=[f"{t['doc_share']:.0%}" for t in topics], textposition="outside",
+    ))
+    fig.update_layout(
+        title=f"Topics in '{result['text_col']}' ({result['n_topics']} topics, {result['n_docs']} docs)",
+        xaxis_title="Share of documents (dominant topic)", xaxis=dict(tickformat=".0%"),
+        height=max(320, 50 * len(topics)), margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 
