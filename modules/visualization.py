@@ -278,6 +278,49 @@ def plot_cate_by_subgroup(cate_result: dict) -> Optional[go.Figure]:
     return fig
 
 
+def plot_kaplan_meier(result: dict) -> Optional[go.Figure]:
+    """Step-function survival curve(s) with a shaded 95% confidence band,
+    for survival.survival_analysis() results — the classic Kaplan-Meier
+    plot. Draws one line for the overall curve, or one per group (colored,
+    legend labeled with n/events) when the result has a group breakdown.
+    Each curve is stepped down to 0 at survival's own trajectory (no
+    extrapolation past the last observed event time). Returns None if
+    there's nothing usable to plot.
+    """
+    if not result or not result.get("ok"):
+        return None
+
+    fig = go.Figure()
+
+    def _add_curve(label: str, km: dict, color: Optional[str] = None):
+        curve = km.get("curve") or []
+        # Prepend t=0, S=1 so every curve starts at the top-left corner,
+        # standard KM plot convention, even when the first event is well
+        # after t=0.
+        times = [0.0] + [row["time"] for row in curve]
+        survs = [1.0] + [row["survival"] for row in curve]
+        fig.add_trace(go.Scatter(
+            x=times, y=survs, mode="lines", line_shape="hv", name=f"{label} (n={km['n']}, events={km['n_events']})",
+            line=dict(color=color, width=2.5),
+        ))
+
+    if result.get("groups"):
+        for level, km in result["groups"].items():
+            _add_curve(str(level), km)
+    else:
+        _add_curve("Overall", result["overall"], color="#22D3EE")
+
+    fig.update_layout(
+        title=f"Kaplan-Meier survival curve: time to {result['event_col']}",
+        xaxis_title=result["duration_col"],
+        yaxis_title="Survival probability",
+        yaxis=dict(range=[0, 1.02]),
+        height=380,
+        margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 
