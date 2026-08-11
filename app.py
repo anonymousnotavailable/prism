@@ -4883,7 +4883,7 @@ elif st.session_state.active_section == "ML Lab":
                 )
 
             roc_pr_curves = mllab.compute_roc_pr_curves(baseline_result)
-            if roc_pr_curves is not None:
+            if roc_pr_curves is not None and roc_pr_curves["mode"] == "binary":
                 st.markdown("**ROC & Precision-Recall Curves** (binary classification)")
                 roc_col, pr_col = st.columns(2)
                 with roc_col:
@@ -4891,10 +4891,24 @@ elif st.session_state.active_section == "ML Lab":
                 with pr_col:
                     st.plotly_chart(mllab.build_pr_chart(roc_pr_curves), use_container_width=True)
                 st.caption(mllab.roc_pr_verdict(roc_pr_curves))
+            elif roc_pr_curves is not None and roc_pr_curves["mode"] == "multiclass":
+                st.markdown(f"**ROC & Precision-Recall Curves** (one-vs-rest, {len(roc_pr_curves['classes'])} classes)")
+                mc_model_options = list(roc_pr_curves["roc"].keys())
+                mc_model_default = "Random Forest" if "Random Forest" in mc_model_options else mc_model_options[0]
+                mc_model = st.selectbox(
+                    "Model", mc_model_options, index=mc_model_options.index(mc_model_default), key="mllab_mc_roc_model",
+                )
+                mc_roc_col, mc_pr_col = st.columns(2)
+                with mc_roc_col:
+                    st.plotly_chart(mllab.build_multiclass_roc_chart(roc_pr_curves, mc_model), use_container_width=True)
+                with mc_pr_col:
+                    st.plotly_chart(mllab.build_multiclass_pr_chart(roc_pr_curves, mc_model), use_container_width=True)
+                st.caption(mllab.multiclass_roc_pr_verdict(roc_pr_curves))
             elif baseline_result["task_type"] == "classification" and baseline_result["confusion_labels"] and len(baseline_result["confusion_labels"]) > 2:
                 st.caption(
-                    "ROC & Precision-Recall curves are shown for binary classification only — this target has "
-                    f"{len(baseline_result['confusion_labels'])} classes."
+                    "ROC & Precision-Recall curves could not be computed for this target "
+                    f"({len(baseline_result['confusion_labels'])} classes) — the test set may be too small to "
+                    "have every class represented."
                 )
 
             if baseline_result["feature_importances"] is not None:
