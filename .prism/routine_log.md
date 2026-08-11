@@ -1426,3 +1426,96 @@ HUD slice beyond current maturity. No fresh Phase 2 web research sweep
 this run (15th consecutive reuse) — backlog still has real, non-cosmetic
 items (Excel ingestion, Explore Mode click-through), so a fresh sweep
 still isn't the bottleneck.
+
+## Run 23 — 2026-08-11
+
+Reused the standing backlog (16th consecutive run, same token-efficiency
+reasoning documented since Run 9 — "loop until 100% usage" + "use less
+tokens" are contradictory; ran one complete, verified cycle and stopped,
+per the hard guardrails). Local `main` was 78 commits behind
+`origin/main` at start (stale local ref from container image, not a real
+divergence) — fast-forwarded before branching, same precedent as
+Runs 19/21/22. Dependencies (`pip install -r requirements.txt`, `pytest`,
+`cffi`) needed a fresh install in this sandbox before any test could run
+— not previously logged, noting here in case a future run hits the same
+cold-start state (`pytest` resolved to a `uv`-tool-managed interpreter
+with no project deps installed; `python3 -m pytest` against the
+system interpreter after `pip install -r requirements.txt` was the fix,
+plus `cffi` specifically to unblock `cryptography`'s Rust bindings that
+`google-auth` imports transitively).
+
+**Shipped one feature (mandatory agentic-AI theme, Explore Mode
+click-through fits it as agreed in the run brief):** Explore Mode's
+"load into Manual Builder" click-through — open on the backlog since
+Run 20, 3 runs. Explore Mode's auto-ranked suggestions (correlation
+strength, group-difference effect size, time trend, skew) rendered as
+static info cards with no way to act on them; a user who liked a
+suggestion had to manually re-pick the same X/Y/chart-type in the Manual
+Chart Builder below by hand. New `suggestion_to_builder_state()` in
+`modules/visualization.py` is a pure, Streamlit-free function that
+translates one suggestion into the exact Manual Chart Builder widget
+`session_state` keys/values needed to preload it — including translating
+`None` to the `"(none)"` sentinel string the optional Y-axis/Color/Facet
+selectboxes use (a raw `None` doesn't match any selectbox option and
+Streamlit raises), and deliberately resetting the Facet/Aggregation
+channels to their defaults rather than carrying over a stale prior pick
+(the Facet options dynamically exclude the current X/Y/color, so an old
+facet value can silently become invalid for the newly-loaded encoding —
+would have shipped this bug without the "returns exactly the widget
+keys" and reset-specific tests). A new "📥 Load into Manual Builder"
+button under each suggestion writes the translated state into
+`st.session_state` *before* the Manual Chart Builder's own selectboxes
+are instantiated later in the same script pass (the standard Streamlit
+widget-preload pattern — same ordering discipline the existing Atlas
+command-bar code documents at length), reuses the already-built Plotly
+figure so the chart renders immediately below with zero extra "Build
+Chart" clicks, and confirms via `st.toast()`.
+
+7 new tests in `tests/test_explore_mode.py` (scatter/histogram/bar
+mappings, the `None` → `"(none)"` sentinel for both Y-axis and Color,
+color pass-through for a hypothetical future suggestion source, the
+facet/aggregation reset, and an exact-keys-returned contract test), full
+suite 428 → 435/435 green, zero regressions. Live-verified with
+Playwright (raw `chromium.launch()` against the sandbox's global
+`/opt/node22` Playwright install — no `run.js` scaffold present this
+session, so scripts were run directly with `NODE_PATH` set) at desktop
+1440px and mobile 390px, **both dark and light (Arctic) themes**: loaded
+the Sales sample, navigated to Visualize, scrolled to Explore Mode,
+clicked "Load into Manual Builder" on the top-ranked suggestion ("quantity
+varies strongly across product groups"), and confirmed the Manual
+Builder's X-axis/Chart type/Y-axis selectboxes read back exactly
+`product` / `Bar` / `quantity` with the matching bar chart rendered
+immediately below — no extra click, no error, in all four
+viewport/theme combinations tested. This is the first run to get a full
+mobile *and* light-theme pass on a Visualize-tab interaction without
+hitting the standing sticky-bottom-bar/off-screen-control gap logged in
+6+ prior runs — Explore Mode's buttons sit in the normal tab-content
+scroll flow rather than a sticky region, so this particular surface
+doesn't trigger it. Zero console/page errors beyond the expected absence
+of a live Gemini call (23rd consecutive run with no `GEMINI_API_KEY`).
+`.env`/secrets hygiene re-checked (clean, `.gitignore` covers it).
+Verified a fresh `main` checkout (separate git worktree, detached at the
+merge commit since `main` was already checked out in the primary
+worktree) both passes the full suite (435/435) and launches the
+Streamlit server cleanly (HTTP 200, no traceback in server log) before
+finishing; worktree removed after. Merged
+`feature/explore-mode-load-into-builder` into `main` with `--no-ff`,
+updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run23.md`, pushed
+`main`.
+
+**Not built (backlog, updated):** Large Excel ingestion (no out-of-core
+reader) — now the oldest open item. Light-theme repaint-lag
+(cosmetic, app-wide, not touched this run since this run's own feature
+confirmed clean in light theme). Live-Gemini verification (structural
+constraint). Mobile-viewport navigation/theme-toggle automation gap
+(still open for *other* surfaces — the sticky bottom bar and off-screen
+sidebar controls this run's feature happened to avoid; still 7+ runs
+open elsewhere in the app). Atlas voice/HUD slice beyond current
+maturity. No fresh Phase 2 web research sweep this run (16th consecutive
+reuse) — the backlog is now down to Excel ingestion (real, non-cosmetic,
+well-scoped) and the Atlas voice/HUD slice (explicitly beyond current
+maturity per the run brief) — **recommended for Run 24: either build
+large Excel ingestion, or run a fresh Phase 2 web research sweep if
+Excel ingestion is judged out of scope, since the backlog is thinning
+toward the "cosmetic-only" threshold that would trigger a sweep per this
+routine's own stated rule.**

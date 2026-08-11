@@ -2,6 +2,27 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 23)
+
+### Added
+- **Explore Mode: "Load into Manual Builder" click-through**
+  (`modules/visualization.py`, `app.py`) — closes the standing backlog
+  item open since Run 20 (3 runs). Explore Mode's auto-suggested chart
+  encodings rendered as static info cards with no way to act on them; a
+  new "📥 Load into Manual Builder" button under each suggestion now
+  preloads the Manual Chart Builder's X-axis/Y-axis/Chart type/Color
+  widgets with that suggestion's encoding and renders the matching chart
+  immediately, no extra "Build Chart" click required. New
+  `suggestion_to_builder_state()` is a pure, Streamlit-free translation
+  of a `suggest_encodings()` suggestion into the exact widget
+  `session_state` keys/values the builder reads, including the
+  `"(none)"` sentinel the optional selectboxes use and a deliberate
+  reset of the Facet/Aggregation channels to their defaults (a stale
+  facet pick can otherwise collide with the newly-loaded x/y/color and
+  raise a Streamlit "value not in options" error, since facet options
+  dynamically exclude the current x/y/color). Zero extra Gemini calls,
+  fully deterministic. 7 new tests, full suite 428 → 435/435 green.
+
 ## 2026-08-11 (Run 22)
 
 ### Added
