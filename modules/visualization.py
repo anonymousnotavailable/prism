@@ -278,6 +278,72 @@ def plot_cate_by_subgroup(cate_result: dict) -> Optional[go.Figure]:
     return fig
 
 
+def plot_diff_in_diff(result: dict) -> Optional[go.Figure]:
+    """The classic difference-in-differences chart: treated and control
+    group means at pre/post, plus a dashed "counterfactual" line showing
+    where the treated group would have ended up had it followed the
+    control group's own pre->post change instead — the visual definition
+    of the DiD estimate (the gap between the treated line's actual post
+    point and that dashed counterfactual point). Returns None if `result`
+    isn't a successful did.estimate_diff_in_differences() dict.
+    """
+    if not result or not result.get("ok"):
+        return None
+    m = result["cell_means"]
+    control_change = m["control_post"] - m["control_pre"]
+    counterfactual_post = m["treated_pre"] + control_change
+
+    x_labels = [str(result["pre_period"]), str(result["post_period"])]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_labels, y=[m["control_pre"], m["control_post"]],
+        mode="lines+markers", name=f"Control ({result['control_value']})",
+        line=dict(color="#94a3b8", width=3),
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_labels, y=[m["treated_pre"], m["treated_post"]],
+        mode="lines+markers", name=f"Treated ({result['treated_value']})",
+        line=dict(color="#22c55e", width=3),
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_labels, y=[m["treated_pre"], counterfactual_post],
+        mode="lines+markers", name="Treated (counterfactual)",
+        line=dict(color="#22c55e", width=2, dash="dash"),
+        marker=dict(symbol="circle-open"),
+    ))
+    fig.add_annotation(
+        x=x_labels[1], y=(m["treated_post"] + counterfactual_post) / 2,
+        text=f"DiD = {result['did_estimate']:.3g}",
+        showarrow=True, arrowhead=2, ax=40, ay=0,
+    )
+    fig.update_layout(
+        title=f"Difference-in-Differences: {result['outcome_col']} by {result['group_col']}",
+        yaxis_title=result["outcome_col"],
+        xaxis_title=result["time_col"],
+        height=360,
+        margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
+def plot_did_pre_trend(pre_trend_check: dict, group_col: str, outcome_col: str, group_means_by_period: pd.DataFrame) -> Optional[go.Figure]:
+    """Line chart of per-period, per-group outcome means across the
+    pre-treatment window used by did._check_pre_trend — lets the user
+    eyeball whether the two lines were roughly parallel before treatment,
+    the visual complement to the pre-trend regression's p-value. Expects
+    `group_means_by_period` with columns [period, group, mean] (already
+    aggregated by the caller). Returns None if there's nothing to plot.
+    """
+    if group_means_by_period is None or group_means_by_period.empty:
+        return None
+    fig = px.line(
+        group_means_by_period, x="period", y="mean", color="group", markers=True,
+        title=f"Pre-treatment trend check: {outcome_col} by {group_col}",
+    )
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=50, b=10), xaxis_title="Period", yaxis_title=outcome_col)
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 

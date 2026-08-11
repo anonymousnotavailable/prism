@@ -38,6 +38,7 @@ from modules import (
     data_engine,
     dataset_knowledge,
     datetime_intel,
+    did,
     domains,
     drift,
     enrichment,
@@ -102,6 +103,8 @@ _DEFAULTS = {
     "causal_narration": None,  # cached Gemini narration of causal_result, avoids re-spending a call per rerun
     "cate_result": None,  # last causal_inference.estimate_cate_by_subgroup() result dict (kept across reruns so the panel doesn't collapse)
     "cate_narration": None,  # cached Gemini narration of cate_result, avoids re-spending a call per rerun
+    "did_result": None,  # last did.estimate_diff_in_differences() result dict (kept across reruns so the panel doesn't collapse)
+    "did_narration": None,  # cached Gemini narration of did_result, avoids re-spending a call per rerun
     "orchestration_narration": None,  # cached Gemini narration of the Agent Summary panel's ranked "what matters most" list
     "orchestration_narration_fingerprint": None,  # insight_orchestrator.fingerprint_result() covered by the narration above
     "orchestration_narration_verification": None,  # insight_orchestrator.verify_narration() result for the narration above
@@ -2007,6 +2010,148 @@ elif st.session_state.active_section == "Overview":
                                     else:
                                         st.session_state.cate_narration = narration
                                         st.rerun()
+
+    # ------------------------------------------------------------------
+    # Difference-in-Differences — the panel-data counterpart to the Causal
+    # Effect Estimator above: instead of matching similar units at one
+    # point in time, DiD compares the before/after change in a treated
+    # group against the before/after change in a control group over the
+    # same span (see modules/did.py). Only rendered when the dataset has a
+    # binary group column, a separate period/time column with >= 2 distinct
+    # values, and a numeric outcome — same "stay silent rather than force
+    # it" convention as the panel above and Confounder Check.
+    # ------------------------------------------------------------------
+    _did_time_cols = [
+        c for c, t in st.session_state.column_types.items()
+        if t in ("categorical", "text", "boolean", "datetime") and c in working_df.columns
+        and 2 <= working_df[c].nunique(dropna=True) <= 20
+    ]
+    if _causal_binary_cols and _did_time_cols and _causal_numeric_cols:
+        with st.container(border=True):
+            st.markdown("#### 📈 Difference-in-Differences")
+            st.caption(
+                "For before/after data instead of a single snapshot: compares how much a treated group "
+                "changed from a 'pre' period to a 'post' period against how much a control group changed "
+                "over the same span — the extra change is the estimated effect, robust standard errors included."
+            )
+            d1, d2 = st.columns(2)
+            did_group_col = d1.selectbox("Group column", _causal_binary_cols, key="did_group_col")
+            did_group_options = sorted(working_df[did_group_col].dropna().unique().tolist(), key=str)
+            did_treated_value = d2.selectbox("Treated = ", did_group_options, key="did_treated_value")
+
+            did_time_options_cols = [c for c in _did_time_cols if c != did_group_col]
+            if not did_time_options_cols:
+                st.caption("Need a separate period/time column (distinct from the group column above) to run DiD.")
+            else:
+                d3, d4, d5 = st.columns(3)
+                did_time_col = d3.selectbox("Time/period column", did_time_options_cols, key="did_time_col")
+                did_time_options = sorted(working_df[did_time_col].dropna().unique().tolist(), key=str)
+                did_pre_period = d4.selectbox("Pre period", did_time_options, key="did_pre_period")
+                did_post_options = [t for t in did_time_options if t != did_pre_period] or did_time_options
+                did_post_period = d5.selectbox("Post period", did_post_options, key="did_post_period")
+
+                did_outcome_col = st.selectbox("Outcome column", _causal_numeric_cols, key="did_outcome_col")
+
+                did_pretrend_options = [t for t in did_time_options if t not in (did_pre_period, did_post_period)]
+                did_pretrend_periods = None
+                if did_pretrend_options:
+                    did_extra_periods = st.multiselect(
+                        "Earlier pre-treatment periods (optional — enables a parallel-trends check)",
+                        did_pretrend_options, key="did_pretrend_periods",
+                        help="Pick any additional periods before the pre-period above to test whether the two "
+                             "groups were already trending differently before treatment started.",
+                    )
+                    if did_extra_periods:
+                        did_pretrend_periods = did_extra_periods + [did_pre_period]
+
+                if st.button("Estimate DiD effect", key="did_estimate_btn"):
+                    if did_pre_period == did_post_period:
+                        st.session_state.did_result = {"ok": False, "error": "Pick two different periods."}
+                    else:
+                        with st.spinner("Comparing before/after change across groups…"):
+                            st.session_state.did_result = did.estimate_diff_in_differences(
+                                working_df, did_group_col, did_treated_value, did_time_col,
+                                did_pre_period, did_post_period, did_outcome_col,
+                                pre_trend_periods=did_pretrend_periods,
+                            )
+                    st.session_state.did_narration = None
+                    st.rerun()  # same same-pass-staleness reason as the Causal Effect Estimator above
+
+                did_result = st.session_state.did_result
+                if did_result is not None:
+                    if not did_result["ok"]:
+                        st.warning(did_result["error"])
+                    else:
+                        m1, m2 = st.columns(2)
+                        m1.metric(
+                            f"DiD effect on {did_result['outcome_col']}",
+                            f"{did_result['did_estimate']:.3g}",
+                            help="The treated group's extra change, beyond what the control group's own before/after change already explains.",
+                        )
+                        m2.metric("p-value", f"{did_result['p_value']:.3g}")
+                        st.caption(f"95% CI: [{did_result['ci_low']:.3g}, {did_result['ci_high']:.3g}]")
+
+                        for w in did_result["warnings"]:
+                            st.warning(w)
+
+                        did_fig = visualization.plot_diff_in_diff(did_result)
+                        if did_fig is not None:
+                            st.plotly_chart(did_fig, use_container_width=True)
+
+                        cell_df = pd.DataFrame(
+                            {
+                                "Group": ["Treated", "Treated", "Control", "Control"],
+                                "Period": ["Pre", "Post", "Pre", "Post"],
+                                "Mean": [
+                                    did_result["cell_means"]["treated_pre"], did_result["cell_means"]["treated_post"],
+                                    did_result["cell_means"]["control_pre"], did_result["cell_means"]["control_post"],
+                                ],
+                                "n": [
+                                    did_result["cell_ns"]["treated_pre"], did_result["cell_ns"]["treated_post"],
+                                    did_result["cell_ns"]["control_pre"], did_result["cell_ns"]["control_post"],
+                                ],
+                            }
+                        )
+                        st.dataframe(cell_df, use_container_width=True, hide_index=True)
+
+                        pretrend = did_result.get("pre_trend_check")
+                        if pretrend is not None:
+                            st.divider()
+                            st.markdown("**Parallel-trends check**")
+                            if not pretrend["ok"]:
+                                st.info(pretrend["error"])
+                            else:
+                                verdict = (
+                                    "⚠️ Diverging pre-trend detected" if pretrend["diverging"]
+                                    else "✅ No significant pre-trend divergence"
+                                )
+                                st.markdown(f"{verdict} (slope difference {pretrend['slope_diff']:.3g}, p={pretrend['p_value']:.3g})")
+                                st.caption(pretrend["caveat"])
+
+                                trend_df = working_df[[did_result["group_col"], did_result["time_col"], did_result["outcome_col"]]].dropna()
+                                trend_df = trend_df[trend_df[did_result["time_col"]].isin(pretrend["periods_used"])]
+                                trend_means = (
+                                    trend_df.groupby([did_result["time_col"], did_result["group_col"]])[did_result["outcome_col"]]
+                                    .mean().reset_index()
+                                    .rename(columns={did_result["time_col"]: "period", did_result["group_col"]: "group", did_result["outcome_col"]: "mean"})
+                                )
+                                trend_fig = visualization.plot_did_pre_trend(
+                                    pretrend, did_result["group_col"], did_result["outcome_col"], trend_means
+                                )
+                                if trend_fig is not None:
+                                    st.plotly_chart(trend_fig, use_container_width=True)
+
+                        if st.session_state.did_narration:
+                            st.info(st.session_state.did_narration)
+                        elif st.button("✨ Explain this", key="did_narrate_btn"):
+                            model = ai_analyst.get_model()
+                            with st.spinner("Gemini is interpreting this…"):
+                                narration, narr_error = did.narrate_diff_in_differences(model, did_result)
+                            if narr_error:
+                                st.warning(narr_error)
+                            else:
+                                st.session_state.did_narration = narration
+                                st.rerun()
 
     # ------------------------------------------------------------------
     # Auto Cleaner — v5's flagship: scan -> plan -> auto-apply SAFE fixes
