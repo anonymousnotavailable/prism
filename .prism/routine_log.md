@@ -1090,3 +1090,66 @@ latest `playwright` package (1.62.0 as of this run) expects a newer
 revision and fails to launch; match by installing the `playwright` pip
 version whose bundled `browsers.json` lists revision 1194 (`1.56.0` at
 time of writing) instead of running `playwright install`.
+
+## Run 16 — 2026-08-11
+
+Reused the standing backlog and Run 11's full-app audit rather than a fresh
+four-source-class research sweep (same token-efficiency reasoning every run
+since Run 9 has logged). Same "loop until session 100% used" + "use less
+tokens" contradiction in this run's trigger as every prior run — ran one
+complete, safely verified cycle and stopped, per the hard guardrails; scoped
+to a single feature this time (not two) given the trigger's explicit extra
+emphasis on token use this run.
+
+**Shipped one feature (mandatory agentic-AI-analysis theme):** extended
+`insight_verifier` fact-check badges to Story Mode and Demo Mode
+(`modules/story_mode.py`) — grepping every `generate_key_insights()` call
+site found two still uncovered after Runs 10/14/15 closed the other three
+(Auto Analyst, AI Analyst tab, Report Writer): Story Mode's voice-narrated
+slide deck (`render_story_mode`, raw `### {finding}` heading, zero badge)
+and Demo Mode's post-narration card list (hand-duplicated `insight-card`
+HTML instead of reusing `modules.ui`'s shared builder, also zero badge).
+Factored both call sites onto one new `_generate_and_verify_insights()`
+helper (kept `st`-free, mirrors `report_writer._verify_findings`'s
+call-shape) so Story Mode's `_ensure_insights()` and Demo Mode's
+auto-analysis step share the same generate+verify logic instead of each
+duplicating it. Demo Mode's summary now calls
+`ui.build_insight_cards_html()`/`build_verification_caption()` like every
+other insight list in the app. 5 new tests (`tests/test_story_mode.py`,
+new file — this module had zero coverage before this run).
+
+Full suite 336 → 341/341 green. Hit the known `_cffi_backend` sandbox gap
+(same documented fix, `pip install --force-reinstall --no-cache-dir cffi`)
+and installed `playwright==1.56.0` fresh in this sandbox (not persisted
+from a prior run) to match the pre-installed `/opt/pw-browsers` chromium
+revision 1194, per the note Run 15 logged. Live-verified via Playwright
+(desktop 1440px, mobile 390px, dark theme, `samples/indian_startup_
+funding_messy.csv`): app loads clean, zero console/page errors, Auto-
+Insights and the Atlas HUD render correctly. **Could not exercise the new
+badge rendering live**: tried triggering Demo Mode via the Atlas command
+bar ("start demo mode") and found Atlas's own command-routing needs a live
+Gemini call to interpret free-text commands at all — it fails with "I
+can't reach Gemini right now" before ever reaching `story_mode.py`, a
+sandbox constraint one level upstream of the one every run since Run 9 has
+hit (no live `GEMINI_API_KEY`). Confirmed this gracefully (no traceback,
+clean Atlas HUD message) rather than working around it, and relied on the
+5 unit tests as the actual verification of the badge/caption logic itself,
+same fallback every constrained run has used. Screenshots saved to
+`.prism/runs/2026-08-11-run16/`. `.env`/secrets hygiene re-checked (clean,
+`.gitignore` covers it). Merged `feature/story-demo-mode-verification-
+badges` into `main`, full suite re-verified green post-merge, pushed.
+
+**Not built (backlog, unchanged):** PyGWalker-style chart builder's
+"explore mode" (auto-suggested encodings). Large Excel ingestion (no
+out-of-core reader, unaddressed since Run 14 scoped it out of the original
+DuckDB item). Light-theme dataframe/chart repaint-lag (cosmetic). Live-
+Gemini verification (16th consecutive run, sandbox constraint). Mobile +
+light theme simultaneous screenshot coverage (automation gap, Runs 10/13
+logged, not re-attempted). **New backlog note:** Atlas's command-bar NLU
+path has no non-Gemini fallback at all (not even for exact-match phrases
+like "start demo mode") — every command, however literal, requires a live
+API call to route. A small keyword-match fast path before the Gemini call
+would both cut latency/quota use for common commands and make Demo/Story
+Mode screenshot-testable in this sandbox — a legitimate future candidate,
+not attempted this run (out of scope for a single-feature cycle, and
+touches Atlas's core command dispatch rather than being additive).
