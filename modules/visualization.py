@@ -34,6 +34,19 @@ MANUAL_CHART_TYPES_REQUIRING_Y = {"Scatter", "Line"}
 # the encoding-channel slice toward a PyGWalker/Tableau-style grammar-of-graphics
 # builder (Pie already encodes its one category via slices, so it's excluded).
 MANUAL_CHART_TYPES_SUPPORTING_COLOR = {"Histogram", "Box", "Bar", "Scatter", "Line"}
+# Chart types where an optional fourth "Facet" column splits the chart into a
+# grid of small multiples (one subplot per category) instead of overlaying
+# groups in a single plot — the next PyGWalker/Tableau-style encoding channel
+# after Color. Same set as color support: Pie has no subplot concept of its
+# own here (px.pie doesn't take facet_col) so it's excluded too.
+MANUAL_CHART_TYPES_SUPPORTING_FACET = {"Histogram", "Box", "Bar", "Scatter", "Line"}
+# Facets are full subplots, not just a color split, so a high-cardinality
+# facet column would blow up into an unreadable (and slow-to-render) grid —
+# cap to the N most frequent categories, same top-N-by-frequency convention
+# TOP_N_CATEGORIES already uses for Bar/Pie.
+MAX_FACET_CATEGORIES = 6
+# How many facet subplots per row before wrapping to a new row.
+FACET_COL_WRAP = 3
 # Aggregation functions offered for Bar charts with a numeric Y-axis, keyed by
 # the label shown in the UI.
 MANUAL_CHART_AGG_FUNCS = {"Mean": "mean", "Sum": "sum", "Median": "median", "Min": "min", "Max": "max"}
@@ -141,15 +154,24 @@ def plot_datetime_trend(df: pd.DataFrame, datetime_col: str, numeric_col: str) -
     return fig
 
 
-def plot_scatter(df: pd.DataFrame, col_x: str, col_y: str, color: Optional[str] = None) -> go.Figure:
+def plot_scatter(
+    df: pd.DataFrame, col_x: str, col_y: str, color: Optional[str] = None, facet: Optional[str] = None
+) -> go.Figure:
     """Scatter plot between two numeric columns with an OLS trendline.
     An optional `color` column splits the trendline per group instead of
-    fitting one line across the whole dataset."""
+    fitting one line across the whole dataset. An optional `facet` column
+    splits the chart into a grid of small-multiple subplots instead."""
     try:
-        fig = px.scatter(df, x=col_x, y=col_y, color=color, trendline="ols", title=f"{col_y} vs {col_x}")
+        fig = px.scatter(
+            df, x=col_x, y=col_y, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+            trendline="ols", title=f"{col_y} vs {col_x}",
+        )
     except Exception:
         # statsmodels missing or the trendline fit failed — fall back to a plain scatter
-        fig = px.scatter(df, x=col_x, y=col_y, color=color, title=f"{col_y} vs {col_x}")
+        fig = px.scatter(
+            df, x=col_x, y=col_y, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+            title=f"{col_y} vs {col_x}",
+        )
     fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
     return fig
 
@@ -280,6 +302,19 @@ def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     return charts, top_corr
 
 
+def _cap_facet_categories(df: pd.DataFrame, facet: Optional[str]) -> pd.DataFrame:
+    """Keep only rows whose `facet` value is among its MAX_FACET_CATEGORIES
+    most frequent. Facets are full subplots (not just a color split), so an
+    uncapped high-cardinality column would render an unreadable, slow-to-
+    build grid — same top-N-by-frequency capping convention Bar/Pie already
+    use for their X-axis categories. Returns df unchanged when facet is None.
+    """
+    if not facet:
+        return df
+    top_categories = df[facet].value_counts(dropna=True).head(MAX_FACET_CATEGORIES).index
+    return df[df[facet].isin(top_categories)]
+
+
 def build_manual_chart(
     df: pd.DataFrame,
     chart_type: str,
@@ -287,49 +322,71 @@ def build_manual_chart(
     col_y: Optional[str] = None,
     color: Optional[str] = None,
     agg: str = "mean",
+    facet: Optional[str] = None,
 ) -> go.Figure:
     """Build a chart from explicit user picks — the manual escape hatch next to
     the automatic per-dtype chart picker above. A lightweight grammar-of-
     graphics builder: X and Y are the required axes, `color` is an optional
     third encoding channel that splits/groups the marks (a PyGWalker/Tableau-
-    style "pill" without the drag-and-drop), and `agg` picks how a Bar
-    chart's numeric Y is summarized per X category.
+    style "pill" without the drag-and-drop), `agg` picks how a Bar chart's
+    numeric Y is summarized per X category, and `facet` is a fourth channel
+    that splits the chart into a grid of small multiples (one subplot per
+    category) instead of overlaying groups in a single plot.
 
     chart_type: one of MANUAL_CHART_TYPES ("Histogram", "Box", "Bar", "Pie", "Scatter", "Line").
     col_y is required for "Scatter"/"Line" and optional (used as a grouping) for "Box"/"Bar".
     color is only meaningful for MANUAL_CHART_TYPES_SUPPORTING_COLOR; silently ignored
     elsewhere (Pie) and silently dropped if it duplicates col_x/col_y (no self-encoding).
     agg is one of MANUAL_CHART_AGG_FUNCS's values, only used by "Bar" with a numeric col_y.
+    facet is only meaningful for MANUAL_CHART_TYPES_SUPPORTING_FACET; silently ignored
+    elsewhere (Pie) and silently dropped if it duplicates col_x/col_y/color (no self-
+    encoding). Capped to its MAX_FACET_CATEGORIES most frequent values.
     Raises ValueError for an invalid combination, so callers can surface it as a friendly message.
     """
     if chart_type in MANUAL_CHART_TYPES_REQUIRING_Y and not col_y:
         raise ValueError(f"{chart_type} needs a Y-axis column.")
     if color is not None and color not in df.columns:
         raise ValueError(f"Unknown color column: {color}")
+    if facet is not None and facet not in df.columns:
+        raise ValueError(f"Unknown facet column: {facet}")
     if color in (col_x, col_y):
         color = None  # would just re-encode an axis — ignore rather than error
+    if facet in (col_x, col_y, color):
+        facet = None  # same self-encoding rule as color
     agg_label = next((label for label, fn in MANUAL_CHART_AGG_FUNCS.items() if fn == agg), agg.title())
 
+    df = _cap_facet_categories(df, facet)
+
     if chart_type == "Histogram":
-        fig = px.histogram(df, x=col_x, color=color, nbins=30, title=f"Histogram of {col_x}")
+        fig = px.histogram(
+            df, x=col_x, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+            nbins=30, title=f"Histogram of {col_x}",
+        )
     elif chart_type == "Box":
         if col_y:
-            fig = px.box(df, x=col_x, y=col_y, color=color, title=f"{col_y} by {col_x}")
+            fig = px.box(
+                df, x=col_x, y=col_y, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+                title=f"{col_y} by {col_x}",
+            )
         else:
-            fig = px.box(df, y=col_x, color=color, title=f"Spread of {col_x}", points="outliers")
+            fig = px.box(
+                df, y=col_x, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+                title=f"Spread of {col_x}", points="outliers",
+            )
     elif chart_type == "Pie":
         counts = df[col_x].value_counts(dropna=True).head(TOP_N_CATEGORIES)
         fig = px.pie(values=counts.values, names=counts.index.astype(str), title=f"Distribution of {col_x}")
     elif chart_type == "Bar":
         if col_y and pd.api.types.is_numeric_dtype(df[col_y]):
-            group_cols = [col_x, color] if color else [col_x]
+            group_cols = [col_x] + ([color] if color else []) + ([facet] if facet else [])
             grouped = df.groupby(group_cols)[col_y].agg(agg).reset_index()
             top_x = (
                 df.groupby(col_x)[col_y].agg(agg).sort_values(ascending=False).head(TOP_N_CATEGORIES).index
             )
             grouped = grouped[grouped[col_x].isin(top_x)]
             fig = px.bar(
-                grouped, x=col_x, y=col_y, color=color, barmode="group",
+                grouped, x=col_x, y=col_y, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+                barmode="group",
                 title=f"{agg_label} {col_y} by {col_x}" + (f", split by {color}" if color else ""),
                 labels={col_y: f"{agg_label} {col_y}"},
             )
@@ -340,11 +397,14 @@ def build_manual_chart(
                 title=f"Top {TOP_N_CATEGORIES} values in {col_x}", labels={"x": col_x, "y": "Count"},
             )
     elif chart_type == "Scatter":
-        fig = plot_scatter(df, col_x, col_y, color=color)
+        fig = plot_scatter(df, col_x, col_y, color=color, facet=facet)
     elif chart_type == "Line":
-        cols = [c for c in [col_x, col_y, color] if c]
+        cols = [c for c in [col_x, col_y, color, facet] if c]
         subset = df[cols].dropna().sort_values(col_x)
-        fig = px.line(subset, x=col_x, y=col_y, color=color, title=f"{col_y} over {col_x}")
+        fig = px.line(
+            subset, x=col_x, y=col_y, color=color, facet_col=facet, facet_col_wrap=FACET_COL_WRAP,
+            title=f"{col_y} over {col_x}",
+        )
     else:
         raise ValueError(f"Unknown chart type: {chart_type}")
 
