@@ -2882,19 +2882,24 @@ elif st.session_state.active_section == "Visualize":
 
     # Extra encoding channels — the grammar-of-graphics-style slice toward a
     # PyGWalker/Tableau feel: an optional Color split, a Facet (small-
-    # multiples) split, and, for Bar charts, a choice of aggregation
-    # function. Only shown when the picked chart type actually supports
-    # them, so the row disappears/shrinks rather than confusing the user
-    # with controls that would silently do nothing. Built as a dynamic
-    # column list (not a fixed st.columns(2)/(3)) so a chart type that
-    # supports Color + Facet but not Aggregation (everything except Bar)
-    # doesn't leave a visibly empty middle column.
+    # multiples) split, a second Facet Row split (dual-axis small multiples —
+    # a genuine row x column grid, added this run), and, for Bar charts, a
+    # choice of aggregation function. Only shown when the picked chart type
+    # actually supports them, so the row disappears/shrinks rather than
+    # confusing the user with controls that would silently do nothing. Built
+    # as a dynamic column list (not a fixed st.columns(2)/(3)/(4)) so a chart
+    # type that supports Color + Facet but not Aggregation (everything except
+    # Bar) doesn't leave a visibly empty column.
     supports_color = manual_chart_type in visualization.MANUAL_CHART_TYPES_SUPPORTING_COLOR
     supports_agg = manual_chart_type == "Bar"
     supports_facet = manual_chart_type in visualization.MANUAL_CHART_TYPES_SUPPORTING_FACET
-    manual_color, manual_agg, manual_facet = None, "mean", None
+    manual_color, manual_agg, manual_facet, manual_facet_row = None, "mean", None, None
     active_channels = [
-        name for name, enabled in (("color", supports_color), ("agg", supports_agg), ("facet", supports_facet))
+        name
+        for name, enabled in (
+            ("color", supports_color), ("agg", supports_agg),
+            ("facet", supports_facet), ("facet_row", supports_facet),
+        )
         if enabled
     ]
     if active_channels:
@@ -2912,13 +2917,20 @@ elif st.session_state.active_section == "Visualize":
                     manual_agg = visualization.MANUAL_CHART_AGG_FUNCS[agg_label]
                 elif channel == "facet":
                     facet_options = ["(none)"] + [c for c in df.columns if c not in (manual_x, manual_y, manual_color)]
-                    facet_label = st.selectbox("Facet by (optional)", facet_options, key="manual_facet")
+                    facet_label = st.selectbox("Facet columns by (optional)", facet_options, key="manual_facet")
                     manual_facet = None if facet_label == "(none)" else facet_label
+                elif channel == "facet_row":
+                    facet_row_options = ["(none)"] + [
+                        c for c in df.columns if c not in (manual_x, manual_y, manual_color, manual_facet)
+                    ]
+                    facet_row_label = st.selectbox("Facet rows by (optional)", facet_row_options, key="manual_facet_row")
+                    manual_facet_row = None if facet_row_label == "(none)" else facet_row_label
 
     if st.button("Build Chart", use_container_width=True):
         try:
             st.session_state.manual_chart_fig = visualization.build_manual_chart(
-                df, manual_chart_type, manual_x, manual_y, color=manual_color, agg=manual_agg, facet=manual_facet
+                df, manual_chart_type, manual_x, manual_y, color=manual_color, agg=manual_agg,
+                facet=manual_facet, facet_row=manual_facet_row,
             )
             st.session_state.manual_chart_error = None
         except Exception as e:
