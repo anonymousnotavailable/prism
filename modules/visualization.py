@@ -387,6 +387,42 @@ def plot_did_pre_trend(pre_trend_check: dict, group_col: str, outcome_col: str, 
     return fig
 
 
+def plot_power_curve(result: dict) -> Optional[go.Figure]:
+    """Power-vs-sample-size curve for power_analysis.plan_power_means()/
+    plan_power_proportions() results — the classic power-analysis chart,
+    letting a viewer see how power trades off against sample size around
+    the computed point rather than trusting a single number. Marks the
+    solved-for point (required n at the target power, or the given n at
+    its achieved power) with a star. Returns None if there's nothing
+    usable to plot.
+    """
+    if not result or not result.get("ok") or not result.get("power_curve"):
+        return None
+    curve = result["power_curve"]
+    ns = [row["n"] for row in curve]
+    powers = [row["power"] for row in curve]
+
+    if result["mode"] == "solve_n":
+        marker_n, marker_power = result["required_n_per_group"], result["target_power"]
+    else:
+        marker_n, marker_power = result["n_per_group"], result["achieved_power"]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ns, y=powers, mode="lines", name="Power", line=dict(color="#22D3EE", width=2.5)))
+    fig.add_trace(go.Scatter(
+        x=[marker_n], y=[marker_power], mode="markers", name="This plan",
+        marker=dict(symbol="star", size=14, color="#F59E0B"),
+    ))
+    fig.add_hline(y=0.8, line_dash="dot", line_color="gray", annotation_text="80% power (conventional bar)")
+    fig.update_layout(
+        title="Power vs. sample size per group",
+        xaxis_title="n per group", yaxis_title="Power",
+        yaxis=dict(range=[0, 1.02]),
+        height=340, margin=dict(l=10, r=10, t=50, b=10),
+    )
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 
