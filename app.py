@@ -102,6 +102,7 @@ _DEFAULTS = {
     "orchestration_narration": None,  # cached Gemini narration of the Agent Summary panel's ranked "what matters most" list
     "orchestration_narration_fingerprint": None,  # insight_orchestrator.fingerprint_result() covered by the narration above
     "atlas_orchestration_alert_fingerprint": None,  # fingerprint of the last orchestration result Atlas proactively spoke up about (see _maybe_announce_orchestration())
+    "atlas_orchestration_alert_tier2_fingerprint": None,  # separate fingerprint tracker for the tier-2 lone-confounder-paradox alert (see _maybe_announce_orchestration())
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
@@ -780,10 +781,24 @@ def _maybe_announce_orchestration(orchestration) -> None:
     alert = insight_orchestrator.proactive_alert_text(
         orchestration, st.session_state.atlas_orchestration_alert_fingerprint
     )
-    if alert is None:
+    if alert is not None:
+        st.session_state.atlas_orchestration_alert_fingerprint = alert["fingerprint"]
+        atlas.say_only(alert["text"])
+        atlas.raise_alert(1)
         return
-    st.session_state.atlas_orchestration_alert_fingerprint = alert["fingerprint"]
-    atlas.say_only(alert["text"])
+
+    # Tier 2: a lone high-severity confounder paradox — the one detector that
+    # runs silently on every upload with no proactive alert of its own (see
+    # insight_orchestrator.proactive_alert_text_tier2()'s docstring). Checked
+    # only when tier 1 didn't already speak up this rerun, so Atlas never
+    # says two things in the same pass.
+    tier2_alert = insight_orchestrator.proactive_alert_text_tier2(
+        orchestration, st.session_state.atlas_orchestration_alert_tier2_fingerprint
+    )
+    if tier2_alert is None:
+        return
+    st.session_state.atlas_orchestration_alert_tier2_fingerprint = tier2_alert["fingerprint"]
+    atlas.say_only(tier2_alert["text"])
     atlas.raise_alert(1)
 
 
@@ -2863,10 +2878,32 @@ elif st.session_state.active_section == "Visualize":
         y_label = st.selectbox(f"Y-axis{'' if y_required else ' (optional)'}", y_options, key="manual_y")
         manual_y = None if y_label == "(none)" else y_label
 
+    # Extra encoding channels — the grammar-of-graphics-style slice toward a
+    # PyGWalker/Tableau feel: an optional Color split and, for Bar charts, a
+    # choice of aggregation function. Only shown when the picked chart type
+    # actually supports them, so the row disappears rather than confusing
+    # the user with controls that would silently do nothing.
+    supports_color = manual_chart_type in visualization.MANUAL_CHART_TYPES_SUPPORTING_COLOR
+    supports_agg = manual_chart_type == "Bar"
+    manual_color, manual_agg = None, "mean"
+    if supports_color or supports_agg:
+        mc4, mc5 = st.columns(2)
+        if supports_color:
+            with mc4:
+                color_options = ["(none)"] + [c for c in df.columns if c not in (manual_x, manual_y)]
+                color_label = st.selectbox("Color (optional)", color_options, key="manual_color")
+                manual_color = None if color_label == "(none)" else color_label
+        if supports_agg:
+            with mc5:
+                agg_label = st.selectbox(
+                    "Aggregation", list(visualization.MANUAL_CHART_AGG_FUNCS.keys()), key="manual_agg"
+                )
+                manual_agg = visualization.MANUAL_CHART_AGG_FUNCS[agg_label]
+
     if st.button("Build Chart", use_container_width=True):
         try:
             st.session_state.manual_chart_fig = visualization.build_manual_chart(
-                df, manual_chart_type, manual_x, manual_y
+                df, manual_chart_type, manual_x, manual_y, color=manual_color, agg=manual_agg
             )
             st.session_state.manual_chart_error = None
         except Exception as e:

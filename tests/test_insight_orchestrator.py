@@ -16,6 +16,7 @@ from modules.insight_orchestrator import (
     normalize_findings,
     orchestrate_insights,
     proactive_alert_text,
+    proactive_alert_text_tier2,
     severity_icon,
 )
 
@@ -162,6 +163,46 @@ def _verifier_raw():
         ],
         "columns": ["revenue", "spend", "tenure"],
     }
+
+
+def _auto_insights_raw_medium_only():
+    """Same shape as _auto_insights_raw() but with no "high" severity entry
+    — used by the tier-2 proactive alert tests so a lone confounder paradox
+    is unambiguously the top-ranked claim rather than tying with auto_
+    insights' own high-severity correlation finding."""
+    return [
+        {
+            "category": "missing_data",
+            "severity": "medium",
+            "column": "region",
+            "metric": "15.0% missing",
+            "message": "'region' has 15.0% missing values.",
+        },
+    ]
+
+
+def _confounder_raw_lone_high_paradox():
+    """A confounder paradox on a pair no other baseline detector's output
+    touches — confounder_detection runs silently on every upload (like
+    auto_insights) but, unlike auto_insights, has no proactive alert of its
+    own. This is the fixture the tier-2 alert tests exist to cover."""
+    return [
+        {
+            "x": "tenure",
+            "y": "plan_tier",
+            "overall_r": 0.4,
+            "findings": [
+                {
+                    "confounder": "region",
+                    "type": "categorical",
+                    "overall_r": 0.4,
+                    "adjusted_r": -0.05,
+                    "verdict": "paradox",
+                    "detail": [],
+                }
+            ],
+        }
+    ]
 
 
 def _hypothesis_sweep_raw():
@@ -697,6 +738,86 @@ def test_proactive_alert_fires_again_once_the_fingerprint_changes():
         }
     )
     assert proactive_alert_text(result, last_alerted_fingerprint="some-stale-fingerprint") is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Proactive alert, tier 2 — a lone high-severity claim from a detector that
+# (unlike auto_insights) has no proactive announcement of its own. Today
+# that's confounder_detection: it runs silently on every upload alongside
+# auto_insights, but only auto_insights' high-severity count drives
+# atlas.raise_alert(). A freshly detected Simpson's-paradox-style
+# confounder is exactly the kind of finding worth interrupting for, even
+# at the two-detector baseline (unlike tier 1, which needs a third
+# detector to rule out re-announcing the baseline state).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_tier2_alert_none_for_none_result():
+    assert proactive_alert_text_tier2(None, last_alerted_fingerprint=None) is None
+
+
+def test_tier2_alert_none_when_silent():
+    result = orchestrate_insights({})
+    assert proactive_alert_text_tier2(result, last_alerted_fingerprint=None) is None
+
+
+def test_tier2_alert_fires_at_baseline_for_lone_confounder_paradox():
+    # Only 2 detectors (the automatic upload-time pair), no third detector
+    # needed — unlike tier 1, since nothing else announces this finding.
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw_medium_only(),
+            "confounder": _confounder_raw_lone_high_paradox(),
+        }
+    )
+    assert result.n_detectors_fired == 2
+    top = result.top[0]
+    assert top.severity == "high" and top.detectors == ["confounder"]
+    alert = proactive_alert_text_tier2(result, last_alerted_fingerprint=None)
+    assert alert is not None
+    assert "tenure" in alert["text"] and "plan_tier" in alert["text"]
+    assert alert["fingerprint"] == fingerprint_result(result)
+
+
+def test_tier2_alert_none_for_lone_high_auto_insights_claim():
+    # auto_insights already drives its own ambient alert on upload (see
+    # atlas.raise_alert()) — a lone auto_insights claim must not double-speak.
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw(), "drift": _drift_raw()})
+    top = result.top[0]
+    assert top.severity == "high"
+    assert proactive_alert_text_tier2(result, last_alerted_fingerprint=None) is None
+
+
+def test_tier2_alert_none_when_tier1_would_fire_instead():
+    # Agreement/contradiction cases are tier 1's job, not tier 2's.
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw(),
+            "confounder": _confounder_raw_agreeing_with_causal(),
+            "causal_att": _causal_att_raw_adjusting_for_confounder(),
+        }
+    )
+    assert result.top[0].agreement is True
+    assert proactive_alert_text_tier2(result, last_alerted_fingerprint=None) is None
+
+
+def test_tier2_alert_none_for_lone_medium_severity_confounder_claim():
+    attenuated = _confounder_raw_lone_high_paradox()
+    attenuated[0]["findings"][0]["verdict"] = "attenuated"
+    result = orchestrate_insights({"auto_insights": _auto_insights_raw_medium_only(), "confounder": attenuated})
+    assert result.top[0].severity == "medium"
+    assert proactive_alert_text_tier2(result, last_alerted_fingerprint=None) is None
+
+
+def test_tier2_alert_does_not_refire_for_an_already_alerted_fingerprint():
+    result = orchestrate_insights(
+        {
+            "auto_insights": _auto_insights_raw_medium_only(),
+            "confounder": _confounder_raw_lone_high_paradox(),
+        }
+    )
+    fp = fingerprint_result(result)
+    assert proactive_alert_text_tier2(result, last_alerted_fingerprint=fp) is None
 
 
 # ─────────────────────────────────────────────────────────────────────────
