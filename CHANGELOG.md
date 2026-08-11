@@ -2,6 +2,33 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 21)
+
+### Added
+- **Hypothesis Sweep: group-difference confounder cross-check**
+  (`modules/confounder_detection.py`, `modules/hypothesis_sweep.py`,
+  `app.py`) — Run 19's confounder cross-check only covered significant
+  Pearson (numeric/numeric) sweep pairs; Simpson's Paradox applies just as
+  much to a group difference (a significant Welch's t-test) as it does to
+  a correlation — the classic version is a treatment effect that reverses
+  once you control for patient severity. New `stratified_mean_difference()`
+  computes Cohen's d per stratum of a candidate confounder and compares it
+  to the pooled effect (same paradox/attenuation verdict logic as the
+  existing correlation check); `detect_group_diff_confounders()` and
+  `auto_scan_for_group_diff_confounding()` are the group-diff analogs of
+  `detect_confounders()`/`auto_scan_for_confounding()`.
+  `cross_check_confounders()` now scans the sweep's significant t-test
+  rows through this new path alongside its existing Pearson-pair scan,
+  tagging each result `"relationship": "correlation"` or `"group_diff"`.
+  The existing "🕵️ Confounder cross-check" panel renders group-diff
+  findings (pooled vs. adjusted Cohen's d, per-stratum mean-diff table)
+  with the same expander/badge/"Explain this" UI as the correlation
+  findings — no new styling. Categorical confounders only (a numeric
+  confounder would need binning first); requires the categorical side to
+  have exactly 2 groups, matching `stats_lab.run_ttest()`'s own scope. Zero
+  extra Gemini calls, fully deterministic. 23 new tests, full suite
+  390 → 413/413 green.
+
 ## 2026-08-11 (Run 20)
 
 ### Added
