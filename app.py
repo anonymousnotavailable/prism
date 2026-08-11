@@ -31,6 +31,7 @@ from modules import (
     autocleaner,
     bayesian_ab,
     causal_inference,
+    changepoint,
     cleaning,
     clustering,
     confounder_detection,
@@ -189,6 +190,11 @@ _DEFAULTS = {
     "stl_decomp_error": None,  # error from the last decomposition attempt, if any
     "forecast_backtest_result": None,  # forecasting.rolling_origin_backtest() output for the Backtest panel
     "forecast_backtest_error": None,  # error from the last backtest attempt, if any
+    "changepoint_result": None,  # changepoint.detect_changepoints() output for the Changepoint Detection panel
+    "changepoint_error": None,  # error from the last changepoint detection attempt, if any
+    "changepoint_narration": None,  # cached Gemini narration of changepoint_result, avoids re-spending a call per rerun
+    "granger_result": None,  # granger_causality.test_granger_causality() output for the Granger Causality panel
+    "granger_narration": None,  # cached Gemini narration of granger_result, avoids re-spending a call per rerun
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -342,6 +348,11 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.stl_decomp_error = None
     st.session_state.forecast_backtest_result = None
     st.session_state.forecast_backtest_error = None
+    st.session_state.changepoint_result = None
+    st.session_state.changepoint_error = None
+    st.session_state.changepoint_narration = None
+    st.session_state.granger_result = None
+    st.session_state.granger_narration = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -5078,6 +5089,77 @@ elif st.session_state.active_section == "Forecasting":
             st.markdown(forecasting.decomposition_verdict(decomp_result))
             decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
             st.plotly_chart(decomp_fig, use_container_width=True)
+
+        # --------------------------------------------------------------
+        # Changepoint Detection — where did the series' *level* actually
+        # shift, not just drift (see modules/changepoint.py). Binary
+        # segmentation with a CUSUM statistic, no `ruptures` dependency.
+        # Reuses the same datetime/numeric column pickers as the forecast
+        # above — no new selectors needed.
+        # --------------------------------------------------------------
+        st.divider()
+        st.markdown("#### 🪜 Changepoint Detection")
+        st.caption(
+            "Finds points where the series' mean level abruptly shifted (a pricing change, an "
+            "outage, a policy switch) via binary segmentation on a CUSUM statistic, with a "
+            "permutation test — and a Bonferroni-style correction across the recursive search — "
+            "deciding which candidate breaks are real. Assumes the series is roughly stable "
+            "*between* breaks; a strongly trending series with no real regime change can still "
+            "trip a false positive, since a smooth trend also produces a large cumulative sum."
+        )
+        if st.button("Detect Changepoints", key="changepoint_run_btn", use_container_width=True):
+            cp_series, cp_freq, cp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if cp_prep_error:
+                st.session_state.changepoint_result = None
+                st.session_state.changepoint_error = cp_prep_error
+            else:
+                with st.spinner(ui.get_loading_message()):
+                    cp_outcome = changepoint.detect_changepoints(cp_series)
+                if not cp_outcome.get("ok"):
+                    st.session_state.changepoint_result = None
+                    st.session_state.changepoint_error = cp_outcome.get("error")
+                else:
+                    st.session_state.changepoint_result = cp_outcome
+                    st.session_state.changepoint_error = None
+            st.session_state.changepoint_narration = None
+
+        if st.session_state.changepoint_error:
+            st.error(st.session_state.changepoint_error)
+        elif st.session_state.changepoint_result is None:
+            ui.render_empty_state(
+                "🪜", "No changepoints detected yet", 'Click "Detect Changepoints" to scan for level shifts.'
+            )
+        else:
+            cp_result = st.session_state.changepoint_result
+            st.markdown(changepoint.changepoint_verdict(cp_result))
+            cp_fig = changepoint.build_changepoint_chart(cp_result, f"{forecast_num_col} changepoints")
+            if cp_fig is not None:
+                st.plotly_chart(cp_fig, use_container_width=True)
+
+            if cp_result["changepoints"]:
+                cp_table = pd.DataFrame([
+                    {
+                        "When": cp["index_label"],
+                        "Before": cp["before_mean"],
+                        "After": cp["after_mean"],
+                        "Change": cp["delta"],
+                        "p-value": cp["p_value"],
+                    }
+                    for cp in cp_result["changepoints"]
+                ])
+                st.dataframe(cp_table, use_container_width=True, hide_index=True)
+
+            if st.session_state.changepoint_narration:
+                st.info(st.session_state.changepoint_narration)
+            elif st.button("✨ Explain this", key="changepoint_narrate_btn"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is interpreting this…"):
+                    narration, narr_error = changepoint.narrate_changepoints(model, cp_result)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.changepoint_narration = narration
+                    st.rerun()
 
 # --------------------------------------------------------------------------
 # Clustering tab — pick an algorithm (KMeans with a hybrid elbow +
