@@ -91,6 +91,7 @@ _DEFAULTS = {
     "chat_history": [],  # AI Analyst chat transcript
     "key_insights": [],  # last "Generate Key Insights" output — list of up to 5 bullet strings
     "key_insights_error": None,  # error from the last "Generate Key Insights" attempt, if any
+    "key_insights_verification": [],  # insight_verifier.verify_findings() result for key_insights, same order/length
     "auto_insights": None,  # list of auto-detected insight dicts (run on upload)
     "auto_insights_narration": None,  # Gemini-narrated executive summary of auto-insights
     "confounder_scan": None,  # confounder_detection.auto_scan_for_confounding() result (run on upload)
@@ -272,6 +273,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.chat_history = chat_history if chat_history is not None else []
     st.session_state.key_insights = []
     st.session_state.key_insights_error = None
+    st.session_state.key_insights_verification = []
     st.session_state.sql_result_df = None
     st.session_state.sql_error = None
     st.session_state.sql_explanation = ""
@@ -3507,16 +3509,24 @@ elif st.session_state.active_section == "AI Analyst":
             skeleton.empty()
             st.session_state.key_insights = insights
             st.session_state.key_insights_error = insight_error
+            # Same static, zero-extra-Gemini-call fact-check pass Run 10 wired
+            # into Auto Analyst's "Run Full Analysis" findings — this button
+            # is a second, separate Gemini call that quotes numbers straight
+            # from the data and had no verification of its own until now.
+            st.session_state.key_insights_verification = (
+                insight_verifier.verify_findings(df, column_types, insights) if insights else []
+            )
 
         if st.session_state.key_insights_error:
             st.error(st.session_state.key_insights_error)
         elif st.session_state.key_insights:
-            cards_html = "".join(
-                f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d}</div>'
-                f'<div class="insight-text">{finding}</div></div>'
-                for i, finding in enumerate(st.session_state.key_insights)
+            caption = ui.build_verification_caption(st.session_state.key_insights_verification)
+            if caption:
+                st.caption(caption)
+            st.markdown(
+                ui.build_insight_cards_html(st.session_state.key_insights, st.session_state.key_insights_verification),
+                unsafe_allow_html=True,
             )
-            st.markdown(cards_html, unsafe_allow_html=True)
 
         st.divider()
         st.markdown("**Ask a question about your data**")
@@ -3619,27 +3629,13 @@ elif st.session_state.active_section == "Auto Analyst":
                 st.error(st.session_state.auto_analyst_findings_error)
             elif st.session_state.auto_analyst_findings:
                 verification = st.session_state.auto_analyst_verification
-                confirmed_count = sum(1 for v in verification if v.get("status") == "confirmed")
-                flagged_count = sum(1 for v in verification if v.get("status") == "flagged")
-                if confirmed_count or flagged_count:
-                    st.caption(
-                        f"🔎 Fact-checked against the data: {confirmed_count} finding(s) with confirmed "
-                        f"figures" + (f", {flagged_count} with an unconfirmed number — verify before citing."
-                                      if flagged_count else ".")
-                    )
-
-                _BADGE = {
-                    "confirmed": '<span class="prism-badge b-pass" title="Every number in this finding matches a value recomputed directly from the data.">✓ verified</span>',
-                    "flagged": '<span class="prism-badge b-fail" title="At least one number here could not be matched to a recomputed value — double-check before citing.">⚠ unconfirmed</span>',
-                    "unverifiable": "",
-                }
-                cards_html = "".join(
-                    f'<div class="insight-card"><div class="insight-number">FINDING {i + 1:02d} '
-                    f'{_BADGE.get(verification[i]["status"], "") if i < len(verification) else ""}</div>'
-                    f'<div class="insight-text">{finding}</div></div>'
-                    for i, finding in enumerate(st.session_state.auto_analyst_findings)
+                caption = ui.build_verification_caption(verification)
+                if caption:
+                    st.caption(caption)
+                st.markdown(
+                    ui.build_insight_cards_html(st.session_state.auto_analyst_findings, verification),
+                    unsafe_allow_html=True,
                 )
-                st.markdown(cards_html, unsafe_allow_html=True)
 
                 hypothesis = auto_analyst.suggest_followup_hypothesis(df, column_types)
                 if hypothesis:
@@ -3659,6 +3655,7 @@ elif st.session_state.active_section == "Auto Analyst":
                     # Analyst findings so Atlas narrates what was just found here.
                     st.session_state.key_insights = st.session_state.auto_analyst_findings
                     st.session_state.key_insights_error = None
+                    st.session_state.key_insights_verification = st.session_state.auto_analyst_verification
                     st.session_state.story_slide_index = 0
                     st.session_state.story_mode_active = True
                     st.rerun()
