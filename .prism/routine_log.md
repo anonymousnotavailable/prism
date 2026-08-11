@@ -1223,3 +1223,48 @@ this run's non-visual-change Phase 5 budget). Atlas voice/HUD JARVIS slice
 beyond the keyword fast path (Run 17) — unused Atlas-track budget this
 run, fair game next run. Recommended next-run focus: PyGWalker explore
 mode (novel depth) or an Atlas voice slice (Web Speech API, still unbuilt).
+
+## Run 19 — 2026-08-11
+
+Reused the standing backlog (12th consecutive run, same token-efficiency
+reasoning documented since Run 9). Local `main` was 78 commits behind
+`origin/main` at start — fast-forwarded before branching.
+
+**Shipped one feature (mandatory agentic-AI theme):** Hypothesis Sweep
+confounder cross-check — `cross_check_confounders()` in `modules/
+hypothesis_sweep.py` wires the sweep's top significant Pearson pairs into
+`confounder_detection.auto_scan_for_confounding()`'s existing
+`correlation_pairs=` hook (previously only called with Auto-Insights'
+correlations), closing a real gap between two mature modules that had
+never been connected. Zero extra Gemini calls. New "🕵️ Confounder
+cross-check" panel under Hypothesis Sweep's results, matching Overview's
+existing Confounder Check UI. No Atlas-track feature this run (existing
+mic input + dual-backend TTS + keyword fast path + proactive HUD is
+already mature; stretching further risked duplicating working capability
+rather than adding depth).
+
+4 new tests (33 total in `test_hypothesis_sweep.py`), full suite
+382 → 386/386 green, zero regressions. Live Playwright pass at desktop
+1440px + mobile 390px, dark/light: zero console/page errors beyond the
+expected Gemini `ERR_CONNECTION_RESET` (19th consecutive run with no
+`GEMINI_API_KEY`). Verified the new panel visually with both the real
+sample dataset (correctly silent — 0/8 significant) and a synthetic
+planted-Simpson's-Paradox dataset (correctly flagged 🔴 Paradox) at
+desktop dark/light and mobile dark; mobile+light theme together remained
+the same standing automation gap Runs 10/13/16-18 logged (sidebar-based
+theme selector collapsed by default on narrow viewports) — not
+re-chased further to keep the verification pass bounded. `.env`/secrets
+hygiene re-checked (clean). Merged `feature/sweep-confounder-cross-check`
+into `main` with `--no-ff`, full suite re-verified green post-merge,
+updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run19.md`, pushed.
+
+**Not built (backlog, unchanged + one addition):** PyGWalker "explore
+mode" — now **7 consecutive runs** open, the single oldest item; strongly
+recommended for Run 20. Large Excel ingestion. Light-theme repaint-lag
+(cosmetic). Live-Gemini verification (structural constraint). Mobile+
+light simultaneous screenshots (automation gap). Atlas voice/HUD slice
+beyond what's already built. **New:** the confounder cross-check only
+covers Pearson (numeric/numeric) sweep pairs — a categorical-pair-aware
+"does this group difference hold up within strata?" follow-on (two-way
+ANOVA / interaction check) is a well-scoped smaller candidate for a
+future run.

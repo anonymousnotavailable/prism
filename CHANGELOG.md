@@ -2,6 +2,23 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 19)
+
+### Added
+- **Hypothesis Sweep confounder cross-check** (`modules/hypothesis_sweep.py`,
+  `app.py`) — the sweep's own agentic follow-up question: a pair surviving
+  Benjamini-Hochberg FDR correction across dozens of automated tests still
+  isn't guaranteed to be causally clean, so `cross_check_confounders()`
+  now runs the sweep's top significant Pearson pairs through
+  `confounder_detection.auto_scan_for_confounding()` — the same Simpson's-
+  Paradox / attenuation check Auto-Insights' correlations already get,
+  reusing that module's `correlation_pairs=` hook instead of recomputing
+  anything. Deterministic, zero extra Gemini calls. New "🕵️ Confounder
+  cross-check" panel under Hypothesis Sweep's results table, matching
+  Overview's existing Confounder Check UI (paradox/attenuated badges,
+  per-group table, cached AI explanation button). 4 new tests (33 total in
+  `test_hypothesis_sweep.py`), full suite 382 → 386/386 green.
+
 ## 2026-08-11 (Run 18)
 
 ### Added
