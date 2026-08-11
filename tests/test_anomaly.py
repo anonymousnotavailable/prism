@@ -10,11 +10,15 @@ from modules.anomaly import (
     ENSEMBLE_MIN_ROWS,
     MIN_ROWS_REQUIRED,
     anomaly_reference_numbers,
+    driver_reference_numbers,
     ensemble_reference_numbers,
     find_anomalies,
     find_anomalies_ensemble,
+    find_anomaly_drivers,
+    fingerprint_drivers,
     fingerprint_flagged,
     narrate_anomalies,
+    narrate_anomaly_drivers,
     narrate_ensemble_disagreement,
     verify_narration,
 )
@@ -314,4 +318,181 @@ def test_verify_narration_flagged_for_ensemble_when_fabricated():
     )
     narration = "An implausible 424242 rows were flagged by every method."
     verification = verify_narration(narration, ensemble_reference_numbers(consensus, summary))
+    assert verification["status"] == "flagged"
+
+
+# --- find_anomaly_drivers ---------------------------------------------------
+
+def _df_with_distinguishable_anomalies(n_normal: int = 60, n_anomaly: int = 8):
+    """Normal rows cluster around amount=100 in North/South; anomaly rows
+    are planted with a much higher amount AND a distinct region — a
+    numeric driver and a categorical driver, both by construction."""
+    rng = np.random.default_rng(7)
+    normal = pd.DataFrame(
+        {
+            "amount": rng.normal(loc=100, scale=5, size=n_normal),
+            "region": rng.choice(["North", "South"], size=n_normal),
+        }
+    )
+    anomaly = pd.DataFrame(
+        {
+            "amount": rng.normal(loc=500, scale=5, size=n_anomaly),
+            "region": ["East"] * n_anomaly,
+        }
+    )
+    df = pd.concat([normal, anomaly], ignore_index=True)
+    flagged = df.iloc[n_normal:].copy()
+    return df, flagged
+
+
+def test_find_anomaly_drivers_ranks_numeric_and_categorical_drivers():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    assert drivers
+    columns = {d["column"] for d in drivers}
+    assert "amount" in columns
+    assert "region" in columns
+    assert all(
+        abs(drivers[i]["effect_size"]) >= abs(drivers[i + 1]["effect_size"]) for i in range(len(drivers) - 1)
+    )
+
+
+def test_find_anomaly_drivers_numeric_finding_has_means_and_effect_size():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    amount_finding = next(d for d in drivers if d["column"] == "amount")
+    assert amount_finding["type"] == "numeric"
+    assert amount_finding["anomaly_mean"] > amount_finding["normal_mean"]
+    assert amount_finding["effect_size_label"] == "large"
+    assert amount_finding["p_value"] < 0.05
+
+
+def test_find_anomaly_drivers_empty_when_no_flagged_rows():
+    df, _ = _df_with_distinguishable_anomalies()
+    empty = df.iloc[0:0].copy()
+    assert find_anomaly_drivers(df, empty, {"amount": "numeric", "region": "categorical"}) == []
+
+
+def test_find_anomaly_drivers_empty_when_too_few_rows_on_either_side():
+    df, flagged = _df_with_distinguishable_anomalies(n_normal=60, n_anomaly=1)
+    assert find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"}) == []
+
+
+def test_find_anomaly_drivers_empty_when_all_rows_flagged():
+    df, _ = _df_with_distinguishable_anomalies()
+    assert find_anomaly_drivers(df, df, {"amount": "numeric", "region": "categorical"}) == []
+
+
+def test_find_anomaly_drivers_ignores_column_with_too_many_categories():
+    df, _ = _df_with_distinguishable_anomalies()
+    df = df.copy()
+    df["high_card"] = [f"id_{i}" for i in range(len(df))]
+    flagged = df.iloc[-8:].copy()
+    drivers = find_anomaly_drivers(
+        df,
+        flagged,
+        {"amount": "numeric", "region": "categorical", "high_card": "categorical"},
+        max_categorical_groups=15,
+    )
+    assert "high_card" not in {d["column"] for d in drivers}
+
+
+def test_find_anomaly_drivers_filters_non_significant_columns():
+    rng = np.random.default_rng(3)
+    df = pd.DataFrame(
+        {
+            "amount": rng.normal(loc=100, scale=5, size=60),
+            "noise": rng.normal(loc=0, scale=1, size=60),
+        }
+    )
+    flagged = df.sample(5, random_state=1)
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "noise": "numeric"})
+    for d in drivers:
+        assert d["p_value"] < 0.05
+
+
+# --- fingerprint_drivers -----------------------------------------------------
+
+def test_fingerprint_drivers_stable_and_sensitive():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    assert fingerprint_drivers(drivers) == fingerprint_drivers(drivers)
+    assert fingerprint_drivers(drivers) != fingerprint_drivers([])
+    assert fingerprint_drivers([]) == fingerprint_drivers([])
+
+
+# --- narrate_anomaly_drivers ---------------------------------------------------
+
+def test_narrate_anomaly_drivers_without_model_returns_error():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    narration, error = narrate_anomaly_drivers(None, drivers, len(flagged))
+    assert narration == ""
+    assert error is not None
+
+
+def test_narrate_anomaly_drivers_with_no_drivers_skips_gemini():
+    class _ShouldNotBeCalled:
+        def generate_content(self, *_args, **_kwargs):
+            raise AssertionError("Gemini should not be called when there are no drivers")
+
+    narration, error = narrate_anomaly_drivers(_ShouldNotBeCalled(), [], 5)
+    assert error is None
+    assert "no statistically significant" in narration.lower()
+
+
+def test_narrate_anomaly_drivers_calls_gemini_with_driver_summary():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+
+    captured = {}
+
+    class _FakeModel:
+        def generate_content(self, prompt, **_kwargs):
+            captured["prompt"] = prompt
+
+            class _Resp:
+                text = "The anomalies have much higher amounts and are all from the East region."
+
+            return _Resp()
+
+    narration, error = narrate_anomaly_drivers(_FakeModel(), drivers, len(flagged))
+    assert error is None
+    assert "amount" in captured["prompt"]
+    assert narration
+
+
+# --- driver_reference_numbers / verify_narration ------------------------------
+
+def test_driver_reference_numbers_empty_is_safe():
+    assert driver_reference_numbers(None) == set()
+    assert driver_reference_numbers([]) == set()
+
+
+def test_driver_reference_numbers_includes_effect_size_and_mean():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    numbers = driver_reference_numbers(drivers)
+    amount_finding = next(d for d in drivers if d["column"] == "amount")
+    assert round(amount_finding["effect_size"], 2) in numbers
+    assert round(amount_finding["anomaly_mean"], 3) in numbers
+
+
+def test_verify_narration_confirmed_for_drivers_when_numbers_match():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    amount_finding = next(d for d in drivers if d["column"] == "amount")
+    narration = (
+        f"The flagged rows have amount averaging {amount_finding['anomaly_mean']:.3g} vs. "
+        f"{amount_finding['normal_mean']:.3g} normally (Cohen's d = {amount_finding['effect_size']:.2f})."
+    )
+    verification = verify_narration(narration, driver_reference_numbers(drivers))
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_for_drivers_when_fabricated():
+    df, flagged = _df_with_distinguishable_anomalies()
+    drivers = find_anomaly_drivers(df, flagged, {"amount": "numeric", "region": "categorical"})
+    narration = "The anomalies have an implausible average amount of 999999.9."
+    verification = verify_narration(narration, driver_reference_numbers(drivers))
     assert verification["status"] == "flagged"

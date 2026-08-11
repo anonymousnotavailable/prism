@@ -232,6 +232,174 @@ def verify_narration(narration: str, reference_numbers: set[float]) -> dict:
         return {"status": "unverifiable", "checked": 0, "matched": 0}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# ANOMALY DRIVERS — IsolationForest (and the ensemble) say *which* rows are
+# unusual but never *why*. This answers that: split the dataset into
+# flagged vs. not-flagged and test every other column for a real
+# difference between the two groups — Welch's t-test (Cohen's d) for
+# numeric columns, chi-square test of independence (Cramer's V) for
+# categorical/boolean ones. Reuses stats_lab.run_ttest()/run_chi2()
+# directly rather than reimplementing the formulas, so a driver's effect
+# size and "small/medium/large" label always match what Stats Lab would
+# report for the same two columns — same reasoning as confounder_detection
+# reusing stats_lab's Cohen's d convention.
+# ═══════════════════════════════════════════════════════════════════════
+MIN_ROWS_PER_SIDE = 2  # each of anomaly/normal needs >=2 rows for a test to be defined
+SIGNIFICANCE_THRESHOLD = 0.05
+
+
+def find_anomaly_drivers(
+    df: pd.DataFrame,
+    flagged: Optional[pd.DataFrame],
+    column_types: dict[str, str],
+    max_categorical_groups: int = 15,
+    top_n: int = 8,
+) -> list[dict]:
+    """Rank every column (other than the flagged set itself) by how
+    strongly it distinguishes anomalous rows from normal ones.
+
+    Returns a list of finding dicts, ranked by |effect size| descending
+    (ties broken by p-value), keeping only statistically significant
+    drivers (p < 0.05) — same bar the rest of the app's hypothesis-testing
+    surfaces use. Returns [] when there's nothing to compare (no anomalies,
+    all rows flagged, too few rows on either side, or no columns test
+    cleanly) rather than raising; this is exploratory ranking, not a
+    required result.
+    """
+    if df is None or df.empty or flagged is None or flagged.empty:
+        return []
+
+    tagged = df.copy()
+    tagged["_is_anomaly"] = tagged.index.isin(flagged.index)
+    if tagged["_is_anomaly"].sum() < MIN_ROWS_PER_SIDE or (~tagged["_is_anomaly"]).sum() < MIN_ROWS_PER_SIDE:
+        return []  # need at least 2 rows on each side for a test to mean anything
+
+    from modules import stats_lab
+
+    findings = []
+    for col, ctype in column_types.items():
+        if col not in tagged.columns or col == "anomaly_reason":
+            continue
+        try:
+            if ctype == "numeric":
+                result = stats_lab.run_ttest(tagged, col, "_is_anomaly")
+                if "error" in result:
+                    continue
+                findings.append(
+                    {
+                        "column": col,
+                        "type": "numeric",
+                        "test": "ttest",
+                        "effect_size": result["effect_size"],
+                        "effect_size_name": "Cohen's d",
+                        "effect_size_label": result["effect_size_label"],
+                        "p_value": result["p_value"],
+                        "anomaly_mean": result["means"].get("True"),
+                        "normal_mean": result["means"].get("False"),
+                    }
+                )
+            elif ctype in ("categorical", "boolean", "text"):
+                nunique = tagged[col].nunique(dropna=True)
+                if nunique < 2 or nunique > max_categorical_groups:
+                    continue
+                result = stats_lab.run_chi2(tagged, col, "_is_anomaly")
+                if "error" in result:
+                    continue
+                findings.append(
+                    {
+                        "column": col,
+                        "type": "categorical",
+                        "test": "chi2",
+                        "effect_size": result["effect_size"],
+                        "effect_size_name": "Cramer's V",
+                        "effect_size_label": result["effect_size_label"],
+                        "p_value": result["p_value"],
+                    }
+                )
+        except (ValueError, TypeError, KeyError, ZeroDivisionError):
+            continue  # a single misbehaving column shouldn't sink the whole scan
+
+    findings = [f for f in findings if f["p_value"] < SIGNIFICANCE_THRESHOLD]
+    findings.sort(key=lambda f: (-abs(f["effect_size"]), f["p_value"]))
+    return findings[:top_n]
+
+
+def fingerprint_drivers(drivers: list[dict]) -> str:
+    """Stable hash of a find_anomaly_drivers() result, for the same
+    narration-caching purpose as fingerprint_flagged()."""
+    if not drivers:
+        return "empty"
+    parts = [f"{d['column']}:{d['effect_size']:.4f}:{d['p_value']:.6f}" for d in drivers]
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+
+
+_DRIVER_NARRATION_PROMPT = (
+    "You are a senior data analyst explaining *why* certain rows were flagged as anomalies "
+    "(not just that they were). Below are the columns that differ most between the {n_flagged} "
+    "flagged row(s) and the rest of the dataset, ranked by effect size, each with a "
+    "statistical test result:\n\n{drivers_text}\n\n"
+    "In 3-4 sentences: explain in plain English what characterizes the anomalous rows (e.g. "
+    "'these are mostly high-value transactions in region X'), and suggest one concrete next "
+    "step. Do not simply restate the numbers back."
+)
+
+
+def narrate_anomaly_drivers(model, drivers: list[dict], n_flagged: int) -> tuple[str, Optional[str]]:
+    """Ask Gemini to turn a find_anomaly_drivers() result into a short
+    plain-English explanation of what characterizes the anomalies.
+
+    Returns (narration, error), same contract as narrate_anomalies().
+    """
+    if model is None:
+        return "", "No Gemini model available for narration."
+    if not drivers:
+        return "No statistically significant drivers found — the flagged rows don't differ from the rest on any single column.", None
+
+    lines = []
+    for d in drivers:
+        if d["type"] == "numeric":
+            lines.append(
+                f"- {d['column']} (numeric): anomaly mean {d['anomaly_mean']:.3g} vs. normal mean "
+                f"{d['normal_mean']:.3g}, Cohen's d = {d['effect_size']:.2f} ({d['effect_size_label']}), "
+                f"p = {d['p_value']:.4f}"
+            )
+        else:
+            lines.append(
+                f"- {d['column']} (categorical): Cramer's V = {d['effect_size']:.2f} "
+                f"({d['effect_size_label']}), p = {d['p_value']:.4f}"
+            )
+    drivers_text = "\n".join(lines)
+    prompt = _DRIVER_NARRATION_PROMPT.format(n_flagged=n_flagged, drivers_text=drivers_text)
+
+    from modules.ai_analyst import call_gemini
+
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
+
+
+def driver_reference_numbers(drivers: list[dict]) -> set[float]:
+    """Ground-truth numbers for narrate_anomaly_drivers()'s prose: each
+    driver's effect size and p-value (rounded the same way the prompt
+    renders them, so verify_narration's substring-ish matching lines up).
+    Never raises.
+    """
+    numbers: set[float] = set()
+    try:
+        for d in drivers or []:
+            numbers.add(round(float(d["effect_size"]), 2))
+            numbers.add(round(float(d["p_value"]), 4))
+            if d["type"] == "numeric":
+                if d.get("anomaly_mean") is not None:
+                    numbers.add(round(float(d["anomaly_mean"]), 3))
+                if d.get("normal_mean") is not None:
+                    numbers.add(round(float(d["normal_mean"]), 3))
+    except (TypeError, ValueError, KeyError):
+        pass
+    return numbers
+
+
 def _dbscan_eps(scaled: "np.ndarray", min_samples: int) -> float:
     """Heuristic eps for DBSCAN: the 90th percentile of each point's
     distance to its min_samples-th nearest neighbor (a simplified k-distance

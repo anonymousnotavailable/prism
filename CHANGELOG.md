@@ -2,6 +2,27 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 22)
+
+### Added
+- **Anomaly Drivers** (`modules/anomaly.py`, `app.py`) — IsolationForest
+  (and the LOF/DBSCAN ensemble) flag *which* rows are unusual but never
+  say *why*. `find_anomaly_drivers()` answers that: it splits the dataset
+  into flagged-vs-normal and tests every other column for a real
+  difference between the two groups — Welch's t-test (Cohen's d) for
+  numeric columns, a chi-square test of independence (Cramer's V) for
+  categorical/boolean ones — reusing `stats_lab.run_ttest()`/`run_chi2()`
+  directly so the effect sizes and small/medium/large labels always match
+  what Stats Lab would report for the same columns. Only statistically
+  significant drivers (p < 0.05) surface, ranked by effect size. A new
+  "🔬 What makes these rows anomalous?" panel renders under the Anomaly
+  Detection results (both single-method and ensemble mode) with an
+  optional "✨ Explain these drivers with AI" Gemini narration, cached by
+  fingerprint and fact-checked against the drivers' own numbers via the
+  same `insight_verifier`-backed safety net the rest of the app uses.
+  Zero extra Gemini calls unless the user asks for the narration. 24 new
+  tests (44 total in `test_anomaly.py`), full suite 428/428 green.
+
 ## 2026-08-11 (Run 21)
 
 ### Added
