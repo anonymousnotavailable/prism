@@ -51,6 +51,18 @@ FACET_COL_WRAP = 3
 # the label shown in the UI.
 MANUAL_CHART_AGG_FUNCS = {"Mean": "mean", "Sum": "sum", "Median": "median", "Min": "min", "Max": "max"}
 
+# suggest_chart_encoding()'s bar to call a numeric/numeric correlation
+# "worth plotting" — same threshold auto_analyst.suggest_followup_hypothesis
+# uses for its own Stats Lab suggestion, kept in sync deliberately: a pair
+# that isn't yet worth a significance test isn't worth leading with as the
+# headline chart either.
+_MIN_CORRELATION_TO_SUGGEST = 0.3
+# Cardinality window for a categorical column to be offered as the Scatter
+# suggestion's Color split or the Bar suggestion's Facet split — too few
+# groups (<2) says nothing, too many (>MAX_FACET_CATEGORIES) would blow up
+# into an unreadable legend/grid before _cap_facet_categories even runs.
+_MIN_GROUPS_FOR_SPLIT = 2
+
 
 def get_overview_stats(df: pd.DataFrame) -> pd.DataFrame:
     """Return df.describe() across all dtypes, transposed for easier table display.
@@ -313,6 +325,156 @@ def _cap_facet_categories(df: pd.DataFrame, facet: Optional[str]) -> pd.DataFram
         return df
     top_categories = df[facet].value_counts(dropna=True).head(MAX_FACET_CATEGORIES).index
     return df[df[facet].isin(top_categories)]
+
+
+def _best_split_categorical(
+    df: pd.DataFrame, categorical_cols: list[str], exclude: tuple[Optional[str], ...] = ()
+) -> Optional[str]:
+    """Pick the categorical column best suited as a Color/Facet split: the
+    lowest-cardinality one within [_MIN_GROUPS_FOR_SPLIT, MAX_FACET_CATEGORIES]
+    groups, since a chart split by too few groups says nothing and one split
+    by too many is unreadable (and would just get silently capped anyway).
+    Returns None if no candidate clears the window.
+    """
+    best_col, best_n = None, None
+    for col in categorical_cols:
+        if col in exclude:
+            continue
+        n_groups = df[col].dropna().nunique()
+        if _MIN_GROUPS_FOR_SPLIT <= n_groups <= MAX_FACET_CATEGORIES:
+            if best_n is None or n_groups < best_n:
+                best_col, best_n = col, n_groups
+    return best_col
+
+
+def suggest_chart_encoding(df: pd.DataFrame, column_types: dict[str, str]) -> Optional[dict]:
+    """Rule-based "explore mode" suggestion — look at the loaded data directly
+    (not an LLM) and recommend a single chart_type + axis/color/facet/agg
+    encoding for the Manual Chart Builder, with a plain-English reason. The
+    "auto-suggest encodings" slice Runs 13/14 explicitly left open after
+    shipping the Color/Aggregation/Facet channels, and the same "read the
+    data, not the LLM's prose" pattern auto_analyst.suggest_followup_
+    hypothesis already established for Stats Lab.
+
+    Ranking, most to least interesting (first hit wins):
+      1. Scatter on the strongest numeric/numeric correlation (if it clears
+         _MIN_CORRELATION_TO_SUGGEST), colored by a low-cardinality
+         categorical when one exists.
+      2. Bar (mean) of the numeric/categorical pair with the largest
+         one-way ANOVA F-statistic among viable group counts, faceted by a
+         second low-cardinality categorical when one exists.
+      3. Line of a numeric column over the first datetime column.
+      4. Histogram of the first numeric column.
+      5. Bar (counts) of the first categorical column.
+
+    Returns None if nothing usable exists (empty/all-null data, or no
+    numeric/categorical/datetime column at all) — a suggestion nobody could
+    act on is worse than no suggestion. Never raises: every branch is built
+    from data already validated to be usable.
+    """
+    if df.empty:
+        return None
+
+    numeric_cols = [c for c, t in column_types.items() if t == "numeric" and c in df.columns and df[c].notna().any()]
+    categorical_cols = [
+        c for c, t in column_types.items() if t == "categorical" and c in df.columns and df[c].notna().any()
+    ]
+    datetime_cols = [
+        c for c, t in column_types.items() if t == "datetime" and c in df.columns and df[c].notna().any()
+    ]
+
+    # 1. Strongest numeric/numeric correlation.
+    if len(numeric_cols) >= 2:
+        try:
+            corr = df[numeric_cols].corr(numeric_only=True).abs()
+        except Exception:
+            corr = None
+        if corr is not None:
+            best_r, best_pair = 0.0, None
+            for i, col_a in enumerate(numeric_cols):
+                for col_b in numeric_cols[i + 1 :]:
+                    r = corr.loc[col_a, col_b]
+                    if pd.notna(r) and r > best_r:
+                        best_r, best_pair = float(r), (col_a, col_b)
+            if best_pair and best_r >= _MIN_CORRELATION_TO_SUGGEST:
+                col_x, col_y = best_pair
+                color = _best_split_categorical(df, categorical_cols)
+                reason = f"'{col_x}' and '{col_y}' are the most correlated numeric pair in this data (r={best_r:.2f})"
+                reason += f", colored by '{color}' to see if the relationship holds within each group." if color else "."
+                return {
+                    "chart_type": "Scatter", "col_x": col_x, "col_y": col_y,
+                    "color": color, "agg": "mean", "facet": None, "reason": reason,
+                }
+
+    # 2. Numeric/categorical pair with the largest ANOVA F-statistic.
+    best_f, best_cat_pair = 0.0, None
+    for cat_col in categorical_cols:
+        n_groups = df[cat_col].dropna().nunique()
+        if n_groups < _MIN_GROUPS_FOR_SPLIT or n_groups > MAX_FACET_CATEGORIES:
+            continue
+        for num_col in numeric_cols:
+            try:
+                groups = [g.dropna().to_numpy() for _, g in df.groupby(cat_col)[num_col]]
+                groups = [g for g in groups if len(g) >= 2]
+                if len(groups) < 2:
+                    continue
+                f_stat, _ = _one_way_anova_f(groups)
+            except Exception:
+                continue
+            if f_stat is not None and f_stat > best_f:
+                best_f, best_cat_pair = f_stat, (num_col, cat_col)
+    if best_cat_pair:
+        num_col, cat_col = best_cat_pair
+        facet = _best_split_categorical(df, categorical_cols, exclude=(cat_col,))
+        reason = f"'{num_col}' looks like it varies meaningfully across '{cat_col}' groups"
+        reason += f", faceted by '{facet}' to compare that pattern across groups." if facet else "."
+        return {
+            "chart_type": "Bar", "col_x": cat_col, "col_y": num_col,
+            "color": None, "agg": "mean", "facet": facet, "reason": reason,
+        }
+
+    # 3. Datetime + numeric trend.
+    if datetime_cols and numeric_cols:
+        dt_col, num_col = datetime_cols[0], numeric_cols[0]
+        return {
+            "chart_type": "Line", "col_x": dt_col, "col_y": num_col,
+            "color": None, "agg": "mean", "facet": None,
+            "reason": f"'{num_col}' over '{dt_col}' — the only time series available in this data.",
+        }
+
+    # 4. Lone numeric column.
+    if numeric_cols:
+        col = numeric_cols[0]
+        return {
+            "chart_type": "Histogram", "col_x": col, "col_y": None,
+            "color": None, "agg": "mean", "facet": None,
+            "reason": f"No strong relationship found yet — start by looking at how '{col}' is distributed.",
+        }
+
+    # 5. Lone categorical column.
+    if categorical_cols:
+        col = categorical_cols[0]
+        return {
+            "chart_type": "Bar", "col_x": col, "col_y": None,
+            "color": None, "agg": "mean", "facet": None,
+            "reason": f"No numeric column to relate it to yet — start with the most common '{col}' values.",
+        }
+
+    return None
+
+
+def _one_way_anova_f(groups: list) -> tuple[Optional[float], Optional[float]]:
+    """Thin wrapper around scipy's one-way ANOVA so suggest_chart_encoding()
+    doesn't need scipy as a direct import — mirrors auto_analyst's own
+    suggestion logic. Returns (F-statistic, p-value), both None on failure.
+    """
+    from scipy import stats as scipy_stats
+
+    try:
+        f_stat, p_value = scipy_stats.f_oneway(*groups)
+    except Exception:
+        return None, None
+    return (float(f_stat) if pd.notna(f_stat) else None), (float(p_value) if pd.notna(p_value) else None)
 
 
 def build_manual_chart(
