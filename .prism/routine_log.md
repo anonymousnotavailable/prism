@@ -1974,3 +1974,123 @@ gotten worse.
 
 Full reasoning, verification transcript, and Run 29 recommendation in
 `RUN_REPORT_2026-08-11-run28.md`.
+
+## Run 29 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `5ec9462` (Run 28's
+tip) per this run's git constraint. Cold start needed no reinstall —
+system Python already had every dependency; 564 tests green before any
+changes, matching Run 28's final count exactly. No stale local branches
+to clean up.
+
+Playwright checked again implicitly per routine brief's own note that
+the block is stable across 4 consecutive runs — not re-tested this run
+per the brief's explicit instruction to go straight to the fallback
+(pytest + live `streamlit run` smoke test + direct function-level
+verification), documented as the verification method below.
+
+Ran a fresh Phase 2 web research sweep per Run 28's own recommendation
+(Run 27's candidate table down to L-effort/deferred-twice items) — see
+`.prism/research_2026-08-11-run29.md` for the full ranked table and
+external sources (2026 DA/DS job-outlook surveys, Hex/Deepnote/Julius AI/
+ChatGPT ADA competitor coverage, arXiv LLM-data-science-agent surveys,
+market-basket/Apriori literature). Before ranking, read `clustering.py`,
+`anomaly.py`, and `domains.py` directly, plus `app.py`'s Clustering and
+Domain Lens tab wiring, and ran `grep -rniE "apriori|association.rule|
+frequent.itemset|market.basket|AgglomerativeClustering|DBSCAN|
+dendrogram|hierarchical" modules/*.py tests/*.py app.py` — confirmed
+`clustering.py` is KMeans-only (the only existing `DBSCAN` usage is
+inside `anomaly.py`'s ensemble outlier detector, which only uses DBSCAN
+to flag `-1`-labeled noise points, never surfaces its cluster
+assignments as a segmentation result — a genuinely different purpose),
+and confirmed zero hits anywhere for apriori/association-rule/frequent-
+itemset/market-basket, two real, verifiably open gaps.
+
+**Selected: (1) DBSCAN + Agglomerative Hierarchical clustering algorithms
+for the Clustering tab** (`modules/clustering.py`) — Run 27/28's own
+twice-deferred recommendation (deferred in Run 27 to avoid a second
+straight Clustering-tab run after Run 26's silhouette work; deferred
+again in Run 28 only because that run's two slots went to ROC/PR +
+script export, not because the gap closed). Adds DBSCAN (arbitrary-shape
+density-based clustering with explicit noise/outlier labeling, sidesteps
+picking K entirely, eps suggested via a k-distance elbow chart the user
+can see — mirroring the existing elbow/silhouette-chart pattern for
+KMeans, and consistent with `anomaly.py`'s own `_dbscan_eps` 90th-
+percentile heuristic used as the interactive default) and Agglomerative
+Hierarchical clustering (Ward linkage by default, dendrogram via
+`plotly.figure_factory.create_dendrogram`, no new dependency — already
+available in the installed `plotly`+`scipy`). And **(2) Market Basket
+Analysis (Apriori association rules) for Domain Lens → Product
+Analytics** (`modules/market_basket.py`, new module) — a textbook retail/
+product-analytics technique (frequently-bought-together itemsets,
+support/confidence/lift), cited alongside RFM (which Prism already
+ships) in the same product-analytics literature, with zero coverage
+today. Implemented as a bounded, from-scratch Apriori (itemsets up to
+size 3, capped item vocabulary and basket sample size for tractability)
+rather than pulling in the `mlxtend` dependency, keeping the pip
+footprint unchanged.
+
+**Why these over the alternatives:** Difference-in-Differences
+(candidate #3) and cross-module reproducible-script export (candidate
+#4) were both re-flagged L-effort/medium-risk or spanning too many
+modules for a single two-feature run, same verdict as Runs 27-28;
+survival analysis (candidate #5) would need either a new `lifelines`
+dependency or a heavier from-scratch Kaplan-Meier+log-rank
+implementation than Apriori for comparable value, logged as a Run 30+
+candidate. Both selected features are pure numpy/pandas/scipy/sklearn
+compute (zero Gemini calls, zero free-tier exposure), M effort each, and
+neither touches the Atlas/JARVIS copilot track (0/1 this run). #1
+diversifies *within* Clustering (new algorithms, not another metric on
+KMeans); #2 opens a genuinely new Domain Lens capability instead of
+piling onto an already-deep tab.
+
+Plan: branch `feature/clustering-dbscan-hierarchical` and
+`feature/market-basket-analysis` off `claude/adoring-meitner-7xxgfq`,
+tests first, then implement, full suite must stay green, merge both with
+`--no-ff`, push.
+
+## Run 29 — 2026-08-11 — result
+
+Shipped both selected features: DBSCAN + Agglomerative Hierarchical
+clustering algorithms for the Clustering tab (`modules/clustering.py`,
+19 new tests, 38 total in `test_clustering.py`) and Market Basket
+Analysis / Apriori association rules for Domain Lens → Product Analytics
+(`modules/market_basket.py`, new module, 28 new tests). Merged
+`feature/clustering-dbscan-hierarchical` and `feature/market-basket-
+analysis` into `claude/adoring-meitner-7xxgfq` with `--no-ff` — both
+clean merges, no conflicts. Full suite 564 → 611 green, zero
+regressions; app launches cleanly post-merge (HTTP 200, clean
+`streamlit run` logs, checked after each feature branch and again on the
+final merged branch).
+
+Playwright/Chromium not retried this run (stable-blocked policy per this
+run's own brief, not re-litigated) — verified instead via the full test
+suite, three live-server smoke tests (one per feature branch plus one on
+the final merged state), and direct function-level runs against real/
+synthetic data: DBSCAN + Hierarchical were run against `samples/
+stock_data.csv`'s OHLCV columns (DBSCAN correctly found 1 dense regime
+cluster + 5% flagged as noise, correctly fell back to `silhouette_score:
+None` since a single real cluster can't be scored; Hierarchical correctly
+split the same data into 4 well-separated regimes at silhouette 0.32).
+Market Basket Analysis was run against a synthetic 2,000-basket
+transaction log with known co-purchase structure baked in (Bread+Butter
+always paired, Beer+Chips always paired, an occasional Bread+Butter+Jam
+triple) — the Apriori implementation recovered the exact designed
+structure: Beer↔Chips at lift 2.73/confidence 1.0, Bread↔Butter at
+confidence 1.0, and correctly surfaced the Bread/Butter/Jam triple
+itemset, proving the join-and-prune candidate generation and support/
+confidence/lift scoring are correct, not just plausible-looking.
+
+Ran a fresh Phase 2 web research sweep per Run 28's own recommendation
+(Run 27's candidate table down to L-effort/deferred-twice items) — see
+`.prism/research_2026-08-11-run29.md`. DBSCAN/hierarchical clustering was
+Run 27/28's own twice-deferred recommendation, finally shipped this run;
+Market Basket Analysis was a fresh find from this run's sweep (retail/
+product-analytics literature, paired thematically with the existing RFM
+segmentation in `domains.py`), chosen over Difference-in-Differences
+(still L-effort/medium-risk, deferred a third time) and survival analysis
+(would need a new `lifelines` dependency or a heavier from-scratch
+implementation).
+
+Full reasoning, verification transcript, and Run 30 recommendation in
+`RUN_REPORT_2026-08-11-run29.md`.

@@ -2,6 +2,35 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 29)
+
+### Added
+- **DBSCAN + Agglomerative Hierarchical clustering** (`modules/clustering.py`)
+  — the Clustering tab now has an algorithm picker alongside the existing
+  KMeans option. DBSCAN finds arbitrary-shaped, density-based clusters and
+  explicitly labels points that don't belong to any dense region as
+  "Noise" instead of forcing every point into a cluster; its `eps`
+  parameter is suggested via a k-distance-plot elbow heuristic the user
+  can inspect (mirroring the existing KMeans elbow/silhouette-chart
+  pattern). Agglomerative Hierarchical clustering (ward/complete/average/
+  single linkage) needs no upfront shape assumption and comes with an
+  inspectable dendrogram (via `plotly.figure_factory.create_dendrogram`,
+  no new dependency). Both share the existing PCA scatter, silhouette
+  verdict, cluster-stats table, and "Name Segments with AI" UI through a
+  new shared renderer. 19 new tests.
+- **Market Basket Analysis** (`modules/market_basket.py`, new module) —
+  a new section under Domain Lens → Product Analytics mines frequent
+  itemsets and association rules ("customers who buy X also buy Y") from
+  a (Basket ID, Item) column pair via a from-scratch Apriori
+  implementation (join-and-prune, itemsets up to size 3) — no new pip
+  dependency. Rules are scored by support/confidence/lift and shown as a
+  top-rules-by-lift bar chart plus a sortable table; a raw frequent-
+  itemsets table is available in an expander. Tractability caps (item-
+  vocabulary size, basket sampling) protect against pathological inputs
+  and are reported back in the UI when triggered. 28 new tests, including
+  exact recovery of known co-purchase structure in synthetic transaction
+  data.
+
 ## 2026-08-11 (Run 28)
 
 ### Added
