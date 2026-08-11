@@ -4,10 +4,12 @@ calculator and post-hoc power checks for existing test results.
 from __future__ import annotations
 
 from modules.experiment_design import (
+    achieved_power_chi2,
     achieved_power_ttest,
     interpret_power_check,
     interpret_sample_size_means,
     interpret_sample_size_proportions,
+    power_check_chi2,
     power_check_ttest,
     sample_size_two_means,
     sample_size_two_proportions,
@@ -185,3 +187,80 @@ def test_interpret_sample_size_means_text():
 def test_interpret_sample_size_means_error_passthrough():
     result = sample_size_two_means(mean_diff=5.0, std_dev=0.0)
     assert interpret_sample_size_means(result) == result["error"]
+
+
+# --- achieved_power_chi2 / power_check_chi2 ----------------------------------
+# Reference values cross-checked against R's `pwr.chisq.test()` (the standard
+# citation for chi-square power): w=0.3 (medium effect per Cohen's convention),
+# df=1 (a 2x2 table), sig.level=0.05, power=0.8 -> N ~= 87.9. statsmodels'
+# GofChisquarePower uses the same noncentral-chi-square approximation and
+# should land within a couple of rows of that reference.
+
+def test_achieved_power_chi2_matches_known_reference():
+    # Cramer's V for a 2x2 table (min_dim=1) equals Cohen's w directly, so
+    # this is exactly the pwr.chisq.test(w=0.3, df=1, n=88) scenario.
+    power = achieved_power_chi2(cramers_v=0.3, n=88, rows=2, cols=2)
+    assert 0.78 <= power <= 0.82
+
+
+def test_achieved_power_chi2_larger_n_increases_power():
+    small_n = achieved_power_chi2(cramers_v=0.2, n=50, rows=2, cols=2)
+    large_n = achieved_power_chi2(cramers_v=0.2, n=1000, rows=2, cols=2)
+    assert large_n > small_n
+
+
+def test_achieved_power_chi2_nonsquare_table_uses_min_dim_for_w():
+    # A 2x4 table: min_dim = min(2,4)-1 = 1, so the same Cramer's V implies
+    # the same Cohen's w as a 2x2 table — but dof = (2-1)*(4-1) = 3, so
+    # power should differ from the 2x2 case at the same n despite equal w.
+    power_2x2 = achieved_power_chi2(cramers_v=0.3, n=200, rows=2, cols=2)
+    power_2x4 = achieved_power_chi2(cramers_v=0.3, n=200, rows=2, cols=4)
+    assert power_2x2 != power_2x4
+
+
+def test_achieved_power_chi2_invalid_shape_returns_zero():
+    assert achieved_power_chi2(cramers_v=0.3, n=100, rows=1, cols=2) == 0.0
+
+
+def test_power_check_chi2_flags_underpowered_result():
+    check = power_check_chi2(cramers_v=0.15, n=40, rows=2, cols=2)
+    assert check["test"] == "chi2"
+    assert check["underpowered"] is True
+    assert check["achieved_power"] < 0.8
+    assert check["recommended_n"] > 40
+
+
+def test_power_check_chi2_flags_well_powered_result():
+    check = power_check_chi2(cramers_v=0.4, n=500, rows=2, cols=2)
+    assert check["underpowered"] is False
+    assert check["achieved_power"] > 0.95
+
+
+def test_power_check_chi2_handles_zero_effect_size_without_raising():
+    check = power_check_chi2(cramers_v=0.0, n=100, rows=2, cols=3)
+    assert check.get("error") is None
+    assert check["underpowered"] is True
+    assert check["recommended_n"] is None
+
+
+def test_power_check_chi2_rejects_degenerate_table():
+    check = power_check_chi2(cramers_v=0.3, n=100, rows=1, cols=2)
+    assert check.get("error")
+
+
+def test_power_check_chi2_dof_matches_table_shape():
+    check = power_check_chi2(cramers_v=0.3, n=200, rows=3, cols=4)
+    assert check["dof"] == (3 - 1) * (4 - 1)
+
+
+def test_interpret_power_check_dispatches_to_chi2():
+    check = power_check_chi2(cramers_v=0.15, n=40, rows=2, cols=2)
+    text = interpret_power_check(check)
+    assert "underpowered" in text.lower()
+    assert "table" in text.lower()
+
+
+def test_interpret_power_check_chi2_well_powered_text():
+    check = power_check_chi2(cramers_v=0.4, n=500, rows=2, cols=2)
+    text = interpret_power_check(check)
+    assert "well-powered" in text.lower()
