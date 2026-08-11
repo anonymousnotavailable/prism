@@ -147,6 +147,7 @@ _DEFAULTS = {
     "anomaly_narration": None,  # Gemini-narrated explanation of the last flagged anomaly set
     "anomaly_narration_fingerprint": None,  # anomaly.fingerprint_flagged() of the set the narration above covers
     "anomaly_methods_summary": None,  # per-method flagged counts from the last ensemble "Find Anomalies" run, if any
+    "anomaly_result_source": None,  # "auto" (ran on upload, zero-click) or "manual" (user clicked Find Anomalies)
     "auto_analyst_plan": None,  # last "Run Full Analysis" plan — list of {"title", "question"}
     "auto_analyst_step_outcomes": [],  # per-step results from the last Auto Analyst run
     "auto_analyst_findings": [],  # last Auto Analyst "top 5 findings" synthesis
@@ -295,6 +296,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.undo_stack = []
     st.session_state.anomaly_result_df = None
     st.session_state.anomaly_error = None
+    st.session_state.anomaly_result_source = None
     st.session_state.auto_analyst_plan = None
     st.session_state.auto_analyst_step_outcomes = []
     st.session_state.auto_analyst_findings = []
@@ -338,11 +340,19 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.causal_narration = None
     st.session_state.cate_result = None
     st.session_state.cate_narration = None
-    st.session_state.anomaly_result_df = None
-    st.session_state.anomaly_error = None
     st.session_state.anomaly_narration = None
     st.session_state.anomaly_narration_fingerprint = None
-    st.session_state.anomaly_methods_summary = None
+    # Zero-click auto-EDA: try the ensemble anomaly scan immediately on
+    # upload (bounded to AUTO_RUN_MAX_ROWS so it stays instant — see
+    # anomaly.auto_run_on_upload). Feeds the Agentic Insight Orchestrator
+    # and its proactive Atlas alert from the very first render, the same
+    # way auto_insights/confounder_scan above already do. Falls back to the
+    # existing manual "Find Anomalies" flow (both None) when it can't run.
+    auto_anomaly_df, auto_anomaly_summary = anomaly.auto_run_on_upload(working_df, st.session_state.column_types)
+    st.session_state.anomaly_result_df = auto_anomaly_df
+    st.session_state.anomaly_methods_summary = auto_anomaly_summary
+    st.session_state.anomaly_result_source = "auto" if auto_anomaly_df is not None else None
+    st.session_state.anomaly_error = None
     st.session_state.sample_info = None
     st.session_state.autocleaner_report = None
     st.session_state.autocleaner_review_queue = []
@@ -2160,6 +2170,7 @@ elif st.session_state.active_section == "Overview":
                         st.session_state.anomaly_methods_summary = None
                 st.session_state.anomaly_result_df = flagged
                 st.session_state.anomaly_error = anomaly_err
+                st.session_state.anomaly_result_source = "manual"
                 st.session_state.anomaly_narration = None
                 st.session_state.anomaly_narration_fingerprint = None
                 st.rerun()  # see the Agent Summary same-pass-staleness note above
@@ -2172,6 +2183,11 @@ elif st.session_state.active_section == "Overview":
                 if flagged.empty:
                     st.info("No anomalies detected.")
                 else:
+                    if st.session_state.get("anomaly_result_source") == "auto":
+                        st.caption(
+                            "🔍 Auto-detected the moment this dataset was uploaded — zero clicks. "
+                            "Click **Find Anomalies** above to re-run manually (e.g. in single-method mode)."
+                        )
                     st.write(f"**{len(flagged)} anomalous row(s) flagged:**")
                     if methods_summary:
                         summary_cols = st.columns(len(methods_summary))
@@ -2222,6 +2238,7 @@ elif st.session_state.active_section == "Overview":
                             cleaning.anomaly_exclude_code(len(flagged)),
                         )
                         st.session_state.anomaly_result_df = None
+                        st.session_state.anomaly_result_source = None
                         st.toast(f"Excluded {len(flagged)} anomalous row(s). 🚨")
                         st.rerun()
 

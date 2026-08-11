@@ -956,3 +956,69 @@ actionable from inside a run). New candidate for a future run: extend the
 tier-2 alert pattern to Pie charts' category-share findings if a similar
 "silent detector" gap is ever identified there — not built now since no
 such gap currently exists in Pie's rendering path.
+
+## Run 14 — 2026-08-11
+
+Same token-efficiency reasoning Runs 9-13 logged for this scheduling
+pattern (fourteenth cycle, thirteen of them today): reused the standing
+backlog/research table rather than re-running the full four-source-class
+web sweep. Did a targeted audit (not a full walkthrough — last done fresh
+in Run 11) focused on the upload flow and Overview tab, since this cycle's
+mandatory agentic-AI-analysis theme pointed there. Same process-note
+contradiction in the trigger ("loop until 100% used" + "use less
+tokens"/"don't use credits", plus a new instruction this run to "act like
+Elon Musk") as prior runs — ran one complete, safely verified cycle and
+stopped, per the hard guardrails. Also: this run's session carries an
+explicit harness-level git instruction to develop and push only to branch
+`claude/adoring-meitner-uud4wv`, not `main` — that takes precedence over
+Phase 7's literal "push main" instruction the same way it has for every
+run's scheduling-prompt contradictions; merged the feature branch into the
+session branch instead of `main` and pushed that. `main` itself was left
+untouched this run — flagged clearly in the run report so a human review
+can fast-forward `main` when ready.
+
+**Shipped:** zero-click anomaly detection on upload
+(`modules/anomaly.auto_run_on_upload`) — the ensemble anomaly detector
+(Isolation Forest + LOF + DBSCAN) now runs automatically at upload time for
+datasets in [20, 5,000] rows with 2+ numeric columns, instead of requiring
+a tab visit and button click. Closes a real gap this run's audit found: of
+the orchestrator's 8 detector sources, anomaly detection was the only one
+of the "silent" pair-worthy detectors (alongside auto_insights and the
+confounder scan, which already auto-run) still gated behind a click —
+meaning a first upload got orchestration synthesis from at most 2 of 8
+possible sources instead of 3. Directly satisfies this cycle's mandatory
+agentic-AI-analysis theme's "auto-EDA on upload" pillar. Deliberately
+capped auto-run at 5,000 rows (well below the app's normal 50,000-row
+ingest cap) because LOF/DBSCAN's pairwise-distance cost isn't safe to run
+unattended on every upload at full size — above the cap it silently
+no-ops and the existing manual flow is untouched. Added a small UI caption
+distinguishing an auto-detected result from a manually-triggered one. 6
+new tests (25 total in `test_anomaly.py`, up from 19), full suite 291/291
+green (285 baseline + 6 new). Verified live via Playwright (desktop
+1440px dark + light via the Arctic theme, mobile 390px dark;
+`samples/stock_data.csv`, 400 rows, 5 numeric columns): confirmed the
+auto-detected caption and 30 flagged rows rendered correctly in the
+Anomaly Detection expander in all three states with no traceback, no
+clipping, glass panels consistent; also confirmed Atlas's existing
+proactive alert fired for the resulting cross-detector agreement (2
+independent checks agreeing on a high/open relationship), unchanged
+behavior, now reachable one detector earlier. Screenshots saved to
+`.prism/runs/2026-08-11-run14/`. Hit the same `_cffi_backend` sandbox gap
+Runs 12-13 documented; same fix applied. `.env`/secrets hygiene checked
+(clean, `.gitignore` covers it, no `.env` file present in this sandbox).
+Merged `feature/zero-click-anomaly-auto-run` into the session branch
+`claude/adoring-meitner-uud4wv` (not `main` — see harness note above),
+full suite re-verified green post-merge, fresh-checkout sanity check
+(`streamlit run app.py` boots clean, HTTP 200) passed.
+
+**Not built (backlog, unchanged):** PyGWalker-style chart builder's
+remaining scope (draggable pill UI, faceting, explore mode) — effort L, now
+9+ runs unaddressed, still the best candidate for a run with more budget.
+DuckDB/polars-backed Auto Cleaner path for large datasets — unaddressed
+since first logged. Light-theme dataframe/chart repaint-lag (cosmetic).
+Live-Gemini verification (14th consecutive run, sandbox constraint).
+**New note for the next run:** `main` is one merge behind
+`claude/adoring-meitner-uud4wv` as of this run ending — the next run (or a
+human) should fast-forward-merge this run's feature commit into `main` and
+push it, since Phase 7 of the routine expects shipped work to land on
+`main`.

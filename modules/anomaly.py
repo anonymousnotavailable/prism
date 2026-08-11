@@ -42,6 +42,14 @@ MIN_ROWS_REQUIRED = 10
 ENSEMBLE_METHODS = ("isolation_forest", "lof", "dbscan")
 ENSEMBLE_MIN_ROWS = 20
 
+# LOF/DBSCAN scale roughly with the square of row count (pairwise distances),
+# so the ensemble is fine for an explicit, user-triggered run up to
+# data_engine.MAX_ROWS but needs a much tighter cap to stay instant when it
+# runs unattended on every upload (see auto_run_on_upload below). Above this,
+# the auto-run silently no-ops; the user can still trigger the full ensemble
+# manually in the Anomaly Detection expander regardless of dataset size.
+AUTO_RUN_MAX_ROWS = 5000
+
 
 def is_available() -> bool:
     """Whether scikit-learn is installed."""
@@ -266,6 +274,40 @@ def find_anomalies_ensemble(
 
     consensus = consensus.sort_values("consensus_count", ascending=False)
     return consensus, methods_summary, None
+
+
+def auto_run_on_upload(df: pd.DataFrame, column_types: dict[str, str]) -> tuple[Optional[pd.DataFrame], Optional[dict]]:
+    """Zero-click ensemble anomaly scan for the upload path — same detector
+    as find_anomalies_ensemble, run automatically the moment a dataset loads
+    instead of waiting for the user to open the Anomaly Detection expander
+    and click "Find Anomalies". This is what lets the Agentic Insight
+    Orchestrator's cross-detector synthesis (and its proactive Atlas alert)
+    include anomaly evidence from the very first render, the same way
+    Auto-Insights and the confounder scan already do.
+
+    Deliberately best-effort and silent, unlike find_anomalies_ensemble: this
+    runs unattended on *every* upload, so it must never raise or surface an
+    error banner — it either returns a real result or quietly no-ops so the
+    Anomaly tab falls back to its existing manual "Find Anomalies" flow.
+    No-ops (returns (None, None)) when: scikit-learn isn't installed, the
+    dataset is outside [ENSEMBLE_MIN_ROWS, AUTO_RUN_MAX_ROWS] rows, fewer
+    than 2 numeric columns are available, or detection fails unexpectedly.
+    """
+    if not is_available():
+        return None, None
+    if not (ENSEMBLE_MIN_ROWS <= len(df) <= AUTO_RUN_MAX_ROWS):
+        return None, None
+    numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+    if len(numeric_cols) < 2:
+        return None, None
+
+    try:
+        consensus, methods_summary, error = find_anomalies_ensemble(df, column_types)
+    except Exception:
+        return None, None
+    if error:
+        return None, None
+    return consensus, methods_summary
 
 
 _ENSEMBLE_NARRATION_PROMPT = (

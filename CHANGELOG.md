@@ -2,6 +2,29 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 14)
+
+### Added
+- **Zero-click anomaly detection on upload** (`modules/anomaly.auto_run_on_upload`,
+  `app.py`) — the ensemble anomaly detector (Isolation Forest + LOF + DBSCAN
+  consensus) now runs automatically the moment a dataset is uploaded, for
+  datasets between 20 and 5,000 rows with 2+ numeric columns, instead of
+  waiting for the user to open the Anomaly Detection expander and click
+  "Find Anomalies". Feeds the Agentic Insight Orchestrator and its proactive
+  Atlas alert with anomaly evidence from the very first render, closing a
+  gap where anomaly detection was the only "silent" detector among the
+  orchestrator's 8 sources that didn't run at upload time (auto_insights and
+  the confounder scan already did). Bounded to 5,000 rows for the auto-run
+  specifically — LOF/DBSCAN's pairwise-distance cost is too expensive to run
+  unattended on every upload above that, so above the cap the auto-run
+  silently no-ops and the existing manual "Find Anomalies" flow (which still
+  works up to the app's normal 50,000-row ingest cap) is unchanged. The
+  Anomaly Detection expander shows a small "🔍 Auto-detected the moment this
+  dataset was uploaded" caption when results came from the auto-run, so the
+  distinction from a manual click is visible, not silent. Zero extra Gemini
+  calls (detection itself is deterministic; narration stays manual/opt-in as
+  before). 6 new tests.
+
 ## 2026-08-11 (Run 13)
 
 ### Added

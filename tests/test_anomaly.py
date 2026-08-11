@@ -6,9 +6,11 @@ import numpy as np
 import pandas as pd
 
 from modules.anomaly import (
+    AUTO_RUN_MAX_ROWS,
     ENSEMBLE_METHODS,
     ENSEMBLE_MIN_ROWS,
     MIN_ROWS_REQUIRED,
+    auto_run_on_upload,
     find_anomalies,
     find_anomalies_ensemble,
     fingerprint_flagged,
@@ -231,3 +233,64 @@ def test_narrate_ensemble_disagreement_calls_gemini_with_method_summary():
     narration, error = narrate_ensemble_disagreement(_FakeModel(), consensus, summary)
     assert error is None
     assert "agree" in narration.lower()
+
+
+# --- auto_run_on_upload -----------------------------------------------------
+# Zero-click auto-EDA: the same ensemble consensus as find_anomalies_ensemble,
+# but silently no-op instead of erroring outside the bounds where it's safe
+# to run unattended on every upload.
+
+def test_auto_run_on_upload_flags_the_planted_outlier():
+    df = _ensemble_df()
+    consensus, summary = auto_run_on_upload(
+        df, {"value": "numeric", "other": "numeric", "label": "categorical"}
+    )
+    assert consensus is not None and 0 in consensus.index
+    assert consensus.loc[0, "consensus_count"] == len(ENSEMBLE_METHODS)
+    assert summary is not None and set(summary.keys()) == set(ENSEMBLE_METHODS)
+
+
+def test_auto_run_on_upload_matches_manual_ensemble_result():
+    df = _ensemble_df()
+    column_types = {"value": "numeric", "other": "numeric", "label": "categorical"}
+    auto_consensus, auto_summary = auto_run_on_upload(df, column_types)
+    manual_consensus, manual_summary, error = find_anomalies_ensemble(df, column_types)
+    assert error is None
+    assert auto_consensus.equals(manual_consensus)
+    assert auto_summary == manual_summary
+
+
+def test_auto_run_on_upload_silently_skips_below_min_rows():
+    df = pd.DataFrame({"value": range(ENSEMBLE_MIN_ROWS - 1), "other": range(ENSEMBLE_MIN_ROWS - 1)})
+    consensus, summary = auto_run_on_upload(df, {"value": "numeric", "other": "numeric"})
+    assert consensus is None and summary is None
+
+
+def test_auto_run_on_upload_silently_skips_above_auto_run_cap():
+    # Above AUTO_RUN_MAX_ROWS, LOF/DBSCAN's pairwise-distance cost is too
+    # expensive to run unattended on every upload — must no-op, not error,
+    # so the upload flow never blocks or shows a scary banner for this.
+    rng = np.random.default_rng(3)
+    n = AUTO_RUN_MAX_ROWS + 1
+    df = pd.DataFrame({"value": rng.normal(size=n), "other": rng.normal(size=n)})
+    consensus, summary = auto_run_on_upload(df, {"value": "numeric", "other": "numeric"})
+    assert consensus is None and summary is None
+
+
+def test_auto_run_on_upload_silently_skips_with_fewer_than_two_numeric_columns():
+    rng = np.random.default_rng(4)
+    df = pd.DataFrame({"value": rng.normal(size=30), "label": ["x"] * 30})
+    consensus, summary = auto_run_on_upload(df, {"value": "numeric", "label": "categorical"})
+    assert consensus is None and summary is None
+
+
+def test_auto_run_on_upload_never_raises_on_unexpected_failure(monkeypatch):
+    df = _ensemble_df()
+    column_types = {"value": "numeric", "other": "numeric", "label": "categorical"}
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated sklearn failure")
+
+    monkeypatch.setattr("modules.anomaly.find_anomalies_ensemble", _boom)
+    consensus, summary = auto_run_on_upload(df, column_types)
+    assert consensus is None and summary is None
