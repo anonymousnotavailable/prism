@@ -176,6 +176,7 @@ _DEFAULTS = {
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
+    "cluster_algorithm_last": None,  # algorithm the current cluster_result was produced with (KMeans/DBSCAN/Hierarchical)
     "drift_result": None,  # last "Run Drift Comparison" report from the Combine tab's Compare mode
     "dashboard_spec": None,  # last "Build My Dashboard" spec (kpis + charts), editable via Remove/Swap
     "auto_report_content": None,  # last "Generate Report" content dict (for PDF/HTML export)
@@ -327,6 +328,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
+    st.session_state.cluster_algorithm_last = None
     st.session_state.drift_result = None
     st.session_state.dashboard_spec = None
     st.session_state.auto_report_content = None
@@ -472,6 +474,52 @@ def _render_result_safely(result) -> None:
         st.write(result)
     except Exception:
         st.code(repr(result))
+
+
+def _render_cluster_result(cluster_result: dict, note: Optional[str] = None) -> None:
+    """Shared rendering for a clustering result dict (KMeans, DBSCAN, or
+    Hierarchical all return the same cluster_stats/scatter_df/
+    pca_explained_variance/silhouette_score shape) — the scatter plot,
+    silhouette verdict, cluster stats table, and "Name Segments with AI"
+    button are identical across algorithms.
+    """
+    if cluster_result.get("error"):
+        st.error(cluster_result["error"])
+        return
+
+    if cluster_result.get("n_clusters") is not None:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Clusters found", cluster_result["n_clusters"])
+        m2.metric("Noise points", cluster_result.get("noise_count", 0))
+        m3.metric("Noise %", f"{cluster_result.get('noise_pct', 0)}%")
+
+    st.plotly_chart(
+        clustering.build_scatter(cluster_result["scatter_df"], cluster_result["pca_explained_variance"]),
+        use_container_width=True,
+    )
+
+    st.caption(clustering.silhouette_verdict(cluster_result.get("silhouette_score")))
+    if note:
+        st.caption(note)
+
+    st.markdown("**Cluster stats** (mean of each column, per cluster)")
+    st.dataframe(cluster_result["cluster_stats"], use_container_width=True)
+
+    if st.button("Name Segments with AI", key="name_segments_btn"):
+        cluster_model = ai_analyst.get_model()
+        if cluster_model is None:
+            st.warning(ai_analyst.GEMINI_SETUP_HELP)
+        else:
+            with st.spinner(ui.get_loading_message()):
+                names, name_error = clustering.name_segments(cluster_model, cluster_result["cluster_stats"])
+            st.session_state.cluster_segment_names = names
+            st.session_state.cluster_segment_error = name_error
+
+    if st.session_state.cluster_segment_error:
+        st.error(st.session_state.cluster_segment_error)
+    elif st.session_state.cluster_segment_names:
+        for segment_desc in st.session_state.cluster_segment_names:
+            st.info(segment_desc)
 
 
 def _run_full_auto_analysis(model, df_, column_types_, plan: list[dict]) -> tuple[list[dict], list[str], Optional[str]]:
@@ -4298,16 +4346,20 @@ elif st.session_state.active_section == "Forecasting":
             st.plotly_chart(decomp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
-# Clustering tab — KMeans on standardized numeric columns with a hybrid
-# elbow + silhouette-score K suggestion, a 2D PCA scatter colored by
-# cluster, a silhouette-score verdict on how well-separated the resulting
-# clusters actually are, and an optional Gemini pass to name/describe each
-# segment in one line.
+# Clustering tab — pick an algorithm (KMeans with a hybrid elbow +
+# silhouette-score K suggestion, DBSCAN with a k-distance-plot eps
+# suggestion and explicit noise labeling, or Hierarchical/Agglomerative
+# with a dendrogram), standardize the chosen numeric columns, cluster, and
+# show a 2D PCA scatter plus a silhouette-score verdict on how
+# well-separated the resulting clusters actually are — with an optional
+# Gemini pass to name/describe each segment in one line.
 # --------------------------------------------------------------------------
 elif st.session_state.active_section == "Clustering":
     ui.render_help_expander(
-        "Pick numeric columns to segment your data with KMeans — an elbow + silhouette-score "
-        "suggestion picks K for you, and a 2D PCA scatter shows the resulting clusters."
+        "Pick numeric columns to segment your data. KMeans (elbow + silhouette-score suggests K), "
+        "DBSCAN (density-based — finds arbitrary shapes, flags noise/outliers, no K needed), or "
+        "Hierarchical (Ward-linkage agglomerative clustering with a dendrogram) — a 2D PCA scatter "
+        "shows the resulting clusters for any of the three."
     )
 
     st.subheader("Clustering & Segmentation")
@@ -4341,34 +4393,119 @@ elif st.session_state.active_section == "Clustering":
                     "need at least 4 to cluster."
                 )
             else:
-                suggested_k, inertias, silhouettes = clustering.suggest_k(df, selected_cluster_cols)
-                max_k = max(2, min(clustering.MAX_K, clean_row_count - 1))
-
-                if inertias or silhouettes:
-                    with st.expander("Elbow & silhouette charts (how K was suggested)", expanded=False):
-                        chart_col1, chart_col2 = st.columns(2)
-                        with chart_col1:
-                            if inertias:
-                                st.plotly_chart(clustering.build_elbow_chart(inertias), use_container_width=True)
-                        with chart_col2:
-                            if silhouettes:
-                                st.plotly_chart(clustering.build_silhouette_chart(silhouettes), use_container_width=True)
-                        st.caption(
-                            "K is suggested by narrowing to a candidate range with the elbow method (inertia "
-                            "drop-off), then picking the K in that range with the best silhouette score — a "
-                            "measure of how well-separated the resulting clusters actually are."
-                        )
-
-                k_choice = st.slider(
-                    "Number of clusters (K)", min_value=2, max_value=max_k,
-                    value=min(suggested_k, max_k), key="cluster_k",
+                cluster_algorithm = st.radio(
+                    "Algorithm", clustering.CLUSTER_ALGORITHMS, key="cluster_algorithm", horizontal=True,
                 )
-                st.caption(f"Elbow + silhouette suggestion: K={min(suggested_k, max_k)}")
 
-                if st.button("Run Clustering", type="primary", use_container_width=True):
-                    st.session_state.cluster_result = clustering.run_clustering(df, selected_cluster_cols, k_choice)
+                # Switching algorithms invalidates whatever result is stored
+                # (a DBSCAN result dict has no "k", a KMeans one has no
+                # "n_clusters"/"noise_count") — clear it rather than let the
+                # renderer below guess at a stale, mismatched shape.
+                if st.session_state.cluster_algorithm_last != cluster_algorithm:
+                    st.session_state.cluster_result = None
                     st.session_state.cluster_segment_names = []
                     st.session_state.cluster_segment_error = None
+                    st.session_state.cluster_algorithm_last = cluster_algorithm
+
+                max_k = max(2, min(clustering.MAX_K, clean_row_count - 1))
+
+                if cluster_algorithm == "KMeans":
+                    suggested_k, inertias, silhouettes = clustering.suggest_k(df, selected_cluster_cols)
+
+                    if inertias or silhouettes:
+                        with st.expander("Elbow & silhouette charts (how K was suggested)", expanded=False):
+                            chart_col1, chart_col2 = st.columns(2)
+                            with chart_col1:
+                                if inertias:
+                                    st.plotly_chart(clustering.build_elbow_chart(inertias), use_container_width=True)
+                            with chart_col2:
+                                if silhouettes:
+                                    st.plotly_chart(
+                                        clustering.build_silhouette_chart(silhouettes), use_container_width=True
+                                    )
+                            st.caption(
+                                "K is suggested by narrowing to a candidate range with the elbow method (inertia "
+                                "drop-off), then picking the K in that range with the best silhouette score — a "
+                                "measure of how well-separated the resulting clusters actually are."
+                            )
+
+                    k_choice = st.slider(
+                        "Number of clusters (K)", min_value=2, max_value=max_k,
+                        value=min(suggested_k, max_k), key="cluster_k",
+                    )
+                    st.caption(f"Elbow + silhouette suggestion: K={min(suggested_k, max_k)}")
+
+                    if st.button("Run Clustering", type="primary", use_container_width=True, key="run_kmeans_btn"):
+                        st.session_state.cluster_result = clustering.run_clustering(
+                            df, selected_cluster_cols, k_choice
+                        )
+                        st.session_state.cluster_segment_names = []
+                        st.session_state.cluster_segment_error = None
+
+                elif cluster_algorithm == "DBSCAN":
+                    max_min_samples = max(2, min(20, clean_row_count - 1))
+                    min_samples = st.slider(
+                        "min_samples (min points to form a dense region)", min_value=2, max_value=max_min_samples,
+                        value=min(5, max_min_samples), key="dbscan_min_samples",
+                    )
+                    suggested_eps, k_distances = clustering.suggest_eps(
+                        df, selected_cluster_cols, min_samples=min_samples
+                    )
+
+                    if k_distances:
+                        with st.expander("K-distance plot (how eps was suggested)", expanded=False):
+                            st.plotly_chart(
+                                clustering.build_dbscan_eps_chart(k_distances, suggested_eps),
+                                use_container_width=True,
+                            )
+                            st.caption(
+                                "eps is suggested by sorting each point's distance to its min_samples-th nearest "
+                                "neighbor and finding the sharpest upward bend ('knee') — points past it sit in "
+                                "sparse regions and are noise candidates."
+                            )
+
+                    default_eps = suggested_eps if suggested_eps else 0.5
+                    eps = st.slider(
+                        "eps (neighborhood radius)", min_value=0.01, max_value=round(max(default_eps * 3, 1.0), 2),
+                        value=round(float(default_eps), 3), key="dbscan_eps",
+                    )
+                    if suggested_eps is not None:
+                        st.caption(f"Suggested eps ≈ {suggested_eps:.3g} (from the k-distance plot above).")
+
+                    if st.button("Run Clustering", type="primary", use_container_width=True, key="run_dbscan_btn"):
+                        st.session_state.cluster_result = clustering.run_dbscan(
+                            df, selected_cluster_cols, eps, min_samples
+                        )
+                        st.session_state.cluster_segment_names = []
+                        st.session_state.cluster_segment_error = None
+
+                else:  # Hierarchical (Agglomerative)
+                    linkage_method = st.selectbox(
+                        "Linkage", clustering.HIERARCHICAL_LINKAGE_METHODS, key="hier_linkage",
+                        help="Ward minimizes within-cluster variance (the standard default). Complete/average/"
+                        "single use max/mean/min pairwise distance between clusters instead.",
+                    )
+                    k_choice = st.slider(
+                        "Number of clusters (K)", min_value=2, max_value=max_k, value=min(3, max_k), key="hier_k",
+                    )
+
+                    with st.expander("Dendrogram (merge structure)", expanded=False):
+                        st.plotly_chart(
+                            clustering.build_dendrogram_chart(df, selected_cluster_cols, linkage_method),
+                            use_container_width=True,
+                        )
+                        st.caption(
+                            "Each merge joins the two closest clusters (by the chosen linkage); the height of a "
+                            "merge is the distance at which it happened — a good K often shows up as a tall gap "
+                            "between merges near the top."
+                        )
+
+                    if st.button("Run Clustering", type="primary", use_container_width=True, key="run_hier_btn"):
+                        st.session_state.cluster_result = clustering.run_hierarchical(
+                            df, selected_cluster_cols, k_choice, linkage_method
+                        )
+                        st.session_state.cluster_segment_names = []
+                        st.session_state.cluster_segment_error = None
 
                 cluster_result = st.session_state.cluster_result
                 if cluster_result is None:
@@ -4376,38 +4513,13 @@ elif st.session_state.active_section == "Clustering":
                         "🧩", "No clusters yet", 'Click "Run Clustering" above to segment this data.'
                     )
                 else:
-                    if cluster_result.get("error"):
-                        st.error(cluster_result["error"])
-                    else:
-                        st.plotly_chart(
-                            clustering.build_scatter(
-                                cluster_result["scatter_df"], cluster_result["pca_explained_variance"]
-                            ),
-                            use_container_width=True,
-                        )
-
-                        st.caption(clustering.silhouette_verdict(cluster_result.get("silhouette_score")))
-
-                        st.markdown("**Cluster stats** (mean of each column, per cluster)")
-                        st.dataframe(cluster_result["cluster_stats"], use_container_width=True)
-
-                        if st.button("Name Segments with AI", key="name_segments_btn"):
-                            cluster_model = ai_analyst.get_model()
-                            if cluster_model is None:
-                                st.warning(ai_analyst.GEMINI_SETUP_HELP)
-                            else:
-                                with st.spinner(ui.get_loading_message()):
-                                    names, name_error = clustering.name_segments(
-                                        cluster_model, cluster_result["cluster_stats"]
-                                    )
-                                st.session_state.cluster_segment_names = names
-                                st.session_state.cluster_segment_error = name_error
-
-                        if st.session_state.cluster_segment_error:
-                            st.error(st.session_state.cluster_segment_error)
-                        elif st.session_state.cluster_segment_names:
-                            for segment_desc in st.session_state.cluster_segment_names:
-                                st.info(segment_desc)
+                    note = (
+                        "'Noise' rows are points DBSCAN couldn't assign to any dense cluster — not necessarily "
+                        "errors, just outliers by this eps/min_samples setting."
+                        if cluster_algorithm == "DBSCAN"
+                        else None
+                    )
+                    _render_cluster_result(cluster_result, note=note)
 
 # --------------------------------------------------------------------------
 # Domain Lens tab — map your columns to a domain's expected roles and get
