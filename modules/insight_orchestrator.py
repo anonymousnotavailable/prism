@@ -606,6 +606,64 @@ def narrate_orchestration(model, result: Optional[OrchestrationResult]) -> tuple
     return text.strip(), None
 
 
+def proactive_alert_text(result: Optional[OrchestrationResult], last_alerted_fingerprint: Optional[str]) -> Optional[dict]:
+    """JARVIS-copilot slice: decide whether Atlas should proactively speak up
+    about a *newly changed* orchestration result, with no button click or
+    tab visit required — the counterpart to modules.atlas.raise_alert() for
+    single-detector Auto-Insight findings, but for the orchestrator's own
+    unique signal instead.
+
+    Deliberately narrow, by design:
+
+    - Only the #1 ranked group is considered, and only when it's something
+      no single detector's own panel already shows: cross-detector
+      agreement or a contradiction flag. A lone severity claim (even
+      "high") is left to whichever detector's panel already surfaces it —
+      interrupting for that would just duplicate the existing per-detector
+      alerting (e.g. auto_insights' own high-severity count already drives
+      atlas.raise_alert() on upload).
+    - Silent below `MIN_DETECTORS_FOR_OUTPUT + 1` detectors fired. The
+      first two detectors to fire on every upload are always auto_insights
+      and confounder_scan (see app.py's set_active_dataset()), so a result
+      built from exactly `MIN_DETECTORS_FOR_OUTPUT` detectors is the same
+      baseline the ambient upload announcement already covers — only a
+      *third* detector firing (Causal Effect Estimator, Anomaly Detection,
+      Drift, or Auto Analyst's verifier) produces genuinely new synthesis.
+    - Fires at most once per distinct top-1 conclusion: the caller passes
+      in whatever fingerprint it last alerted on (persisted in
+      st.session_state across reruns), and gets back None again once that
+      exact result has already been announced — so a plain Streamlit
+      rerun of an unchanged result doesn't re-speak it every time.
+
+    Returns None if nothing should be announced, else a dict with a short
+    spoken `text` (safe to pass straight to atlas.say_only()) and the new
+    `fingerprint` the caller should persist so this doesn't refire on the
+    same result.
+    """
+    if result is None or result.silent or not result.top:
+        return None
+    if result.n_detectors_fired < MIN_DETECTORS_FOR_OUTPUT + 1:
+        return None
+
+    top = result.top[0]
+    if not (top.agreement or top.contradiction):
+        return None
+
+    fingerprint = fingerprint_result(result)
+    if fingerprint == last_alerted_fingerprint:
+        return None
+
+    subj = ", ".join(sorted(top.subjects)) if top.subjects else "the dataset"
+    if top.contradiction:
+        text = f"Heads up — two of my checks disagree on {subj}. Worth a look in the Agent Summary panel."
+    else:
+        text = (
+            f"Quick flag — {len(top.detectors)} independent checks now agree on {subj}. "
+            "See the Agent Summary panel for details."
+        )
+    return {"text": text, "fingerprint": fingerprint}
+
+
 def severity_icon(severity: str) -> str:
     """Emoji icon for UI display — mirrors modules.auto_insights.severity_icon."""
     return {"high": "\U0001F534", "medium": "\U0001F7E1", "low": "\U0001F535"}.get(severity, "⚪")

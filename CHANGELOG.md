@@ -2,6 +2,41 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 11)
+
+### Added
+- **Atlas proactively surfaces new Agent Summary findings — JARVIS-copilot
+  slice** (`modules/insight_orchestrator.proactive_alert_text()`,
+  `app.py`) — previously the orchestration layer's "what matters most"
+  synthesis (cross-detector agreement, contradiction flags) only appeared
+  if the user opened the Overview tab and clicked "Generate Executive
+  Summary." Atlas now speaks up unprompted, in the persistent side panel,
+  the moment a *new* top-ranked agreement or contradiction appears —
+  no click, no tab visit required. Deliberately narrow by design: only
+  the #1 ranked finding, only when it's genuinely the orchestrator's own
+  signal (cross-detector agreement/contradiction, not a lone severity
+  claim a single detector's panel already shows), only once per distinct
+  result (a plain rerun doesn't re-speak the same finding), and silent at
+  the baseline two-detector state every upload produces automatically
+  (auto_insights + confounder_scan) — that's already covered by the
+  existing ambient-upload announcement, so only a genuinely new *third*
+  detector firing (Causal Effect Estimator, Anomaly Detection, Drift, or
+  Auto Analyst's verifier) counts as news. Zero extra Gemini calls (plain
+  synthesis over already-computed detector output, same as the rest of
+  the orchestrator). To make this fire regardless of which tab is active
+  (e.g. running the Causal Effect Estimator on its own tab, without ever
+  visiting Overview), the orchestration computation itself moved from
+  inside the Overview tab's render block to run once per rerun at the top
+  level — the Overview tab now reuses that same value instead of
+  recomputing it. 8 new tests for the pure decision logic in
+  `proactive_alert_text()`; full suite 255/255 green. Verified live
+  (Playwright, desktop 1440px dark + light, mobile 390px dark): loaded
+  `samples/stock_data.csv`, ran the Causal Effect Estimator, and confirmed
+  Atlas's side panel spoke up automatically — "Quick flag — 2 independent
+  checks now agree on high, open. See the Agent Summary panel for
+  details." — with the Agent Summary panel itself rendering the same
+  confirmed-by-2-detectors finding beneath it, no traceback.
+
 ## 2026-08-11 (Run 10)
 
 ### Added
