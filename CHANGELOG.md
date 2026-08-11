@@ -2,6 +2,35 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 17)
+
+### Added
+- **Hypothesis Sweep narration fact-check** (`modules/hypothesis_sweep.py`)
+  — extends the insight_verifier-style "plausible but wrong number" safety
+  net (already covering Auto Analyst, AI Analyst, Report Writer, Story
+  Mode, and Demo Mode's `generate_key_insights()` call sites) to Stats
+  Lab's automated FDR-corrected Hypothesis Sweep, whose Gemini narration
+  cites p-values, effect sizes, and significant-pair counts but had zero
+  fact-checking. New `sweep_reference_numbers()` reads the sweep's own
+  already-computed statistics directly (no DataFrame recomputation
+  needed, unlike `insight_verifier.compute_reference_numbers()`); new
+  `verify_narration()` reuses `insight_verifier.verify_finding()` for the
+  actual number-matching. The narration panel now shows the same
+  confirmed/unconfirmed fact-check caption every other verified insight
+  surface in the app has. Zero extra Gemini calls. 9 new tests.
+- **Atlas keyword fast path** (`modules/atlas.py`) — `classify_intent_fast()`
+  matches a small, deliberately conservative set of context-free commands
+  (navigate to a tab, start demo/story mode, next/previous, cancel)
+  without a Gemini API round-trip, wired ahead of `classify_intent()` in
+  `handle_utterance()`. Anything context-sensitive — including the
+  router's own documented "go"/"do it"/"start" overlap between "confirm"
+  and "execute_plan" — is deliberately excluded and still falls through to
+  the full Gemini classifier. Cuts latency/quota for the handful of
+  commands used every session and makes them exercisable without a live
+  `GEMINI_API_KEY` (closes the gap Run 16's routine log flagged: "every
+  command, however literal, requires a live API call to route"). 19 new
+  tests.
+
 ## 2026-08-11 (Run 16)
 
 ### Added

@@ -1153,3 +1153,44 @@ would both cut latency/quota use for common commands and make Demo/Story
 Mode screenshot-testable in this sandbox — a legitimate future candidate,
 not attempted this run (out of scope for a single-feature cycle, and
 touches Atlas's core command dispatch rather than being additive).
+
+## Run 17 — 2026-08-11
+
+Reused the standing backlog and Run 11's audit (9th consecutive run doing
+so — token-efficiency reasoning unchanged). Same "loop until 100%" +
+"use less tokens" contradiction as every run since Run 9 — ran one
+complete, verified cycle and stopped, per the hard guardrails.
+
+**Shipped two features.** (1) Mandatory agentic-AI theme: extended the
+insight_verifier-style fact-check pattern to Stats Lab's Hypothesis Sweep
+narration (`narrate_sweep`) via new `sweep_reference_numbers()` +
+`verify_narration()` in `modules/hypothesis_sweep.py` — the sweep's own
+already-computed stats serve as exact ground truth, no DataFrame
+recomputation needed. Closes the first of five still-open narration call
+sites identified this run (`narrate_anomalies`, `narrate_ensemble_
+disagreement`, `narrate_insights`, `narrate_orchestration` remain — logged
+as next-run backlog). (2) Atlas copilot track: `classify_intent_fast()` in
+`modules/atlas.py` — a conservative zero-Gemini keyword match for
+navigate/demo-mode/story-mode/next/previous/cancel, wired ahead of the
+Gemini router. Deliberately excludes "confirm"/"go"/"do it" (context-
+dependent per the router's own system prompt — risk of misrouting a
+destructive-action confirmation). Closes Run 16's exact logged gap
+("every command requires a live API call to route").
+
+Full suite 341 → 360/360 green after both merges, zero conflicts, no
+regressions. Hit and fixed the known `_cffi_backend` gap; installed
+`playwright==1.56.0` fresh (pre-installed browsers are chromium rev 1194).
+Live Playwright pass at desktop 1440px / mobile 390px, dark/light: zero
+console/page errors. Could not visually exercise either new UI surface
+live (17th consecutive run with no `GEMINI_API_KEY` in this sandbox) —
+relied on 28 new unit tests (9 + 19) as verification, same fallback every
+constrained run has used. `.env`/secrets hygiene clean. Merged both
+feature branches to `main` with `--no-ff`, updated `CHANGELOG.md`, wrote
+`RUN_REPORT_2026-08-11-run17.md`, pushed `main`.
+
+**Not built (backlog, unchanged + one addition):** PyGWalker "explore
+mode" (now 4 runs open, oldest item). Large Excel ingestion. Light-theme
+repaint-lag (cosmetic). Live-Gemini verification (structural constraint).
+Mobile+light simultaneous screenshots (automation gap). **New:** the four
+remaining un-fact-checked narration call sites named above — strong,
+well-scoped next-run candidates, same pattern as this run's sweep fix.
