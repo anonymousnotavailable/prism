@@ -2,6 +2,46 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 14)
+
+### Added
+- **Fact-check badges for "Generate Key Insights"**
+  (`modules/ui.build_insight_cards_html`, `modules/ui.build_verification_caption`,
+  `app.py`) — extends the confirmed/unconfirmed badge pattern Run 10 wired
+  into Auto Analyst's "Run Full Analysis" findings to the AI Analyst tab's
+  separate "Generate Key Insights" button. That button makes its own
+  independent Gemini call (`ai_analyst.generate_key_insights`, also shared
+  by Story Mode and the Report Writer's PDF/HTML export) that quotes
+  numbers straight from the data, and until this run had no fact-check of
+  its own — the same "plausible but wrong number" risk Run 10 addressed
+  only at the other call site. The shared "insight-card + badge" HTML and
+  the fact-check caption are now factored into two pure, testable
+  functions in `modules/ui.py`, used by both render sites instead of each
+  duplicating the badge markup. Zero extra Gemini calls (same static,
+  local recomputation `insight_verifier` already does). 11 new tests.
+- **Facet (small-multiples) encoding channel for the Manual Chart Builder**
+  (`modules/visualization.build_manual_chart`, Visualize tab) — continues
+  Run 13's grammar-of-graphics slice (Color + Aggregation) with the next
+  encoding channel Run 13's own report recommended: an optional "Facet by"
+  column that splits a chart into a grid of small-multiple subplots (one
+  per category) instead of overlaying groups in one plot. Available on
+  Histogram, Box, Bar, Scatter, and Line (same set as Color; Pie has no
+  facet concept of its own). Capped to the 6 most frequent categories by
+  frequency (`MAX_FACET_CATEGORIES`) so a high-cardinality column can't
+  blow up into an unreadable subplot grid — same top-N capping convention
+  Bar/Pie already use for their own axis categories. Still an ordinary
+  selectbox, no custom drag-and-drop component. 14 new tests.
+
+### Notes
+- Audited the standing "DuckDB/polars-backed Auto Cleaner path for large
+  datasets" backlog item and found it already effectively closed: Run 8's
+  DuckDB out-of-core ingestion path reservoir-samples any large CSV down
+  to `MAX_ROWS` before the DataFrame ever reaches `autocleaner.py`, so Auto
+  Cleaner never actually operates on an unbounded dataset. The real
+  remaining gap is narrower — large Excel uploads have no equivalent
+  out-of-core reader — logged as a new, more precisely scoped backlog
+  candidate instead of re-building something already shipped.
+
 ## 2026-08-11 (Run 13)
 
 ### Added
