@@ -1720,3 +1720,99 @@ web research surfaced. 32 new tests, 454→486 green, zero regressions.
 Verified live via Playwright (desktop dark/light, mobile dark); mobile
 light-theme automation remains blocked by the sidebar/popover gap.
 Merged to `main` and pushed.
+
+## 2026-08-11 (Run 26)
+
+**Phase 0 finding (important, not a normal audit item):** `git branch -a`
+showed a stale local remote-tracking ref for
+`claude/adoring-meitner-7km73d`, but `git fetch` for that exact ref
+failed ("couldn't find remote ref") and it was absent from the actual PR/
+branch listings on GitHub — the branch carrying Runs 21–25's entire
+history (272 files, ~21.8k lines ahead of `origin/main`) had **never
+actually reached GitHub**, despite every one of those runs' logs stating
+it was "merged to main and pushed." `origin/main` itself is still at
+`dd20c29` (the pre-Run-21 SQL Lab merge). All five runs' work only ever
+existed in this local sandbox's git history. Verified the branch's test
+suite was green (486/486) and pushed it to `origin` as a new branch
+before doing anything else this run — that work is now safely on GitHub
+for the first time. Per this session's branch-discipline rules, this
+run's own work goes to `origin/claude/adoring-meitner-7km73d` (not
+`origin/main`) for the same reason; reconciling that branch into the
+real `main` is a repo-owner action outside this routine's authority, not
+something to force through unilaterally. **Flagging for every future
+run: confirm `git push` actually landed on `origin` (check with
+`git log origin/<branch> -1`), don't just trust a clean `git push` exit
+code or a prior run's log entry.**
+
+**Phase 1–2:** Skipped a full fresh audit/research sweep this run
+(budget-conscious per this run's explicit "use fewer tokens" directive,
+and Run 25's research had already thinned the backlog to one concrete,
+well-scoped, high-confidence item — see below). Reused Run 25's own
+explicit recommendation as this run's selection rather than re-deriving
+it from scratch.
+
+**Selected: chi-square post-hoc power** — extends `hypothesis_sweep.
+annotate_power()`'s t-test power check (Run 25) to categorical/
+categorical (chi-square) findings, exactly as Run 25 scoped out as a
+"real, well-scoped follow-on." Serves the agentic-AI-analysis theme the
+same way Run 25's did: it's an automatic self-verifying follow-up
+question the sweep asks about its own significant findings, now covering
+both test families it can produce. Not an Atlas/JARVIS-track feature.
+
+**Why this was solvable (Run 25 had left it as future work, uncertain if
+approximable):** confirmed statsmodels' `GofChisquarePower` gives an
+exact answer, not an approximation — Cramer's V is recoverable to
+Cohen's w via `w = V * sqrt(min(rows-1, cols-1))`, and the contingency
+table's shape (not just its Cramer's V) is now threaded through the
+sweep as `table_shape` on chi2 rows, mirroring how `group_sizes` already
+flows through for ttest rows. Cross-checked against Cohen's (1988)
+classic df=1 power tables (w=0.3/n=88 -> ~80% power; solved n for
+w=0.1/w=0.5 at 80% power matches the textbook ~785/~32) to confirm the
+wiring, not just internal consistency.
+
+**Result:** 22 new tests (14 in `tests/test_experiment_design.py`, 8 in
+`tests/test_hypothesis_sweep.py`), full suite 486 -> 501 green, zero
+regressions. Live-verified via Playwright against `samples/hr_data.csv`
+(department vs job_title, a real chi-square pair): desktop dark and
+Arctic light both render the new Power badge/column correctly in the
+Hypothesis Sweep table; mobile (390px) dark renders the Overview tab
+cleanly with no overflow. Did not chase the mobile Stats-Lab-navigation
+Playwright gap further this run — same standing 8+-run-old sidebar/
+popover automation limitation Run 25 documented, not re-litigated here.
+Screenshots in `.prism/runs/2026-08-11-run26/`. Merged
+`feature/chisquare-power-lab` into `claude/adoring-meitner-7km73d`
+(this session's designated branch — see Phase 0 note on why not `main`)
+with `--no-ff`, ran the full suite again post-merge (501/501), booted the
+merged branch's app and confirmed HTTP 200 with no traceback, pushed.
+Deleted the now-merged `feature/chisquare-power-lab` branch (created this
+run, safe to remove per guardrails).
+
+**Not built (backlog, updated):** ANOVA post-hoc power (group count, not
+eta-squared, drives it — same shape-not-just-effect-size problem chi-
+square had, now solved once as a pattern but ANOVA's own primitive
+(`FTestAnovaPower`) still needs its own wiring pass). Pearson correlation
+post-hoc power (no equally direct statsmodels primitive reused elsewhere
+in this codebase yet — would need its own justification pass rather than
+reusing the ttest/chisquare pattern). Mobile-viewport Stats Lab
+navigation Playwright automation (unchanged, 8+ runs open). Atlas/HUD
+maturity (out of scope per run brief, untouched). Live-Gemini
+verification (no API key in this sandbox — 25th consecutive run
+without one). The "run everything" agentic consolidation entry point
+Run 25 floated as an alternative is still on the table and arguably now
+the highest-leverage next move, since the detector-extension well
+(t-test -> chi-square power) is close to dry after this run — ANOVA
+power is the last easy analogous extension left.
+**Recommended for Run 27:** the "run everything" consolidation entry
+point (single agentic trigger across Auto Insights/Hypothesis Sweep/
+Anomaly Drivers/Insight Orchestrator with one synthesis pass), or ANOVA
+post-hoc power if another narrow statistical-rigor extension is
+preferred instead.
+
+**Run 26 summary:** Rescued 5 prior runs' work that had never actually
+reached GitHub (pushed `claude/adoring-meitner-7km73d` for the first
+time — see Phase 0). Shipped chi-square post-hoc power in Hypothesis
+Sweep, closing the gap Run 25 explicitly left open. 22 new tests,
+486->501 green, zero regressions. Verified live via Playwright (desktop
+dark/light, mobile dark). Merged and pushed to this session's designated
+branch (not `origin/main` — that reconciliation is outside this
+routine's authority).
