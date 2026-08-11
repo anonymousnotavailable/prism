@@ -2,6 +2,49 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 30)
+
+### Added
+- **Difference-in-Differences causal estimator** (`modules/did.py`, new
+  module) — added alongside the existing propensity-score-matching Causal
+  Effect Estimator in the Overview tab. For before/after panel data
+  (a treated group + a control group, each observed at a "pre" and a
+  "post" period), estimates the DiD effect via OLS with a treated*post
+  interaction term and heteroskedasticity-robust (HC1) standard errors —
+  mathematically identical to the textbook (treated_post-treated_pre) -
+  (control_post-control_pre) formula, verified by test. When 2+
+  pre-treatment periods are available, runs an optional parallel-trends
+  placebo check (does the treated group's pre-period slope already differ
+  from the control group's?) with an explicit caveat, per current
+  econometrics literature (Roth 2022; Bilinski & Hatfield 2019), that a
+  non-significant pre-trend is neither necessary nor sufficient proof the
+  parallel-trends assumption holds going forward — a diagnostic, not a
+  guarantee. New chart: the classic DiD plot with a dashed counterfactual
+  line showing where the treated group would have ended up absent
+  treatment. 27 new tests.
+- **Survival Analysis** (`modules/survival.py`, new module) — added to
+  Stats Lab as a new panel after Hypothesis Sweep. Kaplan-Meier
+  product-limit estimator (with Greenwood's-variance confidence bands and
+  median survival time) plus a log-rank test for comparing survival
+  curves across 2-8 groups — the standard "time until an event" toolkit
+  (customer tenure until churn, time until failure/default) that properly
+  uses right-censored observations (rows where the event hasn't happened
+  *yet*) instead of discarding that information the way a fixed-cutoff
+  proxy like `domains.flag_churn()` has to. New classic step-function KM
+  chart (`visualization.plot_kaplan_meier`). Handles bad/huge input
+  explicitly: negative durations rejected, event columns coerced from
+  Yes/No/True/False/1/0 variants, >20k rows sampled down with a warning
+  (same tractability-cap convention as `market_basket.py`), thin groups
+  rejected with a plain-English reason. 31 new tests, including a
+  hand-verified Kaplan-Meier curve against a textbook 6-subject example
+  and a log-rank calibration check (p-value averages ~0.5 across 30
+  independent null-hypothesis draws).
+
+Both features are 100% local compute (numpy/pandas/scipy/statsmodels,
+zero new pip dependency) with an optional Gemini narration layer
+following the app's existing call_gemini()/no-model-fallback convention.
+Full suite: 611 -> 669 tests, zero regressions.
+
 ## 2026-08-11 (Run 29)
 
 ### Added

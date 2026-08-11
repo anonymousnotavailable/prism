@@ -2094,3 +2094,137 @@ implementation).
 
 Full reasoning, verification transcript, and Run 30 recommendation in
 `RUN_REPORT_2026-08-11-run29.md`.
+
+## Run 30 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `ca3a8e6` (Run 29's
+tip) per this run's git constraint. Cold start needed no reinstall —
+system Python already had every dependency (including statsmodels,
+already a pinned requirement, and scipy) — 611 tests green before any
+changes, matching Run 29's final count exactly. No stale local branches
+to clean up.
+
+Playwright/Chromium not retried (5th consecutive run confirmed-blocked
+per this run's own brief) — used the fallback: full pytest suite, a live
+`streamlit run` smoke test (HTTP 200, clean logs) per feature branch and
+again on the final merged branch, plus `streamlit.testing.v1.AppTest`
+driving the actual `app.py` render path end-to-end with synthetic data
+(not just unit-testing the standalone modules) — this caught nothing
+this run but is a strictly stronger check than function-level testing
+alone, since it exercises the real session-state wiring, widget gating,
+and chart-rendering code in `app.py` itself. Noted in passing: AppTest's
+own widget-state serializer throws on a second `.run()` call after a
+`active_section` switch, reproduced even on an untouched base branch
+with an unrelated sample CSV — a pre-existing AppTest harness quirk, not
+a Prism bug; worked around by using one fresh `AppTest` instance per
+section under test rather than reusing one across a section switch.
+
+Read `modules/causal_inference.py` in full (471 lines) before starting —
+confirmed it's a clean, well-scoped propensity-score-matching
+implementation (logistic-regression propensity + greedy caliper matching
++ bootstrap CI + CATE-by-subgroup) that a DiD estimator could sit next to
+without touching, exactly as Run 29's recommendation anticipated. Ran a
+WebSearch sanity check on current DiD best practice per this run's brief
+(parallel-trends pre-testing critique, two-way-FE pitfalls) — found the
+Bilinski & Hatfield (2019) / Roth (2022) literature explicitly cautions
+that pre-trend tests have low power and passing one is neither necessary
+nor sufficient proof parallel trends holds afterward; folded that caveat
+directly into both the module's docstring and the narration prompt
+rather than presenting a "parallel trends: OK" verdict.
+
+For the second pick, ran a fresh sweep (grep across `modules/*.py` +
+`app.py` for survival/kaplan-meier/lifelines, bayesian/posterior,
+power-analysis/sample-size, cohort/retention, shap/feature-importance,
+sentiment/nlp/tfidf) plus a WebSearch on 2026 agentic-EDA/competitor
+coverage. Confirmed real, verifiable gaps: survival analysis (zero
+hits — Run 29's own candidate #5, deferred twice already, this run's
+own brief flagged it as still open and "no reason it's gotten worse"),
+Bayesian A/B testing (zero hits), power/sample-size analysis (zero
+hits). Feature importance and cohort retention are already well covered
+(`mllab.py`'s permutation/L1/mutual-info feature-selection suite;
+`domains.py`'s retention-cohort heatmap) so ruled out as duplicative.
+
+**Selected: (1) Difference-in-Differences** (`modules/did.py`, new
+module) — per this run's own brief instruction, and Run 29's
+recommendation after deferring it three straight times (Runs 27-29) for
+capacity reasons, not fit. Slots in next to the Causal Effect Estimator
+in the Overview tab as a second causal-inference method for panel/
+before-after data, exactly the architecture Run 29 anticipated. **(2)
+Survival Analysis** (`modules/survival.py`, new module) — Run 29's own
+candidate #5, chosen this run over Bayesian A/B testing and power
+analysis because it's the most directly complementary to the existing
+domain-analytics surface (churn is already a named use case in
+`domains.py`'s product pack, just handled with a fixed-cutoff proxy that
+throws away censoring information) and because implementing it
+from-scratch (no `lifelines` dependency, numpy/pandas/scipy only) was
+confirmed tractable within one run's effort budget — the reason it had
+been deferred twice before.
+
+**Why these over the alternatives:** Bayesian A/B testing and power/
+sample-size analysis are both still-open, genuine gaps and are logged as
+Run 31+ candidates, but neither was picked this run because (a) this
+run's brief specifically pre-committed one slot to DiD, and (b) survival
+analysis was judged higher technical depth per row of code (censoring-
+aware estimation + a real hypothesis test with its own variance-
+covariance construction, not just a formula lookup) and had the strongest
+multi-run continuity case (twice-deferred, not "gotten worse"). Both
+selected features are pure numpy/pandas/scipy/statsmodels compute (zero
+Gemini calls, zero free-tier exposure, zero new pip dependency — DiD
+uses the already-pinned `statsmodels`), M effort each, and neither
+touches the Atlas/JARVIS copilot track (0/1 this run).
+
+Plan: branch `feature/diff-in-diff` and `feature/survival-analysis` off
+`claude/adoring-meitner-7xxgfq`, tests first, then implement, full suite
+must stay green, merge both with `--no-ff`, push.
+
+## Run 30 — 2026-08-11 — result
+
+Shipped both selected features: Difference-in-Differences causal
+estimator (`modules/did.py`, new module, 27 tests) added next to the
+existing Causal Effect Estimator in the Overview tab, and Survival
+Analysis / Kaplan-Meier + log-rank test (`modules/survival.py`, new
+module, 31 tests) added to Stats Lab after Hypothesis Sweep. Merged
+`feature/diff-in-diff` and `feature/survival-analysis` into
+`claude/adoring-meitner-7xxgfq` with `--no-ff` — one conflict, in
+`modules/visualization.py` (both branches added a new chart function
+in the same location, right after `plot_cate_by_subgroup`/before
+`auto_generate_charts`); resolved by keeping both additions
+(`plot_diff_in_diff` + `plot_did_pre_trend` from the first branch,
+`plot_kaplan_meier` from the second), re-verified the merged file
+parses and the full suite is still green before committing the merge.
+Full suite 611 -> 669 green, zero regressions.
+
+Playwright/Chromium not retried (5th consecutive run confirmed-blocked,
+per brief). Verified instead via: full pytest suite at every stage
+(per-branch and post-merge); a live `streamlit run` smoke test (HTTP
+200, clean logs) per branch and again on the final merged branch; and
+`streamlit.testing.v1.AppTest` driving the real `app.py` render path
+end-to-end with synthetic data — for DiD, loaded a synthetic panel
+(known true effect = 4.0) via direct session-state injection, clicked
+the actual "Estimate DiD effect" button through AppTest, and separately
+pre-set a computed result to exercise the full chart/cell-table/
+pre-trend-check render path, confirming zero exceptions and the on-page
+metric (4.06) matched the synthetic true effect; for Survival Analysis,
+loaded a synthetic two-group churn dataset (known 2.5x hazard ratio) and
+confirmed the full chart/table/log-rank-test render path threw no
+exceptions and correctly displayed a significant log-rank p-value
+(8.9e-06). Also confirmed via direct function-level tests: the DiD
+regression estimate is provably identical to the textbook 2x2 diff-of-
+diffs formula (not just plausible-looking), the Kaplan-Meier curve
+matches a textbook 6-subject hand-calculation exactly, and the log-rank
+test's p-value is empirically well-calibrated (averages ~0.5 across 30
+independent draws under a true null, not just non-significant on one
+lucky seed).
+
+Ran a fresh Phase 2 web research sweep (WebSearch on current DiD
+best-practice literature, plus a grep-based gap sweep across `modules/`
+for survival/bayesian/power-analysis/cohort/feature-importance/NLP
+coverage) — see `.prism/research_2026-08-11-run30.md`. Difference-in-
+Differences was this run's brief's own pre-committed pick, finally
+shipped after being deferred three times (Runs 27-29) for capacity, not
+fit; Survival Analysis was Run 29's own candidate #5, finally shipped
+after being deferred twice for the same reason. Bayesian A/B testing and
+power/sample-size analysis remain open, confirmed-real gaps for Run 31+.
+
+Full reasoning, verification transcript, and Run 31 recommendation in
+`RUN_REPORT_2026-08-11-run30.md`.
