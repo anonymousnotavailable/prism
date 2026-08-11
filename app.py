@@ -4916,6 +4916,20 @@ elif st.session_state.active_section == "ML Lab":
                     mllab.build_feature_importance_chart(baseline_result["feature_importances"]), use_container_width=True
                 )
 
+            mllab_script_text = mllab.export_baseline_script(
+                mllab_selected_features, mllab_target_col, mllab_task_type,
+                use_smote=mllab_use_smote, original_filename=st.session_state.get("last_file_name"),
+            )
+            st.download_button(
+                "📄 Export as Python Script",
+                data=mllab_script_text.encode("utf-8"),
+                file_name="prism_ml_lab_baseline.py",
+                mime="text/x-python",
+                use_container_width=True,
+                help="A standalone .py file that reproduces this preprocessing + train/test split + "
+                     "model training pipeline outside Prism, against your own copy of the data.",
+            )
+
             st.divider()
             st.markdown("#### Cross-Validation")
             st.caption(
