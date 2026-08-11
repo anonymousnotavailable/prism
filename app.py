@@ -54,6 +54,7 @@ from modules import (
     market_basket,
     mllab,
     pii_detector,
+    power_analysis,
     profiling,
     recipes,
     regression_diagnostics,
@@ -171,6 +172,8 @@ _DEFAULTS = {
     "survival_narration": None,  # cached Gemini narration of survival_result, avoids re-spending a call per rerun
     "bayesian_ab_result": None,  # last bayesian_ab.bayesian_ab_test() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
     "bayesian_ab_narration": None,  # cached Gemini narration of bayesian_ab_result, avoids re-spending a call per rerun
+    "power_analysis_result": None,  # last power_analysis plan_power_*() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
+    "power_analysis_narration": None,  # cached Gemini narration of power_analysis_result, avoids re-spending a call per rerun
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
@@ -4562,6 +4565,137 @@ elif st.session_state.active_section == "Stats Lab":
                         else:
                             st.session_state.bayesian_ab_narration = narration
                             st.rerun()
+
+        # ------------------------------------------------------------------
+        # Power / Sample-Size Planning — "how many samples does a future
+        # test need" and "what power will a planned sample size have" for
+        # two-sample means (Cohen's d) or proportions (see
+        # modules/power_analysis.py). A forward-looking planning tool, not
+        # a retroactive grade on an already-finished test — see the
+        # module's own docstring for why (post-hoc power is a near-
+        # deterministic function of the p-value already obtained).
+        # ------------------------------------------------------------------
+        st.divider()
+        st.markdown("#### 📐 Power & Sample-Size Planning")
+        st.caption(
+            "Plan a future experiment: given an effect size you expect (or estimate from a pilot slice "
+            "of this data), find the sample size needed for reliable detection — or given a planned "
+            "sample size, find the power it gives you. This is a forward-looking planning tool, not a "
+            "verdict on an already-finished test's validity."
+        )
+
+        pa1, pa2, pa3 = st.columns(3)
+        power_metric_label = pa1.radio("Comparing", ["Means", "Proportions"], horizontal=True, key="power_metric_type")
+        power_mode_label = pa2.radio(
+            "I want to", ["Find required sample size", "Find achieved power"], horizontal=True, key="power_mode_label"
+        )
+        power_es_source_label = pa3.radio(
+            "Effect size", ["Enter manually", "Estimate from my data"], horizontal=True, key="power_es_source_label"
+        )
+        power_mode = "solve_n" if power_mode_label == "Find required sample size" else "solve_power"
+        power_es_source = "manual" if power_es_source_label == "Enter manually" else "data"
+
+        power_kwargs = {"mode": power_mode, "effect_size_source": power_es_source}
+        _power_numeric_cols = [c for c, t in column_types.items() if t == "numeric"]
+        _power_binary_cols = [
+            c for c, t in column_types.items()
+            if t in ("categorical", "text", "boolean") and c in df.columns and df[c].nunique(dropna=True) == 2
+        ]
+        _power_group_cols = [
+            c for c, t in column_types.items()
+            if t in ("categorical", "text", "boolean") and c in df.columns and 2 <= df[c].nunique(dropna=True) <= 8
+        ]
+        power_inputs_ok = True
+
+        if power_metric_label == "Means":
+            if power_es_source == "manual":
+                power_kwargs["effect_size"] = st.number_input(
+                    "Cohen's d (effect size)", value=0.5, step=0.05, key="power_manual_d",
+                    help="Small ≈ 0.2, medium ≈ 0.5, large ≈ 0.8, by convention.",
+                )
+            elif _power_numeric_cols and _power_group_cols:
+                pe1, pe2 = st.columns(2)
+                power_kwargs["df"] = df
+                power_kwargs["value_col"] = pe1.selectbox("Numeric column", _power_numeric_cols, key="power_value_col")
+                power_kwargs["group_col"] = pe2.selectbox("Group column (2 levels)", _power_group_cols, key="power_group_col_means")
+            else:
+                st.info("Estimating from data needs at least one numeric column and one 2-8-level categorical column.")
+                power_inputs_ok = False
+        else:
+            if power_es_source == "manual":
+                pp1, pp2 = st.columns(2)
+                power_kwargs["p1"] = pp1.number_input("Baseline rate (p1)", min_value=0.0, max_value=1.0, value=0.10, step=0.01, key="power_manual_p1")
+                power_kwargs["p2"] = pp2.number_input("Comparison rate (p2)", min_value=0.0, max_value=1.0, value=0.15, step=0.01, key="power_manual_p2")
+            elif _power_binary_cols and _power_group_cols:
+                pe1, pe2 = st.columns(2)
+                power_kwargs["df"] = df
+                power_kwargs["success_col"] = pe1.selectbox("Outcome column (success/failure)", _power_binary_cols, key="power_success_col")
+                power_kwargs["group_col"] = pe2.selectbox("Group column (2 levels)", _power_group_cols, key="power_group_col_props")
+            else:
+                st.info("Estimating from data needs a binary outcome column and a 2-8-level categorical column.")
+                power_inputs_ok = False
+
+        pc1, pc2, pc3 = st.columns(3)
+        power_kwargs["alpha"] = pc1.number_input("Alpha", min_value=0.001, max_value=0.5, value=0.05, step=0.01, key="power_alpha")
+        if power_mode == "solve_n":
+            power_kwargs["target_power"] = pc2.number_input("Target power", min_value=0.5, max_value=0.999, value=0.8, step=0.05, key="power_target_power")
+        else:
+            power_kwargs["n_per_group"] = pc2.number_input("Planned n per group", min_value=2, value=100, step=10, key="power_n_per_group")
+        power_kwargs["ratio"] = pc3.number_input(
+            "Group size ratio (n2/n1)", min_value=0.1, max_value=10.0, value=1.0, step=0.1, key="power_ratio",
+            help="1.0 = equal group sizes.",
+        )
+
+        if power_inputs_ok and st.button("Run Power Analysis", key="power_run_btn"):
+            with st.spinner("Solving…"):
+                plan_fn = power_analysis.plan_power_means if power_metric_label == "Means" else power_analysis.plan_power_proportions
+                st.session_state.power_analysis_result = plan_fn(**power_kwargs)
+            st.session_state.power_analysis_narration = None
+            st.rerun()  # same same-pass-staleness reason as the Causal Effect Estimator above
+
+        power_result = st.session_state.power_analysis_result
+        if power_result is None:
+            ui.render_empty_state("📐", "No plan yet", 'Click "Run Power Analysis" above to see the required sample size / power.')
+        elif not power_result["ok"]:
+            st.warning(power_result["error"])
+        else:
+            if power_result.get("pilot"):
+                pilot = power_result["pilot"]
+                if power_result["metric_type"] == "mean":
+                    st.caption(
+                        f"Effect size estimated from your data: '{pilot['group_a']}' (n={pilot['n_a']}, mean={pilot['mean_a']:.3g}) "
+                        f"vs '{pilot['group_b']}' (n={pilot['n_b']}, mean={pilot['mean_b']:.3g}) → Cohen's d = {power_result['effect_size']:.3f}."
+                    )
+                else:
+                    st.caption(
+                        f"Rates estimated from your data: '{pilot['group_a']}' (n={pilot['n_a']}, rate={pilot['p_a']:.2%}) "
+                        f"vs '{pilot['group_b']}' (n={pilot['n_b']}, rate={pilot['p_b']:.2%})."
+                    )
+
+            power_fig = visualization.plot_power_curve(power_result)
+            if power_fig is not None:
+                st.plotly_chart(power_fig, use_container_width=True)
+
+            if power_result["mode"] == "solve_n":
+                pm1, pm2 = st.columns(2)
+                pm1.metric("Required n per group", f"{power_result['required_n_per_group']:.0f}")
+                pm2.metric("Required n total", f"{power_result['required_n_total']:.0f}")
+            else:
+                st.metric("Achieved power", f"{power_result['achieved_power']:.1%}")
+                if power_result["achieved_power"] < 0.8:
+                    st.info("Below the conventional 80% power bar — a real effect at this size has a meaningful chance of being missed.")
+
+            if st.session_state.power_analysis_narration:
+                st.info(st.session_state.power_analysis_narration)
+            elif st.button("✨ Explain this", key="power_narrate_btn"):
+                model = ai_analyst.get_model()
+                with st.spinner("Gemini is interpreting this…"):
+                    narration, narr_error = power_analysis.narrate_power_analysis(model, power_result)
+                if narr_error:
+                    st.warning(narr_error)
+                else:
+                    st.session_state.power_analysis_narration = narration
+                    st.rerun()
 
 # --------------------------------------------------------------------------
 # Forecasting tab — only rendered when the dataset has a datetime column.
