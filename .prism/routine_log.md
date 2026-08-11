@@ -891,3 +891,68 @@ hard guardrails and this session's git instructions (which take
 precedence over the scheduling prompt's phrasing). A genuinely open-ended
 loop would mean repeatedly re-running research/build/verify against a
 shrinking backlog — diminishing-returns busywork, not "less tokens."
+
+## Run 13 — 2026-08-11
+
+Same token-efficiency reasoning Runs 9-12 logged for this scheduling
+pattern: reused the standing backlog rather than re-running the full
+four-source-class web sweep; no fresh full-app audit since Run 11 covered
+it two runs ago with nothing new since. Same process-note contradiction
+in the trigger ("loop until 100% used" + "use less tokens") as Runs 10
+and 12 — ran one complete, safely verified cycle and stopped, per the
+hard guardrails.
+
+**Shipped two features**, deliberately smaller-scope than a fresh L-effort
+build, closing two standing backlog items in one cycle:
+
+1. **Tier-2 proactive Atlas alert for lone confounder paradoxes** — the
+   "second, still-selective tier for lone high-severity findings"
+   candidate Run 11 logged and deliberately deferred, scoped precisely:
+   fires only for a lone high-severity *confounder* claim (the one
+   detector that runs silently on every upload with no alert of its own,
+   unlike Auto-Insights), gated separately from tier 1 so it can fire at
+   the plain two-detector baseline instead of needing a third detector.
+   Satisfies this cycle's mandatory agentic-AI-analysis theme. 7 new
+   tests.
+2. **Manual Chart Builder Color + Aggregation encoding** — first real
+   progress on the PyGWalker-style chart builder item (8+ runs
+   unaddressed going into this run). Rather than attempt the full L-effort
+   drag-and-drop rebuild (architecturally risky in Streamlit without a
+   custom JS component — explicitly out of scope per the no-architecture-
+   rewrites guardrail), shipped the grammar-of-graphics slice: an optional
+   Color encoding channel plus a Bar aggregation-function picker, both as
+   ordinary selectboxes. 19 new tests (this module had none before this
+   run).
+
+Full suite: 285/285 (259 baseline + 26 new). Verified live via Playwright
+(desktop 1440px dark + light, mobile 390px dark; `samples/sales_data.csv`):
+built an encoded chart (region × quantity, colored by product, summed) and
+confirmed the correct grouped/colored Plotly output and title in both
+desktop themes and on mobile — no clipping, glass panels consistent, sidebar
+controls readable. Mobile + light theme together wasn't captured (the
+in-app theme selector lives in a sidebar expander that Playwright couldn't
+scroll into view reliably on the 390px viewport after a rerun) — same class
+of automation-only gap Run 10 logged for its light-theme pass; the mobile
+layout and the light theme were each independently verified, just not
+simultaneously. Confounder tier-2 alert verified via its 7 unit tests plus
+a live no-traceback smoke check on the Overview tab (still no real
+`GEMINI_API_KEY` in this sandbox — 13th consecutive run with that
+constraint — but this feature makes zero Gemini calls, so that's not a
+verification gap here). Hit the same `_cffi_backend` sandbox gap Run 12
+first logged; same fix (`pip install --force-reinstall --no-cache-dir
+cffi`) resolved it, now logged in CHANGELOG.md too so it's recognized on
+sight. Merged `feature/tier2-confounder-alert-and-chart-encoding` into
+`main`, full suite re-verified green post-merge, `.env`/secrets hygiene
+re-checked (clean).
+
+**Not built (backlog, updated):** the PyGWalker-style builder's remaining
+scope — draggable pill-based UI, faceting/small-multiples, and a true
+"explore mode" that auto-suggests encodings — is still open (this run
+closed the encoding-channel gap, not the interaction-model gap).
+DuckDB/polars-backed Auto Cleaner path for large datasets (unaddressed
+since first logged). Light-theme dataframe/chart repaint-lag (cosmetic).
+Live-Gemini verification (13th consecutive run, sandbox constraint, not
+actionable from inside a run). New candidate for a future run: extend the
+tier-2 alert pattern to Pie charts' category-share findings if a similar
+"silent detector" gap is ever identified there — not built now since no
+such gap currently exists in Pie's rendering path.

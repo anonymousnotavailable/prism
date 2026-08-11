@@ -2,6 +2,44 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 13)
+
+### Added
+- **Tier-2 proactive Atlas alert for lone confounder paradoxes**
+  (`modules/insight_orchestrator.proactive_alert_text_tier2`, `app.py`) —
+  a second, narrower JARVIS-copilot slice alongside the existing
+  cross-detector agreement/contradiction alert. Confounder detection runs
+  silently on every dataset upload (same as Auto-Insights) but, unlike
+  Auto-Insights, had no proactive announcement of its own — a freshly
+  detected Simpson's-paradox-style confounder could sit unannounced in
+  the Overview tab's collapsed panel. Now Atlas speaks up unprompted the
+  moment a lone high-severity confounder paradox is the top-ranked
+  finding, even at the plain two-detector baseline (no third detector
+  needed, unlike tier 1). Detectors that already actively surface their
+  own findings inline when computed (Auto-Insights, Causal Effect
+  Estimator, Anomaly Detection, Drift, Hypothesis Sweep, the Auto Analyst
+  verifier) are deliberately excluded to avoid double-speaking the same
+  information. Zero extra Gemini calls. 7 new tests.
+- **Manual Chart Builder: Color + Aggregation encoding**
+  (`modules/visualization.build_manual_chart`, Visualize tab) — a
+  grammar-of-graphics-style slice toward the long-standing PyGWalker-style
+  chart builder backlog item. The existing X/Y/type builder gains an
+  optional Color channel (splits/groups marks on Histogram, Box, Bar,
+  Scatter, and Line charts) and, for Bar charts, a choice of aggregation
+  function (mean/sum/median/min/max) instead of always averaging. Both
+  controls only appear for chart types that support them. No custom
+  drag-and-drop component — encoding channels are exposed as ordinary
+  selectboxes, staying inside Streamlit's native widget set. 19 new tests
+  (this module had no dedicated test file before this run).
+
+### Fixed
+- Sandbox environment gap: a fresh `pip install` sometimes leaves
+  `_cffi_backend` missing, which breaks every test that imports the
+  Gemini client chain via `cryptography` with a `pyo3_runtime.PanicException`
+  at collection time. `pip install --force-reinstall --no-cache-dir cffi`
+  resolves it — logged again here (Run 12 first hit this) so it's
+  immediately recognized as environment, not regression, if it recurs.
+
 ## 2026-08-11 (Run 12)
 
 ### Added
