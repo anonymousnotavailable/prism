@@ -2,6 +2,45 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 31)
+
+### Added
+- **Bayesian A/B Testing** (`modules/bayesian_ab.py`, new module) — added
+  to Stats Lab as a new panel after Survival Analysis. Beta-binomial
+  conjugate posterior per variant (closed-form update, configurable prior,
+  defaults to uninformative Beta(1,1)), 95% credible intervals, and
+  P(treatment beats control) computed via Evan Miller's exact closed-form
+  summation (falls back to Monte Carlo sampling for large posterior
+  counts, verified to agree with the exact method to within 1%). Also
+  reports expected loss per decision (the average regret of picking a
+  variant if it turns out to be the worse one) and the absolute/relative
+  lift distribution — a risk-based complement to a bare probability
+  threshold. Unlike a fixed-N frequentist significance test, a Bayesian
+  posterior can be checked at any time without a "peeking" penalty. New
+  chart: overlaid posterior density curves for the two variants. 31 new
+  tests.
+- **Power / Sample-Size Planning** (`modules/power_analysis.py`, new
+  module) — added to Stats Lab as a new panel, the frequentist
+  counterpart to Bayesian A/B Testing sitting next to it: pre-committing
+  to a sample size is exactly how a frequentist test earns the guarantee
+  a Bayesian posterior gets for free. Wraps `statsmodels.stats.power`
+  (`TTestIndPower` for two-sample means via Cohen's d, `NormalIndPower` +
+  `proportion_effectsize` for two-sample proportions) to solve either
+  direction: required sample size for a target power, or achieved power
+  for a planned sample size. Effect size can be typed directly or
+  estimated from a pilot slice of the loaded dataset. Deliberately does
+  not surface a bare "observed/post-hoc power" number computed from the
+  same data used to estimate the effect size — framed throughout as a
+  forward-looking planning tool, per Hoenig & Heisey's 2001 critique that
+  post-hoc power is a near-deterministic function of a p-value already
+  obtained, not an independent validity check. New chart: power-vs-
+  sample-size curve with the solved-for point marked. 38 new tests,
+  including two regression tests for a same-column-selection crash found
+  and fixed during development (`df[[col, col]]` producing a
+  duplicate-column DataFrame instead of a Series, breaking downstream
+  `.unique()` calls) — the same latent bug was also caught and fixed in
+  the new `bayesian_ab.py` module before it shipped.
+
 ## 2026-08-11 (Run 30)
 
 ### Added
