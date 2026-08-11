@@ -9,6 +9,7 @@ from statsmodels.stats.multitest import multipletests
 from modules.hypothesis_sweep import (
     DEFAULT_ALPHA,
     build_sweep_chart,
+    cross_check_confounders,
     fingerprint_sweep,
     narrate_sweep,
     sweep_hypotheses,
@@ -306,3 +307,69 @@ def test_build_sweep_chart_returns_figure_for_significant_findings():
     result = sweep_hypotheses(df, _column_types(df))
     fig = build_sweep_chart(result)
     assert fig is not None
+
+
+# --- cross_check_confounders ---------------------------------------------
+# Agentic follow-up to the sweep itself: does a significant pearson pair
+# hold up once you control for a third variable? Reuses
+# modules.confounder_detection.auto_scan_for_confounding — same paradox
+# shape as test_confounder_detection's _simpsons_paradox_df, scaled up so
+# the pooled pair also clears FDR significance inside a real sweep.
+
+def _sweep_paradox_df(n_per_group: int = 60, seed: int = 1) -> pd.DataFrame:
+    """Within each of two groups, x and y are strongly *negatively*
+    correlated, but group B sits far up-and-to-the-right of group A, so the
+    pooled correlation comes out strongly *positive* instead — classic
+    Simpson's Paradox, scaled up so the pooled x/y pair is itself a
+    significant sweep finding (not just a paradox in isolation)."""
+    rng = np.random.default_rng(seed)
+    x_a = np.linspace(1, 20, n_per_group)
+    y_a = 20 - x_a + rng.normal(scale=0.3, size=n_per_group)
+    x_b = np.linspace(30, 49, n_per_group)
+    y_b = 70 - x_b + rng.normal(scale=0.3, size=n_per_group)
+    return pd.DataFrame(
+        {
+            "x": np.concatenate([x_a, x_b]),
+            "y": np.concatenate([y_a, y_b]),
+            "group": ["A"] * n_per_group + ["B"] * n_per_group,
+        }
+    )
+
+
+def test_cross_check_confounders_flags_planted_paradox():
+    df = _sweep_paradox_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    xy = next(r for r in result["tested"] if {r["col_a"], r["col_b"]} == {"x", "y"})
+    assert xy["test"] == "pearson" and xy["significant"] is True  # sanity: the sweep itself found it
+
+    cross = cross_check_confounders(df, _column_types(df), result)
+    assert cross
+    scan = next(s for s in cross if {s["x"], s["y"]} == {"x", "y"})
+    verdicts = {f["confounder"]: f["verdict"] for f in scan["findings"]}
+    assert verdicts.get("group") == "paradox"
+
+
+def test_cross_check_confounders_empty_when_nothing_significant():
+    rng = np.random.default_rng(2)
+    df = pd.DataFrame({"a": rng.normal(size=50), "b": rng.normal(size=50)})
+    result = sweep_hypotheses(df, _column_types(df))
+    assert cross_check_confounders(df, _column_types(df), result) == []
+
+
+def test_cross_check_confounders_skips_when_no_significant_pearson_pair():
+    df = _correlated_df()
+    # Only the categorical/categorical pair is significant, no pearson pair.
+    fake_result = {
+        "tested": [
+            {"col_a": "group", "col_b": "tier", "test": "chi2", "significant": True, "effect_size": 0.9},
+            {"col_a": "x", "col_b": "z", "test": "pearson", "significant": False, "effect_size": 0.01},
+        ]
+    }
+    assert cross_check_confounders(df, _column_types(df), fake_result) == []
+
+
+def test_cross_check_confounders_handles_missing_or_malformed_result_safely():
+    df = _correlated_df()
+    types = _column_types(df)
+    assert cross_check_confounders(df, types, None) == []
+    assert cross_check_confounders(df, types, {"tested": "not a list"}) == []
