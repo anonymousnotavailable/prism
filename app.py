@@ -46,6 +46,7 @@ from modules import (
     enrichment,
     forecasting,
     geo,
+    granger_causality,
     hellmode,
     hypothesis_sweep,
     india,
@@ -5160,6 +5161,73 @@ elif st.session_state.active_section == "Forecasting":
                 else:
                     st.session_state.changepoint_narration = narration
                     st.rerun()
+
+        # --------------------------------------------------------------
+        # Granger Causality — does one numeric column's past help predict
+        # another's future (see modules/granger_causality.py). Needs a
+        # second numeric column, unlike the panels above which reuse the
+        # single forecast_num_col — only rendered when at least 2 numeric
+        # columns exist.
+        # --------------------------------------------------------------
+        if len(numeric_cols_for_forecast) >= 2:
+            st.divider()
+            st.markdown("#### 🔁 Granger Causality")
+            st.caption(
+                "Tests whether one column's past values help predict another column's future values, "
+                "beyond what that column's own past already explains — auto-checks both for stationarity "
+                "(differencing if needed) and picks the lag order via AIC before testing both directions. "
+                "This tests *predictive precedence, not true causation* — a shared underlying driver could "
+                "produce the same pattern."
+            )
+            gc1, gc2 = st.columns(2)
+            with gc1:
+                granger_cause_col = st.selectbox("Potential cause (X)", numeric_cols_for_forecast, key="granger_cause_col")
+            with gc2:
+                granger_effect_options = [c for c in numeric_cols_for_forecast if c != granger_cause_col]
+                granger_effect_col = st.selectbox("Effect (Y)", granger_effect_options, key="granger_effect_col")
+
+            if st.button("Test Granger Causality", key="granger_run_btn", use_container_width=True):
+                with st.spinner(ui.get_loading_message()):
+                    st.session_state.granger_result = granger_causality.run_granger_causality(
+                        df, forecast_dt_col, granger_cause_col, granger_effect_col
+                    )
+                st.session_state.granger_narration = None
+
+            granger_result = st.session_state.granger_result
+            if granger_result is None:
+                ui.render_empty_state(
+                    "🔁", "No Granger causality test run yet",
+                    'Pick a potential cause and effect column, then click "Test Granger Causality".',
+                )
+            elif not granger_result.get("ok"):
+                st.warning(granger_result.get("error"))
+            else:
+                st.markdown(granger_causality.granger_verdict(granger_result))
+                gm1, gm2, gm3 = st.columns(3)
+                gm1.metric("Lag order used", granger_result["selected_lag"])
+                gm2.metric(f"{granger_result['cause_col']} → {granger_result['effect_col']} p", f"{granger_result['forward']['p_value']:.3g}")
+                gm3.metric(f"{granger_result['effect_col']} → {granger_result['cause_col']} p", f"{granger_result['reverse']['p_value']:.3g}")
+                if granger_result["differencing"]["applied_d"] > 0:
+                    st.caption(
+                        f"Both series were differenced {granger_result['differencing']['applied_d']}x before "
+                        "testing (Augmented Dickey-Fuller found them non-stationary otherwise)."
+                    )
+
+                granger_fig = granger_causality.build_granger_chart(granger_result)
+                if granger_fig is not None:
+                    st.plotly_chart(granger_fig, use_container_width=True)
+
+                if st.session_state.granger_narration:
+                    st.info(st.session_state.granger_narration)
+                elif st.button("✨ Explain this", key="granger_narrate_btn"):
+                    model = ai_analyst.get_model()
+                    with st.spinner("Gemini is interpreting this…"):
+                        narration, narr_error = granger_causality.narrate_granger_causality(model, granger_result)
+                    if narr_error:
+                        st.warning(narr_error)
+                    else:
+                        st.session_state.granger_narration = narration
+                        st.rerun()
 
 # --------------------------------------------------------------------------
 # Clustering tab — pick an algorithm (KMeans with a hybrid elbow +
