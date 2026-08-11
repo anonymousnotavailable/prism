@@ -1303,3 +1303,70 @@ well-scoped, low-risk next slice toward the full PyGWalker interaction
 model. No fresh Phase 2 web research sweep this run (13th consecutive
 reuse of the backlog) — recommended for Run 21 if the backlog thins
 further.
+
+## Run 21 — 2026-08-11
+
+Reused the standing backlog (14th consecutive run, same token-efficiency
+reasoning documented since Run 9 — the "loop until 100% usage" + "use
+less tokens" instructions are contradictory; ran one complete, verified
+cycle and stopped, per the hard guardrails). Built Run 19's own logged
+follow-on candidate, open for 2 runs.
+
+**Shipped one feature (mandatory agentic-AI theme):** Hypothesis Sweep's
+confounder cross-check (Run 19) only covered significant Pearson
+(numeric/numeric) pairs — significant Welch's t-test pairs (binary
+categorical vs numeric) had no paradox/attenuation check at all, even
+though Simpson's Paradox applies to a group difference exactly the same
+way it does to a correlation (textbook case: a treatment effect that
+reverses once you control for patient severity). New
+`stratified_mean_difference()` / `detect_group_diff_confounders()` /
+`auto_scan_for_group_diff_confounding()` in `modules/
+confounder_detection.py` are the Cohen's-d analogs of the existing
+Pearson-r machinery (same verdict logic — 0.2/0.5 thresholds transfer
+directly since they're literally Cohen's own small/medium effect
+conventions for d). Deliberately dropped the correlation module's extra
+"do the strata even agree with each other" heterogeneity check for this
+d-based path — r is bounded to [-1,1] so a fixed spread is meaningful
+signal, but d is unbounded and its per-stratum sampling variance scales
+with 1/sqrt(n), so a fixed threshold flagged ordinary sampling noise as
+"confounded" for large real effects estimated from modest strata (caught
+this via a failing "robust relationship should stay robust" test, not
+after shipping). `cross_check_confounders()` now scans both pair types,
+tagging each scan `"relationship"`; the existing Confounder cross-check
+panel in `app.py` renders group-diff findings (pooled/adjusted Cohen's d,
+per-stratum mean-diff table) via a small additive branch, same expander/
+badge/"Explain this" UI, zero new CSS.
+
+23 new tests, full suite 390 → 413/413 green, zero regressions post-merge.
+Live-verified with Playwright at desktop 1440px dark + light
+(`samples/hr_data.csv` stayed correctly silent — no significant t-test
+pair to flag; a synthetic planted-Simpson's-Paradox CSV, generated for
+this run only and not committed, correctly rendered "🔴 Paradox — treatment
+differs by outcome, controlling for severity" with the right pooled/
+adjusted d and per-stratum table). Mobile viewport: dataset load screenshot
+captured clean, but driving to the sweep panel hit the same sticky-bottom-
+bar-intercepts-clicks issue every prior run's mobile automation has run
+into (pre-existing, not introduced by this change) — not re-chased past
+one retry, same bounded-verification-pass precedent as Runs 10/13/16-19.
+Zero console/page errors beyond the expected Gemini `ERR_CONNECTION_RESET`
+(21st consecutive run with no `GEMINI_API_KEY` in this sandbox).
+`.env`/secrets hygiene re-checked (clean, `.gitignore` covers it). Verified
+a fresh `main` checkout (separate git worktree) both passes the full suite
+and launches the Streamlit server cleanly before finishing. Merged
+`feature/sweep-groupdiff-confounder-crosscheck` into `main` with `--no-ff`,
+updated `CHANGELOG.md`, wrote `RUN_REPORT_2026-08-11-run21.md`, pushed
+`main`.
+
+**Not built (backlog, unchanged):** Large Excel ingestion (no out-of-core
+reader). Light-theme repaint-lag (cosmetic). Live-Gemini verification
+(structural constraint, unaddressable in this sandbox). Mobile-viewport
+navigation automation gap (sticky bottom bar intercepts clicks — now
+observed on 6+ runs; a real fix would be a Playwright-side workaround,
+e.g. force-scrolling the bar out of the way or using JS-level clicks,
+not an app change, since the layout itself is intentional). Explore
+Mode's "load into Manual Builder" click-through (Run 20's logged
+follow-on). Atlas voice/HUD slice beyond current maturity. No fresh
+Phase 2 web research sweep this run (14th consecutive reuse of the
+backlog) — the backlog still has enough well-scoped, high-depth items
+that a fresh sweep isn't the bottleneck yet; recommended once the list
+above is down to cosmetic-only items.
