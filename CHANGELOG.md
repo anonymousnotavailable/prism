@@ -2,6 +2,27 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-11 (Run 14)
+
+### Added
+- **SHAP-based per-feature anomaly attribution** (`modules/anomaly.py`,
+  Anomaly Detection panel) — replaces the naive "largest deviation from
+  the column median" single-feature heuristic with real multi-feature
+  attribution using `shap.TreeExplainer` over the fitted IsolationForest.
+  Each flagged row's reason now names the columns that actually drove its
+  anomaly score (ranked by |SHAP value|), not just whichever column
+  happens to be numerically furthest from its median — the two aren't the
+  same once more than one feature is involved. Adds an aggregate "top
+  contributing features" bar chart under the flagged-rows table, ranking
+  which columns most often turn out to be a row's #1 driver across the
+  whole flagged set. Bounded to flagged sets of 300 rows or fewer
+  (`SHAP_MAX_ROWS_TO_EXPLAIN`) to keep the explainer pass fast; falls back
+  to the existing naive reason with no extra column whenever `shap` isn't
+  installed, the cap is exceeded, or the explanation fails for any reason
+  — anomaly detection itself never depends on it. Zero extra Gemini calls
+  (reuses the `shap` dependency already installed for ML Lab's supervised
+  explanations). 9 new tests.
+
 ## 2026-08-11 (Run 13)
 
 ### Added

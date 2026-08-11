@@ -956,3 +956,75 @@ actionable from inside a run). New candidate for a future run: extend the
 tier-2 alert pattern to Pie charts' category-share findings if a similar
 "silent detector" gap is ever identified there — not built now since no
 such gap currently exists in Pie's rendering path.
+
+## Run 14 — 2026-08-11
+
+Same token-efficiency reasoning Runs 9-13 logged for this scheduling
+pattern (14th independent session today): reused the standing audit/
+research from earlier runs today rather than re-running the full launch-
+and-exercise audit or the four-source-class web sweep — nothing material
+changed in the app between Run 13 finishing and this run starting. Same
+process-note contradiction in the trigger ("loop until 100% used" + "use
+less tokens"/"don't use credits") as Runs 10, 12, and 13 — ran one
+complete, safely verified cycle and stopped, per the hard guardrails and
+this session's git instructions (which take precedence over the
+scheduling prompt's phrasing; a genuinely open-ended loop here would mean
+repeatedly re-running research/build/verify against a shrinking backlog —
+diminishing-returns busywork, not "less tokens" or "fewer credits").
+
+**Shipped:** SHAP-based per-feature anomaly attribution. Read through the
+existing detector modules looking for a genuine, not-yet-built agentic-
+theme gap rather than re-extending the already-8-detector Insight
+Orchestrator again — found one in `anomaly.py`: `_reason_for_row()` only
+ever named a *single* column (whichever was numerically furthest from its
+median), even when an anomaly was jointly driven by several features, and
+that heuristic conflates "far from median" with "why the model actually
+flagged it," which are only the same thing when one feature dominates.
+Replaced it with real `shap.TreeExplainer` attribution over the fitted
+IsolationForest (confirmed compatible in this sandbox: shap 0.49.1 +
+scikit-learn 1.6.1) — ranks every flagged row's columns by |SHAP value|
+and reports the top drivers by name, with a new aggregate "top
+contributing features" bar chart across the whole flagged set. `shap` was
+already a hard dependency (ML Lab's supervised explanations use it), so
+this added zero new packages and zero extra Gemini calls. Bounded to 300
+flagged rows (`SHAP_MAX_ROWS_TO_EXPLAIN`) and falls back cleanly to the
+pre-existing naive reason whenever shap is unavailable, the cap is
+exceeded, or the explainer throws for any reason — verified this fallback
+path explicitly with a monkeypatched-failure test, not just by inspection.
+9 new tests (5 covering the SHAP path including the cap and failure
+fallback, 4 covering the new aggregate/chart helpers), full suite 294/294
+green (285 baseline + 9 new). Verified live via Playwright against
+`samples/stock_data.csv` (desktop 1440px dark + light via the "Arctic
+(Light)" theme selector, mobile 390px dark): confirmed the flagged-rows
+table's `anomaly_reason` column now names multiple columns per row (e.g.
+"low is 1.1x above median; open is 1.1x ab...") instead of one, confirmed
+the aggregate driver chart renders correctly and legibly in all three
+combinations with no clipping and consistent glass panel styling, and
+confirmed the existing narration button/flow still works unchanged (it
+reads the same `anomaly_reason` column, so the richer text flows through
+for free with no code change needed there). Hit the same `_cffi_backend`
+sandbox gap Runs 12-13 logged; same fix (`pip install --force-reinstall
+--no-cache-dir cffi`) resolved it. Merged `feature/shap-anomaly-
+attribution` into the session branch (this session's designated branch
+takes precedence over the routine brief's generic "push main" instruction
+— consistent with every prior run's actual git behavior even where the
+prose said "main"), full suite re-verified green post-merge, `.env`/
+secrets hygiene re-checked (clean, `.gitignore` still covers `.env`).
+
+**Not built (backlog, unchanged):** DuckDB/polars-backed Auto Cleaner
+path for large datasets (still unaddressed, now 6+ runs — read
+`autocleaner.py` closely this run and confirmed it's genuinely M-to-L
+effort: every one of its 12 executors is pandas-native, so a large-data
+path would mean either a parallel DuckDB/polars implementation per
+executor or a threshold-gated rewrite of the heaviest ones, not a small
+add-on; deferred rather than rushed). PyGWalker-style builder's remaining
+interaction-model scope (unchanged from Run 13). Light-theme dataframe/
+chart repaint-lag (cosmetic). Live-Gemini verification (14th consecutive
+run, sandbox constraint). New candidate for a future run: the same SHAP-
+attribution pattern applied to the ensemble anomaly detector
+(`find_anomalies_ensemble`, LOF + DBSCAN + IsolationForest) — deliberately
+out of scope this run since LOF/DBSCAN aren't tree models and don't have
+a TreeExplainer path; would need a model-agnostic explainer (e.g.
+`shap.KernelExplainer` or `PermutationExplainer`), which is slower and
+would need its own row-cap tuning — a distinct enough problem to scope as
+its own run rather than bolt on here.
