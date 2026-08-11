@@ -2917,12 +2917,18 @@ elif st.session_state.active_section == "Combine":
                                 "Column": r["column"],
                                 "Type": r["type"],
                                 "Drift Score": r["drift_score"],
+                                "PSI": r.get("psi") if r["type"] == "numeric" else None,
                                 "Summary": drift.describe_drift(r),
                             }
                             for r in drift_result["column_reports"]
                         ]
                     )
                     st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                    st.caption(
+                        "PSI = Population Stability Index (numeric columns only) — the standard "
+                        "credit-risk / model-monitoring drift metric. < 0.10 stable, 0.10-0.25 "
+                        "moderate shift, > 0.25 significant shift worth a model/segment review."
+                    )
 
                     st.markdown("**Column-by-column detail**")
                     for r in drift_result["column_reports"]:
@@ -2930,6 +2936,8 @@ elif st.session_state.active_section == "Combine":
                             st.plotly_chart(
                                 drift.build_overlap_chart(r), use_container_width=True, key=f"drift_chart_{r['column']}"
                             )
+                            if r["type"] == "numeric" and r.get("psi") is not None:
+                                st.caption(drift.psi_verdict(r["psi"]))
                             if r["type"] == "categorical":
                                 if r["new_categories"]:
                                     st.write(f"**New categories in B:** {', '.join(map(str, r['new_categories']))}")
