@@ -1519,3 +1519,71 @@ large Excel ingestion, or run a fresh Phase 2 web research sweep if
 Excel ingestion is judged out of scope, since the backlog is thinning
 toward the "cosmetic-only" threshold that would trigger a sweep per this
 routine's own stated rule.**
+
+## Run 24 — 2026-08-11 — selection log (written before code merge)
+
+Local `main` was 1 commit ahead at `origin` but the fetch during Phase 0
+also pulled a *newer* `origin/main` than this worktree's stale local
+`main` ref knew about (Run 23's own merge, `9e55067`, hadn't reached this
+particular worktree's git object cache yet) — fast-forwarded
+(`git merge --ff-only origin/main`) before branching, same precedent as
+Runs 19/21/22/23. Cold-start dependency install needed again this run
+(`pip install -r requirements.txt -r requirements-dev.txt` then `pip
+install cffi` to unblock `cryptography`'s Rust bindings under
+`google-auth`) — same fix Run 23 logged, confirming it's a per-sandbox
+cold-start cost rather than a one-off.
+
+**Selected: large/out-of-core Excel ingestion** (Run 23's first-listed
+recommendation, and the oldest open backlog item — 4 runs open since
+Run 20). Confirmed the gap is real by reading `modules/data_engine.py`
+directly: `load_data()`'s Excel branch is a bare
+`pd.read_excel(uploaded_file, sheet_name=sheet_name)` with no row cap
+threaded through, unlike the CSV branch which already routes large files
+through a dedicated DuckDB out-of-core reader
+(`_duckdb_sample_csv`/`_should_attempt_duckdb`, added in an earlier run).
+Verified via pandas' own source
+(`pandas.io.excel._openpyxl.OpenpyxlReader.get_sheet_data`) that even
+though pandas opens the workbook in openpyxl's `read_only=True` mode
+internally, it still appends *every* row into a Python list before
+`load_data()`'s own truncation logic ever runs — so a large `.xlsx`
+genuinely materializes fully in memory before being cut down to
+`MAX_ROWS`/`HARD_ROW_CEILING`, exactly the crash/hang risk the backlog
+entry describes.
+
+**Agentic-AI theme coverage:** Excel ingestion is an ingestion/
+reliability feature, not an agentic-analysis one — but Run 22 (Anomaly
+Drivers: auto-EDA "why were these rows flagged" narration) and Run 23
+(Explore Mode → Manual Builder click-through, explicitly agreed in that
+run's brief to count) both shipped squarely in the agentic-AI theme in
+the two runs immediately preceding this one, satisfying this run's "at
+least one shipped feature this run *or a prior run within recent
+memory*" requirement without forcing an unrelated pairing into this
+run's scope. Not touching the Atlas/JARVIS copilot track this run, per
+the run brief.
+
+**Reasoning for not doing a fresh Phase 2 research sweep instead:**
+Excel ingestion is real, well-scoped, non-cosmetic, and was Run 23's
+explicit first-listed option — building it directly satisfies "reject
+cosmetic polish, prefer technical depth" without needing a research
+sweep to justify it. A fresh sweep remains queued for a future run once
+this item and the Atlas/HUD slice are the only backlog left.
+
+**Design, mirroring the existing DuckDB CSV path's quality bar rather
+than a cheaper `nrows=`-only fix:** a new `_stream_sample_excel()` in
+`modules/data_engine.py` opens `.xlsx` files via openpyxl's
+`read_only=True` row iterator directly (bypassing `pd.read_excel`
+entirely for the large-file branch) and does single-pass reservoir
+sampling — a genuine random sample across the *whole* sheet, not just
+the first N rows (same "don't silently over-represent whatever's sorted
+near the top" argument the CSV path's docstring already makes), while
+never holding more than `max_rows` rows in memory regardless of total
+sheet size. Gated behind a 15 MB size threshold
+(`LARGE_EXCEL_THRESHOLD_BYTES`, lower than the CSV threshold since xlsx
+is zip-compressed and routinely unzips to several times its file size in
+row/cell XML) and `.xlsx`-only (`.xls` isn't openpyxl's format at all).
+Includes a streaming-mode equivalent of the existing banner-row and
+blank-line recovery heuristics so a title row above the real header
+still gets skipped. On *any* failure (corrupt workbook, sheet not found,
+empty sheet, openpyxl unavailable) it returns `None` and `load_data()`
+silently falls through to the existing `pd.read_excel` path, same
+fail-safe philosophy as the DuckDB CSV path.
