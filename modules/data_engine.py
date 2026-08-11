@@ -55,6 +55,109 @@ _ENCODING_FALLBACKS = ["utf-8-sig", "cp1252", "latin-1"]
 # database and log-style exports.
 _DELIMITER_CANDIDATES = [",", ";", "\t", "|"]
 
+# Above this many bytes, load_data() tries DuckDB's out-of-core CSV reader
+# before falling back to the pandas path above. Below it, pandas reading the
+# whole file into memory first is fast enough that the extra machinery
+# wouldn't pay for itself. 15 MB is comfortably above every sample dataset
+# and typical Kaggle CSV Prism has been tested against, so this only kicks
+# in for genuinely large uploads.
+LARGE_FILE_THRESHOLD_BYTES = 15 * 1024 * 1024
+
+
+def _should_attempt_duckdb(uploaded_file) -> bool:
+    """Whether load_data() should try the DuckDB path for this file.
+
+    Only CSV-shaped files with a known size at/above the threshold qualify.
+    Excel files go through openpyxl (no equivalent out-of-core reader
+    integrated here) and anything whose size can't be determined is treated
+    conservatively — same behavior as today rather than risking a surprise.
+    """
+    size = getattr(uploaded_file, "size", None)
+    if size is None:
+        return False
+    filename = getattr(uploaded_file, "name", "").lower()
+    if filename.endswith((".xlsx", ".xls")):
+        return False
+    return size >= LARGE_FILE_THRESHOLD_BYTES
+
+
+def _duckdb_sample_csv(
+    uploaded_file, max_rows: int, random_state: int = 42
+) -> Optional[tuple[pd.DataFrame, list[str]]]:
+    """Read a (potentially huge) CSV via DuckDB's out-of-core reader instead
+    of pandas, returning at most `max_rows` rows.
+
+    DuckDB streams the file rather than materializing it fully in Python
+    memory, and — critically — when a sample is needed, it's a reservoir
+    sample across the *entire* file rather than "keep the first max_rows
+    rows" (pandas' `.head()` truncation, which silently over-represents
+    whatever happens to be sorted or clustered near the top of the file,
+    e.g. a dataset sorted by date or region).
+
+    Returns (sampled_df, warnings) on success, or None on *any* failure —
+    DuckDB not installed, a file it can't parse, an encoding it can't
+    detect. This is a performance optimization on top of the pandas path,
+    never a required capability, so callers should silently fall back to
+    the existing pandas path rather than surface an error.
+    """
+    try:
+        import duckdb
+    except ImportError:
+        return None
+
+    import os
+    import tempfile
+
+    tmp_path = None
+    try:
+        uploaded_file.seek(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(uploaded_file.read())
+            tmp_path = tmp.name
+        uploaded_file.seek(0)
+
+        con = duckdb.connect(database=":memory:")
+        try:
+            total_rows = con.execute(
+                "SELECT count(*) FROM read_csv_auto(?, ignore_errors=true)", [tmp_path]
+            ).fetchone()[0]
+            if total_rows == 0:
+                return None
+            if total_rows <= max_rows:
+                df = con.execute("SELECT * FROM read_csv_auto(?, ignore_errors=true)", [tmp_path]).df()
+                warnings = []
+            else:
+                df = con.execute(
+                    "SELECT * FROM read_csv_auto(?, ignore_errors=true) "
+                    f"USING SAMPLE {max_rows} ROWS (reservoir, {random_state})",
+                    [tmp_path],
+                ).df()
+                warnings = [
+                    f"This file has {total_rows:,} rows — too large to load in full. Used DuckDB's "
+                    f"out-of-core reader to take a random {max_rows:,}-row sample across the *entire* "
+                    f"file (not just the first {max_rows:,} rows), so the sample better represents the "
+                    "whole dataset. The cleaned-data download will only reflect this sample."
+                ]
+            # DuckDB's auto-detection occasionally "succeeds" on malformed
+            # input by degenerating to a near-empty parse (e.g. a banner row
+            # mistaken for the real header, with every actual data row then
+            # rejected as a width mismatch under ignore_errors=true) — a
+            # technically-valid but useless DataFrame of all-null rows.
+            # Pandas' dedicated banner/header-recovery heuristics (see
+            # _recover_banner_row / _recover_missing_header above) handle
+            # that case properly, so treat this as a failure and let the
+            # caller fall back to them rather than accepting empty garbage.
+            if df.dropna(how="all").empty:
+                return None
+            return df, warnings
+        finally:
+            con.close()
+    except Exception:
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
 
 def _header_row_is_probably_data(df: pd.DataFrame) -> bool:
     """pandas' default header=0 treats a headerless CSV's first data row as
@@ -216,64 +319,76 @@ def load_data(
     filename = uploaded_file.name.lower()
     effective_cap = max_rows if max_rows is not None else HARD_ROW_CEILING
 
-    try:
-        if filename.endswith((".xlsx", ".xls")):
-            uploaded_file.seek(0)
-            df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+    # Large-file fast path: DuckDB reads the file out-of-core and samples
+    # directly, so pandas never has to materialize the whole thing just to
+    # truncate it a moment later. Only attempted above LARGE_FILE_THRESHOLD_
+    # BYTES (see _should_attempt_duckdb) and only for CSV-shaped files; on
+    # any failure (DuckDB missing, a parse quirk it can't recover from the
+    # way the pandas fallback below can) this silently falls through to the
+    # existing behavior rather than surfacing an error.
+    duckdb_result = _duckdb_sample_csv(uploaded_file, effective_cap) if _should_attempt_duckdb(uploaded_file) else None
 
-            def _reread_excel():
+    if duckdb_result is not None:
+        df, warnings = duckdb_result
+    else:
+        try:
+            if filename.endswith((".xlsx", ".xls")):
                 uploaded_file.seek(0)
-                return pd.read_excel(uploaded_file, sheet_name=sheet_name, header=1)
+                df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
 
-            df, banner_skipped = _recover_banner_row(df, _reread_excel)
-            if banner_skipped:
-                warnings.append("Detected a banner row above the real header and skipped it.")
-        else:
-            # Everything else — .csv, .txt, .dat, .data, or no extension at
-            # all — is treated as a delimited-text candidate rather than
-            # rejected by name. Real downloads routinely arrive without a
-            # clean .csv extension (government portals with extensionless
-            # API URLs, UCI's *.data files); the parser below still raises a
-            # clear, specific error if the content genuinely isn't
-            # delimited text, so nothing is silently accepted.
-            df, encoding_used, delimiter_used, header_recovered = _read_csv_with_encoding_fallback(uploaded_file)
-            if encoding_used != "utf-8":
-                warnings.append(
-                    f"This file wasn't valid UTF-8 (common for datasets scraped or exported outside "
-                    f"the US/UK — e.g. non-English titles or tags). Read successfully using "
-                    f"{encoding_used} instead."
-                )
-            if delimiter_used != ",":
-                shown = {"\t": "tab"}.get(delimiter_used, delimiter_used)
-                warnings.append(
-                    f"This file uses '{shown}' instead of a comma to separate columns (common outside "
-                    f"the US/UK, or in database/log exports) — detected automatically."
-                )
-            if header_recovered:
-                warnings.append(
-                    "This file doesn't appear to have a header row (the first row looked like data, "
-                    "not column names), so it would otherwise have been silently used as one — Prism "
-                    "generated generic column names (Column_1, Column_2, ...) and kept every row."
-                )
-            else:
-
-                def _reread_csv():
+                def _reread_excel():
                     uploaded_file.seek(0)
-                    return pd.read_csv(uploaded_file, encoding=encoding_used, sep=delimiter_used, header=1)
+                    return pd.read_excel(uploaded_file, sheet_name=sheet_name, header=1)
 
-                df, banner_skipped = _recover_banner_row(df, _reread_csv)
+                df, banner_skipped = _recover_banner_row(df, _reread_excel)
                 if banner_skipped:
                     warnings.append("Detected a banner row above the real header and skipped it.")
-    except pd.errors.EmptyDataError:
-        return None, "The uploaded file is empty.", warnings
-    except pd.errors.ParserError as e:
-        return None, f"Could not parse the file — it may be malformed. Details: {e}", warnings
-    except UnicodeDecodeError:
-        return None, "Could not decode the file in UTF-8, CP1252, or Latin-1. Try re-saving it as UTF-8 CSV.", warnings
-    except ValueError as e:
-        return None, f"Could not read the file. Details: {e}", warnings
-    except Exception as e:  # last-resort catch so a bad upload never hard-crashes the app
-        return None, f"Unexpected error while reading the file: {e}", warnings
+            else:
+                # Everything else — .csv, .txt, .dat, .data, or no extension at
+                # all — is treated as a delimited-text candidate rather than
+                # rejected by name. Real downloads routinely arrive without a
+                # clean .csv extension (government portals with extensionless
+                # API URLs, UCI's *.data files); the parser below still raises a
+                # clear, specific error if the content genuinely isn't
+                # delimited text, so nothing is silently accepted.
+                df, encoding_used, delimiter_used, header_recovered = _read_csv_with_encoding_fallback(uploaded_file)
+                if encoding_used != "utf-8":
+                    warnings.append(
+                        f"This file wasn't valid UTF-8 (common for datasets scraped or exported outside "
+                        f"the US/UK — e.g. non-English titles or tags). Read successfully using "
+                        f"{encoding_used} instead."
+                    )
+                if delimiter_used != ",":
+                    shown = {"\t": "tab"}.get(delimiter_used, delimiter_used)
+                    warnings.append(
+                        f"This file uses '{shown}' instead of a comma to separate columns (common outside "
+                        f"the US/UK, or in database/log exports) — detected automatically."
+                    )
+                if header_recovered:
+                    warnings.append(
+                        "This file doesn't appear to have a header row (the first row looked like data, "
+                        "not column names), so it would otherwise have been silently used as one — Prism "
+                        "generated generic column names (Column_1, Column_2, ...) and kept every row."
+                    )
+                else:
+
+                    def _reread_csv():
+                        uploaded_file.seek(0)
+                        return pd.read_csv(uploaded_file, encoding=encoding_used, sep=delimiter_used, header=1)
+
+                    df, banner_skipped = _recover_banner_row(df, _reread_csv)
+                    if banner_skipped:
+                        warnings.append("Detected a banner row above the real header and skipped it.")
+        except pd.errors.EmptyDataError:
+            return None, "The uploaded file is empty.", warnings
+        except pd.errors.ParserError as e:
+            return None, f"Could not parse the file — it may be malformed. Details: {e}", warnings
+        except UnicodeDecodeError:
+            return None, "Could not decode the file in UTF-8, CP1252, or Latin-1. Try re-saving it as UTF-8 CSV.", warnings
+        except ValueError as e:
+            return None, f"Could not read the file. Details: {e}", warnings
+        except Exception as e:  # last-resort catch so a bad upload never hard-crashes the app
+            return None, f"Unexpected error while reading the file: {e}", warnings
 
     if df.shape[0] == 0:
         return None, "The uploaded file contains no rows.", warnings

@@ -195,6 +195,43 @@ def plot_correlation_heatmap(df: pd.DataFrame):
     return fig, get_top_correlations(corr)
 
 
+def plot_cate_by_subgroup(cate_result: dict) -> Optional[go.Figure]:
+    """Bar chart of per-subgroup ATT (with 95% CI error bars) against the
+    pooled ATT, for causal_inference.estimate_cate_by_subgroup() results.
+    Bars are colored red/green by sign so a sign reversal across subgroups
+    (the headline finding that panel calls out) is visible at a glance, not
+    just stated in text. Returns None if there's nothing usable to plot.
+    """
+    usable = [s for s in cate_result["subgroups"] if s["ok"]]
+    if not usable:
+        return None
+
+    pooled = cate_result["pooled"]
+    subgroup_labels = [str(s["level"]) for s in usable]
+    atts = [s["att"] for s in usable]
+    ci_high_err = [s["ci_high"] - s["att"] for s in usable]
+    ci_low_err = [s["att"] - s["ci_low"] for s in usable]
+
+    fig = go.Figure()
+    fig.add_hline(y=pooled["att"], line_dash="dash", line_color="gray", annotation_text="pooled ATT")
+    fig.add_trace(go.Bar(
+        x=subgroup_labels,
+        y=atts,
+        error_y=dict(type="data", array=ci_high_err, arrayminus=ci_low_err),
+        marker_color=["#ef4444" if a < 0 else "#22c55e" for a in atts],
+        name="Subgroup ATT",
+    ))
+    fig.update_layout(
+        title=f"Effect of {pooled['treatment_col']} on {pooled['outcome_col']}, by {cate_result['subgroup_col']}",
+        yaxis_title=f"ATT on {pooled['outcome_col']}",
+        xaxis_title=cate_result["subgroup_col"],
+        height=340,
+        margin=dict(l=10, r=10, t=50, b=10),
+        showlegend=False,
+    )
+    return fig
+
+
 def auto_generate_charts(df: pd.DataFrame, column_types: dict[str, str]):
     """Build the full auto-chart set (used by both the Visualize tab and the HTML export).
 
