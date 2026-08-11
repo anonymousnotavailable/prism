@@ -157,6 +157,7 @@ _DEFAULTS = {
     "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
     "hypothesis_sweep_narration": None,  # Gemini-narrated explanation of the last sweep's findings
     "hypothesis_sweep_narration_fingerprint": None,  # hypothesis_sweep.fingerprint_sweep() covered by the narration above
+    "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
     "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -305,6 +306,7 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hypothesis_sweep_result = None
     st.session_state.hypothesis_sweep_narration = None
     st.session_state.hypothesis_sweep_narration_fingerprint = None
+    st.session_state.hypothesis_sweep_narration_verification = None
     st.session_state.mllab_feature_selection_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
@@ -3802,6 +3804,7 @@ elif st.session_state.active_section == "Stats Lab":
                 st.session_state.hypothesis_sweep_result = hypothesis_sweep.sweep_hypotheses(df, column_types)
             st.session_state.hypothesis_sweep_narration = None
             st.session_state.hypothesis_sweep_narration_fingerprint = None
+            st.session_state.hypothesis_sweep_narration_verification = None
 
         sweep_result = st.session_state.hypothesis_sweep_result
         if sweep_result is None:
@@ -3853,6 +3856,11 @@ elif st.session_state.active_section == "Stats Lab":
                     and st.session_state.hypothesis_sweep_narration_fingerprint == current_sweep_fp
                 ):
                     st.info(f"🤖 {st.session_state.hypothesis_sweep_narration}")
+                    caption = ui.build_verification_caption(
+                        [st.session_state.hypothesis_sweep_narration_verification or {"status": "unverifiable"}]
+                    )
+                    if caption:
+                        st.caption(caption)
                 elif st.button(
                     "✨ Explain these findings with AI",
                     key="narrate_hypothesis_sweep_btn",
@@ -3866,6 +3874,12 @@ elif st.session_state.active_section == "Stats Lab":
                     else:
                         st.session_state.hypothesis_sweep_narration = narration
                         st.session_state.hypothesis_sweep_narration_fingerprint = current_sweep_fp
+                        # Fact-check the narration against the sweep's own numbers —
+                        # same insight_verifier-backed safety net every other
+                        # Gemini-written surface in the app already has.
+                        st.session_state.hypothesis_sweep_narration_verification = (
+                            hypothesis_sweep.verify_narration(narration, sweep_result)
+                        )
                         st.rerun()
 
 # --------------------------------------------------------------------------

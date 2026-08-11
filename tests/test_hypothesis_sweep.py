@@ -12,6 +12,8 @@ from modules.hypothesis_sweep import (
     fingerprint_sweep,
     narrate_sweep,
     sweep_hypotheses,
+    sweep_reference_numbers,
+    verify_narration,
 )
 
 
@@ -230,6 +232,66 @@ def test_narrate_sweep_calls_gemini_with_top_findings():
     narration, error = narrate_sweep(_FakeModel(), result)
     assert error is None
     assert "worth a closer look" in narration.lower()
+
+
+# --- sweep_reference_numbers / verify_narration --------------------------
+# Fact-checks narrate_sweep()'s Gemini prose against the sweep's own
+# already-computed test statistics (Run 17) — the same "plausible but
+# wrong number" safety net insight_verifier applies to Auto Analyst
+# findings, but backed by exact numbers the sweep already produced rather
+# than a DataFrame recomputation.
+
+def test_sweep_reference_numbers_includes_top_level_counts():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    numbers = sweep_reference_numbers(result)
+    assert float(result["n_tests_run"]) in numbers
+    assert float(result["n_significant"]) in numbers
+
+
+def test_sweep_reference_numbers_includes_per_test_statistics():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    numbers = sweep_reference_numbers(result)
+    row = result["tested"][0]
+    assert round(float(row["effect_size"]), 2) in numbers
+    assert round(float(row["n"]), 2) in numbers
+
+
+def test_sweep_reference_numbers_empty_result_is_safe():
+    assert sweep_reference_numbers(None) == set()
+    assert sweep_reference_numbers({"tested": []}) == {0.0}
+
+
+def test_verify_narration_confirmed_when_numbers_match():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    n_sig = result["n_significant"]
+    narration = f"{n_sig} relationship(s) survived FDR correction — worth a closer look."
+    verification = verify_narration(narration, result)
+    assert verification["status"] == "confirmed"
+
+
+def test_verify_narration_flagged_when_a_number_is_fabricated():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    narration = "A whopping 987654 relationships were significant — an extraordinary result."
+    verification = verify_narration(narration, result)
+    assert verification["status"] == "flagged"
+
+
+def test_verify_narration_unverifiable_when_no_numbers_in_text():
+    result = {"tested": [], "n_tests_run": 0, "n_significant": 0}
+    verification = verify_narration("Nothing to report here.", result)
+    assert verification["status"] == "unverifiable"
+
+
+def test_verify_narration_never_raises_on_malformed_result():
+    # A malformed "tested" value must degrade gracefully (no exception) —
+    # the narration's number won't match the resulting near-empty
+    # reference set, which correctly reads as "flagged", not a crash.
+    verification = verify_narration("Some text with 42 in it.", {"tested": "not a list"})
+    assert verification["status"] in ("flagged", "unverifiable")
 
 
 # --- build_sweep_chart --------------------------------------------------------
