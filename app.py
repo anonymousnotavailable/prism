@@ -339,6 +339,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.mllab_shap_error = None
     st.session_state.regression_diag_result = None
     st.session_state.regression_diag_error = None
+    st.session_state.mllab_conformal_result = None
+    st.session_state.mllab_conformal_error = None
     st.session_state.enrichment_report = None
     st.session_state.chaos_result = None
     st.session_state.data_dictionary_rows = None
@@ -4762,6 +4764,8 @@ elif st.session_state.active_section == "ML Lab":
                 ui.render_shimmer(height=220)
             st.session_state.mllab_shap_values = None  # a new model run invalidates any prior SHAP explanation
             st.session_state.mllab_shap_error = None
+            st.session_state.mllab_conformal_result = None  # ditto for any prior conformal interval run
+            st.session_state.mllab_conformal_error = None
             try:
                 st.session_state.mllab_result = mllab.run_baseline_models(
                     df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
@@ -4911,5 +4915,41 @@ elif st.session_state.active_section == "ML Lab":
                             st.plotly_chart(vif_fig, use_container_width=True)
                         else:
                             ui.render_empty_state("📊", "VIF needs 2+ features", "Multicollinearity can't be assessed with a single feature.")
+
+                st.divider()
+                st.markdown("#### Prediction Intervals (Conformal Prediction)")
+                st.caption(
+                    "The metrics above are point predictions with no sense of how uncertain each one is. "
+                    "Split-conformal prediction fits a fresh Random Forest on part of the training data, "
+                    "measures its errors on a held-out calibration slice, and uses that to give every "
+                    "prediction a distribution-free interval with a statistical coverage guarantee — no "
+                    "normality assumption required, unlike the OLS diagnostics above."
+                )
+                conformal_alpha_pct = st.slider(
+                    "Target coverage", min_value=50, max_value=99, value=90, step=1,
+                    key="mllab_conformal_coverage", help="Higher coverage means wider, more conservative intervals.",
+                )
+                if st.button("Compute Prediction Intervals", key="mllab_conformal_btn", use_container_width=True):
+                    with st.spinner("Fitting a calibration model and computing conformal intervals…"):
+                        conformal_result = mllab.run_conformal_regression(
+                            df, mllab_selected_features, mllab_target_col, alpha=(100 - conformal_alpha_pct) / 100
+                        )
+                        if "error" in conformal_result:
+                            st.session_state.mllab_conformal_result = None
+                            st.session_state.mllab_conformal_error = conformal_result["error"]
+                        else:
+                            st.session_state.mllab_conformal_result = conformal_result
+                            st.session_state.mllab_conformal_error = None
+
+                if st.session_state.mllab_conformal_error:
+                    st.warning(st.session_state.mllab_conformal_error)
+                elif st.session_state.mllab_conformal_result is not None:
+                    conformal_result = st.session_state.mllab_conformal_result
+                    conformal_metric_cols = st.columns(3)
+                    conformal_metric_cols[0].metric("Target coverage", f"{conformal_result['target_coverage'] * 100:.0f}%")
+                    conformal_metric_cols[1].metric("Empirical coverage", f"{conformal_result['empirical_coverage'] * 100:.1f}%")
+                    conformal_metric_cols[2].metric("Mean interval width", f"{conformal_result['mean_interval_width']:.3g}")
+                    st.info(mllab.conformal_verdict(conformal_result))
+                    st.plotly_chart(mllab.build_conformal_chart(conformal_result), use_container_width=True)
 
 ui.render_footer()

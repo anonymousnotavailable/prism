@@ -616,3 +616,189 @@ def build_feature_selection_chart(ranking: pd.DataFrame, top_n: int = 15) -> go.
     )
     fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
     return fig
+
+
+# ==========================================================================
+# 14. Conformal Prediction — regression uncertainty quantification
+# ==========================================================================
+
+# Split-conformal prediction (Lei et al., "Distribution-Free Predictive
+# Inference"): fit a model on a training fold, score its residuals on a
+# *separate* held-out calibration fold, then widen every future point
+# prediction by the (1-alpha) empirical quantile of those calibration
+# residuals. Unlike the parametric confidence bands statsmodels gives
+# `regression_diagnostics`/`forecasting`, this makes no distributional
+# assumption about the residuals (no normality requirement) — it only
+# assumes the calibration and test data are exchangeable, which is why
+# the calibration split has to come from the same fit-time data rather
+# than being computed in-sample. The resulting interval width is
+# constant across test points (absolute-residual nonconformity, the
+# simplest and most standard split-conformal scorer); that's a real
+# limitation — it doesn't adapt to points with wider true uncertainty —
+# but it comes with a genuine finite-sample marginal coverage guarantee,
+# which parametric bands only get exactly right when their distributional
+# assumptions hold.
+CONFORMAL_MIN_ROWS = 60  # need enough rows split three ways (train/calib/test) for the quantile to be meaningful
+
+
+def run_conformal_regression(
+    df: pd.DataFrame,
+    feature_cols: list[str],
+    target_col: str,
+    alpha: float = 0.1,
+    random_state: int = 42,
+) -> dict:
+    """Fit a Random Forest regressor and compute split-conformal prediction
+    intervals at the (1-alpha) coverage level.
+
+    Returns {"alpha", "target_coverage", "empirical_coverage",
+    "mean_interval_width", "quantile", "n_train", "n_calib", "n_test",
+    "predictions": DataFrame[actual, predicted, lower, upper] sorted by
+    predicted value} on success, or {"error": str} on any failure
+    (non-numeric target, all-null target, too few usable rows, or an
+    invalid alpha) — never raises.
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.impute import SimpleImputer
+    from sklearn.model_selection import train_test_split
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    if not (0.0 < alpha < 1.0):
+        return {"error": f"alpha must be between 0 and 1 (exclusive), got {alpha}."}
+
+    if target_col not in df.columns or not pd.api.types.is_numeric_dtype(df[target_col]):
+        return {"error": "Conformal prediction intervals require a numeric target column."}
+
+    data = df[feature_cols + [target_col]].dropna()
+    if len(data) < CONFORMAL_MIN_ROWS:
+        return {
+            "error": (
+                f"Need at least {CONFORMAL_MIN_ROWS} complete rows to split into train/calibration/test "
+                f"sets for conformal prediction — only {len(data)} available after dropping missing values."
+            )
+        }
+
+    X = data[feature_cols]
+    y = data[target_col]
+
+    categorical_features = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+    numeric_features = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]), numeric_features),
+            (
+                "cat",
+                Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("encode", OneHotEncoder(handle_unknown="ignore"))]),
+                categorical_features,
+            ),
+        ],
+        remainder="drop",
+    )
+
+    # 60/20/20 train/calibration/test — the calibration split must be held
+    # out from *training*, not carved from the test set, so the residual
+    # quantile is computed on data the model never saw fitting-wise.
+    X_trainfull, X_test, y_trainfull, y_test = train_test_split(X, y, test_size=0.2, random_state=random_state)
+    X_train, X_calib, y_train, y_calib = train_test_split(X_trainfull, y_trainfull, test_size=0.25, random_state=random_state)
+
+    X_train_t = preprocessor.fit_transform(X_train)
+    X_calib_t = preprocessor.transform(X_calib)
+    X_test_t = preprocessor.transform(X_test)
+
+    model = RandomForestRegressor(n_estimators=200, random_state=random_state)
+    model.fit(X_train_t, y_train)
+
+    calib_preds = model.predict(X_calib_t)
+    nonconformity = np.abs(y_calib.to_numpy() - calib_preds)
+
+    n_calib = len(nonconformity)
+    # Finite-sample-corrected quantile level (Romano/Candès): ceil((n+1)(1-alpha))/n,
+    # clipped to 1.0 for small calibration sets where that would exceed 1.
+    q_level = min(1.0, np.ceil((n_calib + 1) * (1 - alpha)) / n_calib)
+    quantile = float(np.quantile(nonconformity, q_level, method="higher"))
+
+    test_preds = model.predict(X_test_t)
+    lower = test_preds - quantile
+    upper = test_preds + quantile
+    empirical_coverage = float(np.mean((y_test.to_numpy() >= lower) & (y_test.to_numpy() <= upper)))
+
+    predictions = pd.DataFrame(
+        {"actual": y_test.to_numpy(), "predicted": test_preds, "lower": lower, "upper": upper},
+        index=y_test.index,
+    ).sort_values("predicted")
+
+    return {
+        "alpha": alpha,
+        "target_coverage": round(1 - alpha, 4),
+        "empirical_coverage": round(empirical_coverage, 4),
+        "mean_interval_width": round(2 * quantile, 4),
+        "quantile": quantile,
+        "n_train": len(X_train),
+        "n_calib": n_calib,
+        "n_test": len(X_test),
+        "predictions": predictions,
+    }
+
+
+def build_conformal_chart(result: dict) -> go.Figure:
+    """Predictions sorted by predicted value, with the constant-width
+    conformal interval as a shaded band and actual values overlaid as
+    points — makes it easy to see at a glance how many actuals fall
+    outside the band (roughly `alpha` fraction, by construction).
+    """
+    preds = result["predictions"]
+    x = list(range(len(preds)))
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=x + x[::-1],
+            y=list(preds["upper"]) + list(preds["lower"])[::-1],
+            fill="toself",
+            fillcolor="rgba(0, 229, 255, 0.15)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name=f"{int(result['target_coverage'] * 100)}% interval",
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(x=x, y=preds["predicted"], mode="lines", name="Predicted", line=dict(color="#00e5ff")))
+    fig.add_trace(
+        go.Scatter(
+            x=x, y=preds["actual"], mode="markers", name="Actual",
+            marker=dict(size=5, color="#ff6b9d", opacity=0.7),
+        )
+    )
+    fig.update_layout(
+        title="Conformal Prediction Intervals — test set, sorted by predicted value",
+        xaxis_title="Test row (sorted by predicted value)",
+        yaxis_title="Target",
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def conformal_verdict(result: dict) -> str:
+    """Plain-English summary of a conformal prediction run — target vs.
+    empirical coverage, and interval width. Handles an error result
+    gracefully instead of raising, since UI code can call this without
+    checking "error" first.
+    """
+    if "error" in result:
+        return f"Couldn't compute prediction intervals: {result['error']}"
+
+    target_pct = result["target_coverage"] * 100
+    empirical_pct = result["empirical_coverage"] * 100
+    gap = abs(empirical_pct - target_pct)
+    quality = "closely matches" if gap <= 5 else ("is reasonably close to" if gap <= 10 else "diverges notably from")
+
+    return (
+        f"Targeting {target_pct:.0f}% coverage, the actual test-set coverage was {empirical_pct:.1f}% — "
+        f"this {quality} the target (small gaps are expected on a single test split; conformal prediction's "
+        f"guarantee is on average across repeated splits, not exact on any one). Each prediction gets a "
+        f"fixed-width interval of ±{result['quantile']:.3g} ({result['mean_interval_width']:.3g} total width), "
+        f"built from {result['n_train']} training rows and calibrated on {result['n_calib']} held-out rows."
+    )
