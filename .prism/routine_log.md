@@ -1782,3 +1782,69 @@ Full reasoning, screenshots-not-taken rationale, and Run 27
 recommendation (multiclass ROC/PR as a small follow-on, or a fresh
 Phase 2 sweep — leaning toward the sweep since backlog is thin again)
 in `RUN_REPORT_2026-08-11-run26.md`.
+
+## Run 27 — 2026-08-11 — selection log (written before code merge)
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `dcc8d44` (Run 26's
+tip) per this run's git constraint — never touched `main`. Cold start
+needed no reinstall (`pip install -r requirements.txt -r requirements-
+dev.txt` reported everything already satisfied); 510 tests green before
+any changes, matching Run 26's final count exactly. Deleted the two
+stale local branches (`feature/silhouette-cluster-validation`,
+`feature/roc-pr-curves`) left over from Run 26 after confirming both
+were fully merged (`git branch --merged`) — no active work lost.
+
+Playwright/Chromium checked again: a direct `curl` to
+`cdn.playwright.dev` returned `403` "CONNECT tunnel failed" (3rd
+consecutive run blocked), confirmed briefly then abandoned per this
+run's brief rather than retried further — same AppTest + live-server
+fallback plan as Runs 25/26.
+
+Ran a fresh Phase 2 web research sweep per Run 26's own recommendation
+(backlog thin after 3 straight ML-Lab-adjacent runs) — see
+`.prism/research_2026-08-11-run27.md` for the full ranked table and
+external sources (2026 DA/DS job posting surveys, Hex/Deepnote/Julius AI
+competitor coverage, NotebookRAG/agentic-EDA research, polars/DuckDB/
+pandas ecosystem consensus). Before ranking, read `clustering.py`,
+`forecasting.py`, `drift.py`, `causal_inference.py`,
+`confounder_detection.py`, `hypothesis_sweep.py`, `sql_lab.py`,
+`hellmode.py`, `domains.py`, `atlas.py`, `cleaning.py`, `recipes.py`,
+`report_writer.py`, `session_io.py` directly to avoid re-discovering
+already-shipped work — confirmed the toolkit is unusually deep already
+(SQL Lab already has a Great-Expectations-style assertion engine, Hell
+Mode already covers disguised nulls/Indian numbers/date resolution/fuzzy
+merge/unit normalization/zero sentinels, domains.py already has banking
++ product analytics packs). `grep -rn "PSI|population.stability|
+backtest|walk.forward|rolling.origin|time.series.cross" modules/*.py
+tests/*.py` returned zero hits, confirming two real, verifiably-open
+gaps.
+
+**Selected: (1) Population Stability Index (PSI) for the Drift tab**
+(`modules/drift.py`) — the industry-standard binned-distribution drift
+metric (PSI<0.1 stable / 0.1-0.25 moderate / >0.25 significant,
+universally cited thresholds in credit-risk/model-monitoring practice)
+alongside the existing ad-hoc z-shift/TVD scores, and **(2) rolling-
+origin (walk-forward) backtesting for the Forecasting tab**
+(`modules/forecasting.py`) — reports MAPE/RMSE/MAE across multiple
+rolling-origin train/test splits (Hyndman & Athanasopoulos "time series
+cross-validation", the standard way to validate a forecast model before
+trusting it) since `run_forecast()` today fits once on full history with
+zero held-out accuracy check, only a parametric CI band.
+
+**Why these over the alternatives:** both are pure statistical-rigor
+closures (not cosmetic), both diversify away from ML Lab into the Drift
+and Forecasting tabs after three consecutive runs concentrated on ML
+Lab/Clustering stats (Runs 24-26), and both are small enough to build
+and verify solidly within one run (S and M effort respectively) unlike
+the larger candidates surfaced in the sweep (DBSCAN/hierarchical
+clustering risked a third straight run on the Clustering tab;
+Difference-in-Differences causal estimator and full reproducible-script
+export across all analysis tabs were both flagged too large for a
+single two-feature run — logged as Run 28+ candidates in the research
+file). Neither touches the Atlas/JARVIS copilot track (0/1 this run).
+Neither calls Gemini — both are pure numpy/pandas/statsmodels compute,
+zero free-tier rate-limit exposure.
+
+Plan: branch `feature/psi-drift-metric` and `feature/forecast-backtesting`
+off `claude/adoring-meitner-7xxgfq`, tests first, then implement, full
+suite must stay green, merge both with `--no-ff`, push.
