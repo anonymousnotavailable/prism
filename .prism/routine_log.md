@@ -1764,3 +1764,23 @@ too large, too few viable pairs) must degrade to the same inline
 warnings the manual tabs already show, never a crash.
 
 Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).
+
+**Run 26 summary:** Shipped "Run All Detectors" (`modules/
+detector_runner.py`) — a one-click Overview-tab entry point that
+auto-fires Hypothesis Sweep and Anomaly Detection together, closing the
+documented gap where `insight_orchestrator`'s Agent Summary stayed
+silent until a user manually visited two separate tabs. No new Gemini
+calls; size-aware guardrails; reuses existing detector functions
+verbatim. 16 new tests including an integration test proving the
+orchestrator goes non-silent from the combined output; 486 → 502 green,
+zero regressions. Verified live via Playwright across all four viewport/
+theme combinations (desktop dark/light 1440px, mobile dark/light
+390px) — mobile light theme reached for the first time in this repo's
+run history (prior 7+ runs documented it as blocked; found via sidebar
+→ App Preferences expander leaf-text click → stSelectbox → `<li>`
+option-by-text). Merged `feature/run-full-analysis` into `main` with
+`--no-ff`, updated `CHANGELOG.md`, pushed to `origin/main`
+(`8e544e4`). Full report: `RUN_REPORT_2026-08-12.md`. Recommended for
+Run 27: chi-square/ANOVA post-hoc power (Run 25/26's standing backlog
+item), or extending `detector_runner.py` to also auto-run Anomaly
+Drivers.
