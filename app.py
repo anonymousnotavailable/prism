@@ -4214,7 +4214,8 @@ elif st.session_state.active_section == "Stats Lab":
                     n_interactions = len(sweep_interaction_scan)
                     st.markdown(
                         f"**🧩 Interaction check** — {n_interactions} group effect"
-                        f"{'s' if n_interactions != 1 else ''} that depend on a third column"
+                        f"{'s' if n_interactions != 1 else ''} that "
+                        f"{'depends' if n_interactions == 1 else 'depend'} on a third column"
                     )
                     st.caption(
                         "A significant group difference doesn't always mean it holds the same way "
