@@ -1938,3 +1938,34 @@ pattern for all four test families rather than leaving correlation
 planning asymmetric with its own post-hoc check.
 
 Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).
+
+**Run 28 summary:** Shipped correlation (Pearson) post-hoc power via
+Fisher z-transform, closing the power-check backlog set fully (t-test,
+chi-square, ANOVA, now correlation). `achieved_power_correlation()` uses
+the exact two-term normal-CDF formula (verified algebraically identical
+to R's `pwr.r.test` internals); discovered and fixed a real subtlety —
+the standard closed-form sample-size approximation can round to an n
+that falls a hair short of its stated target power (r=0.5, 80% target:
+naive ceil gives n=29, achieves only 79.98%) — by nudging the
+recommendation upward until the exact formula confirms it clears the
+target, locked in with a dedicated test. Also added the planning-side
+`sample_size_correlation()` for symmetry with the module's other two
+"before an experiment" functions. 22 new tests, 528→550 green, zero
+regressions. Live-verified via Playwright (desktop dark/light with
+`stock_data.csv`'s 6 strong correlations all "100% power"; desktop +
+mobile dark with a synthetic 20-row underpowered fixture showing "68%
+power ... collect ~26 paired observations", matching a standalone
+reference computation exactly) — screenshots in
+`.prism/runs/2026-08-12-run28/`. Chromium wasn't downloadable via
+`playwright install` in this sandbox (proxied host blocked), worked
+around by launching a pre-installed version-mismatched binary at
+`/opt/pw-browsers/chromium-1194/` via explicit `executable_path` — a
+new sandbox-environment note for future runs hitting the same download
+block. Merged `feature/correlation-power` into `main` with `--no-ff`,
+updated `CHANGELOG.md`, pushed to `origin/main` (`8c3328d`). Full
+report: `RUN_REPORT_2026-08-12-run28.md`. Recommended for Run 29: the
+power-check set is now complete; four consecutive runs (25-28) found
+web research for a new competitor-gap feature increasingly unproductive
+— try a structural self-audit of `modules/` vs. `app.py` wiring instead,
+or consider that the detector/orchestrator surface may have reached a
+natural plateau for this cycle format.
