@@ -289,6 +289,11 @@ def run_baseline_models(
         # without a second fit.
         "fitted_models": fitted_models,
         "y_test": y_test,
+        # Kept for probability calibration (see run_probability_calibration
+        # below) — CalibratedClassifierCV needs the actual training labels
+        # to run its own internal cross-validation, not just the already-
+        # fitted model.
+        "y_train": y_train,
         "X_train_transformed": X_train_transformed,
         "X_test_transformed": X_test_transformed,
         "feature_names": feature_names,
@@ -1423,3 +1428,317 @@ def cv_verdict(result: dict) -> str:
         "single train/test split, which can swing significantly just from which rows happened to land in "
         "the test set."
     )
+
+
+# ── Decision threshold tuning + probability calibration ────────────────────
+# "Beyond SMOTE" for imbalanced binary classification. SMOTE is a data-level
+# fix (resample the training set); these two are output-level fixes on an
+# already-trained model — cheaper, don't add synthetic noise, and 2026
+# empirical results show threshold tuning alone matches/beats SMOTE on F1.
+# Both need exactly 2 classes: a single scalar decision threshold and a
+# reliability diagram are binary concepts (ROC/PR above already supports
+# multiclass via one-vs-rest; extending threshold tuning the same way would
+# need a per-class threshold and cost matrix, out of scope for this slice).
+
+THRESHOLD_GRID = np.round(np.arange(0.01, 1.0, 0.01), 2)
+DEFAULT_DECISION_THRESHOLD = 0.5
+MIN_CLASS_COUNT_FOR_CALIBRATION_CV = 2  # StratifiedKFold needs >= this many of the rarest class per fold
+
+
+def tune_decision_threshold(
+    baseline_result: dict, model_name: str = "Random Forest", cost_fp: float = 1.0, cost_fn: float = 1.0
+) -> dict:
+    """Sweep the decision threshold from 0.01 to 0.99 for a binary
+    classifier already fit in `baseline_result`, scoring precision/recall/F1
+    and a cost (`cost_fp` per false positive + `cost_fn` per false negative)
+    at each one. The default `st.button` click trains at the fixed 0.5
+    threshold — this shows what's left on the table by not tuning it,
+    especially valuable exactly when classes are imbalanced enough that 0.5
+    was never really a great pick to begin with.
+
+    Returns {"thresholds", "precisions", "recalls", "f1_scores", "costs"
+    (all np.ndarray, one entry per swept threshold), "best_threshold_f1",
+    "best_f1", "best_threshold_cost", "best_cost", "default_metrics"
+    (precision/recall/f1/cost at threshold 0.5), "positive_label",
+    "model_name", "cost_fp", "cost_fn"} or {"error": str}.
+    """
+    if baseline_result.get("task_type") != "classification":
+        return {"error": "Threshold tuning only applies to classification tasks."}
+
+    confusion_labels = baseline_result.get("confusion_labels")
+    if not confusion_labels or len(confusion_labels) != 2:
+        return {"error": "Threshold tuning needs exactly 2 classes (binary classification)."}
+
+    fitted_models = baseline_result.get("fitted_models") or {}
+    model = fitted_models.get(model_name)
+    if model is None or not hasattr(model, "predict_proba"):
+        return {"error": f"'{model_name}' isn't available or doesn't support probability predictions."}
+
+    y_test = baseline_result["y_test"]
+    X_test_transformed = baseline_result["X_test_transformed"]
+    positive_label = confusion_labels[-1]  # same convention as compute_roc_pr_curves
+    classes = list(model.classes_)
+    if positive_label not in classes:
+        return {"error": "The positive class isn't among the model's fitted classes."}
+    pos_idx = classes.index(positive_label)
+
+    y_true = (y_test == positive_label).astype(int).to_numpy()
+    if y_true.sum() == 0 or y_true.sum() == len(y_true):
+        return {"error": "The test set only has one class present — thresholds can't be evaluated."}
+
+    y_scores = model.predict_proba(X_test_transformed)[:, pos_idx]
+
+    def _metrics_at(threshold: float) -> dict:
+        preds = (y_scores >= threshold).astype(int)
+        tp = int(np.sum((preds == 1) & (y_true == 1)))
+        fp = int(np.sum((preds == 1) & (y_true == 0)))
+        fn = int(np.sum((preds == 0) & (y_true == 1)))
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        cost = cost_fp * fp + cost_fn * fn
+        return {"precision": precision, "recall": recall, "f1": f1, "cost": cost}
+
+    precisions, recalls, f1_scores, costs = [], [], [], []
+    for t in THRESHOLD_GRID:
+        m = _metrics_at(t)
+        precisions.append(m["precision"])
+        recalls.append(m["recall"])
+        f1_scores.append(m["f1"])
+        costs.append(m["cost"])
+
+    precisions = np.array(precisions)
+    recalls = np.array(recalls)
+    f1_scores = np.array(f1_scores)
+    costs = np.array(costs)
+
+    best_f1_idx = int(np.argmax(f1_scores))
+    best_cost_idx = int(np.argmin(costs))
+    default_metrics = _metrics_at(DEFAULT_DECISION_THRESHOLD)
+    default_metrics["threshold"] = DEFAULT_DECISION_THRESHOLD
+
+    return {
+        "thresholds": THRESHOLD_GRID,
+        "precisions": precisions,
+        "recalls": recalls,
+        "f1_scores": f1_scores,
+        "costs": costs,
+        "best_threshold_f1": float(THRESHOLD_GRID[best_f1_idx]),
+        "best_f1": float(f1_scores[best_f1_idx]),
+        "best_threshold_cost": float(THRESHOLD_GRID[best_cost_idx]),
+        "best_cost": float(costs[best_cost_idx]),
+        "default_metrics": default_metrics,
+        "positive_label": positive_label,
+        "model_name": model_name,
+        "cost_fp": cost_fp,
+        "cost_fn": cost_fn,
+    }
+
+
+def build_threshold_chart(threshold_result: dict) -> go.Figure:
+    """Precision, recall, and F1 vs. decision threshold, with reference
+    lines at the default (0.5) threshold and the F1-optimal threshold this
+    sweep found.
+    """
+    thresholds = threshold_result["thresholds"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=thresholds, y=threshold_result["precisions"], mode="lines", name="Precision"))
+    fig.add_trace(go.Scatter(x=thresholds, y=threshold_result["recalls"], mode="lines", name="Recall"))
+    fig.add_trace(go.Scatter(x=thresholds, y=threshold_result["f1_scores"], mode="lines", name="F1"))
+    fig.add_vline(x=DEFAULT_DECISION_THRESHOLD, line_dash="dot", line_color="gray")
+    fig.add_vline(x=threshold_result["best_threshold_f1"], line_dash="dash", line_color="#2ecc71")
+    fig.update_layout(
+        title="Precision / Recall / F1 vs. Decision Threshold",
+        xaxis_title="Decision threshold",
+        yaxis_title="Score",
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def threshold_verdict(threshold_result: dict) -> list[str]:
+    """Plain-English read-out: how much F1 was left on the table at the
+    default 0.5 threshold, and what the cost-optimal threshold implies
+    given the chosen false-positive/false-negative costs.
+    """
+    verdicts: list[str] = []
+    default_f1 = threshold_result["default_metrics"]["f1"]
+    best_f1 = threshold_result["best_f1"]
+    best_t = threshold_result["best_threshold_f1"]
+
+    if best_f1 > default_f1 + 1e-9:
+        gain_pct = ((best_f1 - default_f1) / default_f1 * 100) if default_f1 > 0 else float("inf")
+        gain_note = f" ({gain_pct:.1f}% relative gain)" if np.isfinite(gain_pct) else ""
+        verdicts.append(
+            f"📈 Moving the decision threshold from the default 0.5 to {best_t:.2f} raises F1 from "
+            f"{default_f1:.4f} to {best_f1:.4f}{gain_note} — the model was never wrong, 0.5 was just the "
+            "wrong cutoff for this class balance."
+        )
+    else:
+        verdicts.append(
+            f"✅ 0.5 is already at or near the F1-optimal threshold ({best_t:.2f}, F1={best_f1:.4f}) — "
+            "no free lunch from threshold tuning alone here."
+        )
+
+    cost_fp, cost_fn = threshold_result["cost_fp"], threshold_result["cost_fn"]
+    if cost_fp != cost_fn:
+        best_cost_t = threshold_result["best_threshold_cost"]
+        default_cost = threshold_result["default_metrics"]["cost"]
+        best_cost = threshold_result["best_cost"]
+        direction = "lower" if best_cost_t < DEFAULT_DECISION_THRESHOLD else "higher"
+        verdicts.append(
+            f"💰 With false negatives costing {cost_fn:.1f}x a false positive, the cost-minimizing threshold "
+            f"is {best_cost_t:.2f} ({direction} than 0.5) — total cost drops from {default_cost:.1f} to "
+            f"{best_cost:.1f} at that cutoff."
+        )
+
+    return verdicts
+
+
+def run_probability_calibration(baseline_result: dict, model_name: str = "Random Forest", method: str = "isotonic") -> dict:
+    """Fit `sklearn.calibration.CalibratedClassifierCV` (isotonic or sigmoid/
+    Platt scaling) on a *fresh clone* of the already-fitted model, trained
+    via its own internal cross-validation on the training set — not the
+    already-fitted instance itself, which would let the calibration curve
+    leak information the model already memorized. Compares reliability
+    (predicted probability vs. actual observed frequency) and Brier score
+    before/after, both measured on the held-out test set the original model
+    never trained on.
+
+    Returns {"method", "model_name", "positive_label", "brier_before",
+    "brier_after" (lower is better calibrated), "reliability_uncalibrated"
+    / "reliability_calibrated": {"prob_true", "prob_pred"}} or
+    {"error": str}.
+    """
+    from sklearn.base import clone
+    from sklearn.calibration import CalibratedClassifierCV, calibration_curve
+    from sklearn.metrics import brier_score_loss
+
+    if baseline_result.get("task_type") != "classification":
+        return {"error": "Probability calibration only applies to classification tasks."}
+
+    confusion_labels = baseline_result.get("confusion_labels")
+    if not confusion_labels or len(confusion_labels) != 2:
+        return {"error": "Probability calibration needs exactly 2 classes (binary classification)."}
+
+    fitted_models = baseline_result.get("fitted_models") or {}
+    model = fitted_models.get(model_name)
+    if model is None or not hasattr(model, "predict_proba"):
+        return {"error": f"'{model_name}' isn't available or doesn't support probability predictions."}
+
+    y_train = baseline_result.get("y_train")
+    X_train_transformed = baseline_result.get("X_train_transformed")
+    y_test = baseline_result["y_test"]
+    X_test_transformed = baseline_result["X_test_transformed"]
+    if y_train is None or X_train_transformed is None:
+        return {"error": "Training data isn't available for this model run — re-run baseline models first."}
+
+    positive_label = confusion_labels[-1]
+    train_counts = pd.Series(y_train).value_counts()
+    min_class_count = int(train_counts.min()) if len(train_counts) else 0
+    cv = min(5, min_class_count)
+    if cv < MIN_CLASS_COUNT_FOR_CALIBRATION_CV:
+        return {
+            "error": (
+                f"Not enough samples in the rarest training-set class ({min_class_count}) to run "
+                f"cross-validated calibration — need at least {MIN_CLASS_COUNT_FOR_CALIBRATION_CV} per class."
+            )
+        }
+
+    try:
+        fresh_model = clone(model)
+        calibrated_model = CalibratedClassifierCV(fresh_model, method=method, cv=cv)
+        calibrated_model.fit(X_train_transformed, y_train)
+    except Exception as e:
+        return {"error": f"Calibration fit failed: {e}"}
+
+    classes = list(model.classes_)
+    if positive_label not in classes:
+        return {"error": "The positive class isn't among the model's fitted classes."}
+    pos_idx = classes.index(positive_label)
+    calibrated_classes = list(calibrated_model.classes_)
+    cal_pos_idx = calibrated_classes.index(positive_label)
+
+    y_true_binary = (y_test == positive_label).astype(int).to_numpy()
+    if y_true_binary.sum() == 0 or y_true_binary.sum() == len(y_true_binary):
+        return {"error": "The test set only has one class present — calibration can't be evaluated."}
+
+    uncalibrated_probs = model.predict_proba(X_test_transformed)[:, pos_idx]
+    calibrated_probs = calibrated_model.predict_proba(X_test_transformed)[:, cal_pos_idx]
+
+    brier_before = float(brier_score_loss(y_true_binary, uncalibrated_probs))
+    brier_after = float(brier_score_loss(y_true_binary, calibrated_probs))
+
+    n_bins = min(10, max(2, y_true_binary.sum(), len(y_true_binary) - y_true_binary.sum()))
+    n_bins = min(10, len(np.unique(uncalibrated_probs))) or 2
+    n_bins = max(2, min(10, n_bins))
+
+    def _reliability(probs: np.ndarray) -> dict:
+        try:
+            prob_true, prob_pred = calibration_curve(y_true_binary, probs, n_bins=n_bins, strategy="quantile")
+        except ValueError:
+            prob_true, prob_pred = calibration_curve(y_true_binary, probs, n_bins=n_bins, strategy="uniform")
+        return {"prob_true": prob_true, "prob_pred": prob_pred}
+
+    return {
+        "method": method,
+        "model_name": model_name,
+        "positive_label": positive_label,
+        "brier_before": brier_before,
+        "brier_after": brier_after,
+        "reliability_uncalibrated": _reliability(uncalibrated_probs),
+        "reliability_calibrated": _reliability(calibrated_probs),
+        "uncalibrated_probs": uncalibrated_probs,
+        "calibrated_probs": calibrated_probs,
+    }
+
+
+def build_calibration_chart(calibration_result: dict) -> go.Figure:
+    """Reliability diagram: mean predicted probability (x) vs. observed
+    fraction of positives (y) per bin, before and after calibration, with
+    the y=x diagonal marking perfect calibration.
+    """
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", name="Perfectly calibrated", line=dict(dash="dash", color="gray")))
+
+    uncal = calibration_result["reliability_uncalibrated"]
+    fig.add_trace(go.Scatter(x=uncal["prob_pred"], y=uncal["prob_true"], mode="lines+markers", name="Uncalibrated"))
+
+    cal = calibration_result["reliability_calibrated"]
+    fig.add_trace(go.Scatter(x=cal["prob_pred"], y=cal["prob_true"], mode="lines+markers", name="Calibrated"))
+
+    fig.update_layout(
+        title="Reliability Diagram (Calibration Curve)",
+        xaxis_title="Mean predicted probability",
+        yaxis_title="Observed fraction of positives",
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def calibration_verdict(calibration_result: dict) -> list[str]:
+    """Plain-English comparison of Brier score before/after calibration —
+    lower is better, and the improvement (or lack of it) is the number
+    that actually matters to report, not the reliability diagram shape
+    alone.
+    """
+    before, after = calibration_result["brier_before"], calibration_result["brier_after"]
+    method = calibration_result["method"]
+    verdicts = [f"Brier score (lower is better): {before:.4f} uncalibrated → {after:.4f} after {method} calibration."]
+
+    if after < before - 1e-6:
+        improvement_pct = (before - after) / before * 100 if before > 0 else 0.0
+        verdicts.append(
+            f"✅ Calibration improved probability reliability by {improvement_pct:.1f}% — trust the calibrated "
+            "probabilities more than the raw model output, especially if you're thresholding on a business cost."
+        )
+    elif after > before + 1e-6:
+        verdicts.append(
+            "⚠️ Calibration made Brier score worse on this test set — the model's raw probabilities were "
+            "already reasonably well-calibrated, or the training set was too small for the calibration step "
+            "to help. Prefer the uncalibrated probabilities here."
+        )
+    else:
+        verdicts.append("The model's probabilities were already about as calibrated as this method can get them.")
+
+    return verdicts
