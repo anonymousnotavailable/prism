@@ -451,11 +451,37 @@ def test_ttest_row_carries_group_sizes():
     assert row["group_sizes"] == {"a": 50, "b": 50}
 
 
-def test_non_ttest_rows_have_no_group_sizes():
+def test_pearson_and_chi2_rows_have_no_group_sizes():
+    # group_sizes is only meaningful for the two "compare means/counts across
+    # groups" test families (ttest, anova); pearson (no groups) and chi2 (a
+    # contingency table, not per-group sizes) carry None.
     df = _correlated_df()
     result = sweep_hypotheses(df, _column_types(df))
-    non_ttest = [r for r in result["tested"] if r["test"] != "ttest"]
-    assert non_ttest and all(r["group_sizes"] is None for r in non_ttest)
+    ungrouped = [r for r in result["tested"] if r["test"] in ("pearson", "chi2")]
+    assert ungrouped and all(r["group_sizes"] is None for r in ungrouped)
+
+
+def test_anova_rows_carry_group_sizes():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    row = next(r for r in result["tested"] if r["test"] == "anova")
+    assert row["group_sizes"] is not None
+    assert len(row["group_sizes"]) == 3  # a/b/c groups
+    assert sum(row["group_sizes"].values()) <= len(df)
+
+
+def test_chi2_rows_carry_dof():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    chi2_row = next(r for r in result["tested"] if r["test"] == "chi2")
+    assert chi2_row["dof"] is not None and chi2_row["dof"] >= 1
+
+
+def test_non_chi2_rows_have_no_dof():
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    non_chi2 = [r for r in result["tested"] if r["test"] != "chi2"]
+    assert non_chi2 and all(r["dof"] is None for r in non_chi2)
 
 
 def test_annotate_power_flags_underpowered_significant_ttest():
@@ -482,13 +508,47 @@ def test_annotate_power_flags_well_powered_significant_ttest():
     assert row["power_check"]["achieved_power"] > 0.95
 
 
-def test_annotate_power_skips_nonsignificant_and_nonttest_rows():
+def test_annotate_power_skips_nonsignificant_rows():
     df = _correlated_df()
     result = sweep_hypotheses(df, _column_types(df))
     annotated = annotate_power(result)
     for row in annotated["tested"]:
-        if row["test"] != "ttest" or not row["significant"]:
+        if not row["significant"]:
             assert row["power_check"] is None
+
+
+def test_annotate_power_covers_significant_anova_row():
+    # _correlated_df() plants a real z~group ANOVA signal.
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "anova")
+    assert row["significant"] is True
+    assert row["power_check"] is not None
+    assert row["power_check"]["test"] == "anova"
+    assert row["power_check"]["k_groups"] == 3
+
+
+def test_annotate_power_covers_significant_chi2_row():
+    # _correlated_df() plants a real group~tier chi-square signal.
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "chi2")
+    assert row["significant"] is True
+    assert row["power_check"] is not None
+    assert row["power_check"]["test"] == "chi2"
+    assert row["power_check"]["dof"] == row["dof"]
+
+
+def test_annotate_power_still_skips_pearson_rows():
+    # Correlation power (Fisher z) is a deliberately separate, unbuilt
+    # follow-on — see annotate_power()'s docstring.
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    annotated = annotate_power(result)
+    pearson_rows = [r for r in annotated["tested"] if r["test"] == "pearson"]
+    assert pearson_rows and all(r["power_check"] is None for r in pearson_rows)
 
 
 def test_annotate_power_handles_empty_result():
@@ -504,3 +564,38 @@ def test_annotate_power_does_not_mutate_input():
     annotate_power(result)
     # original untouched after annotate_power runs
     assert "power_check" not in original_row
+
+
+# --- integration: full sweep -> annotate_power -> app-facing badge/prose ---
+# for all three now-covered test families in one pass, the way app.py's
+# Hypothesis Sweep tab and detector_runner.run_all_detectors() actually
+# consume it end to end.
+
+def test_annotate_power_end_to_end_covers_all_three_families_with_readable_prose():
+    from modules.experiment_design import interpret_power_check
+
+    df = _correlated_df()
+    result = sweep_hypotheses(df, _column_types(df))
+    annotated = annotate_power(result)
+
+    significant = [r for r in annotated["tested"] if r["significant"]]
+    by_test = {r["test"]: r for r in significant}
+    assert "anova" in by_test and "chi2" in by_test  # both are planted signals in _correlated_df()
+
+    seen_families = set()
+    for row in significant:
+        check = row.get("power_check")
+        if row["test"] == "pearson":
+            assert check is None
+            continue
+        assert check is not None, f"expected a power_check for a significant {row['test']} row"
+        assert check["test"] == row["test"]
+        text = interpret_power_check(check)
+        assert text and "%" in text  # never raises, always produces readable prose
+        seen_families.add(row["test"])
+
+    # Confirms the fixture actually exercises more than one non-ttest family
+    # (this is the point of the test — planted ANOVA + chi2 signals both
+    # got annotated, not just ttest as before this change).
+    assert "anova" in seen_families
+    assert "chi2" in seen_families

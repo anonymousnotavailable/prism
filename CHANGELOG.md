@@ -2,6 +2,50 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 27)
+
+### Added
+- **Chi-square and ANOVA post-hoc power** (`modules/experiment_design.py`,
+  `modules/hypothesis_sweep.py`) — extends `hypothesis_sweep.annotate_power()`
+  (Run 25) beyond t-tests to the other two test families Hypothesis Sweep
+  runs automatically. 2026 data-analyst interview-prep research keeps
+  naming chi-square/ANOVA alongside t-tests in the same "power analysis"
+  breath, and this was the standing, twice-logged Run 25/26 backlog item.
+  New `experiment_design.cohens_w_from_chi2()` derives Cohen's w directly
+  from a chi-square test's own raw statistic and n (w = sqrt(chi2/n))
+  rather than back-computing it from Cramer's V — V's relationship to w
+  needs the contingency table's row/column shape, which isn't recoverable
+  from V and degrees of freedom alone (the same dof can come from more
+  than one table shape). New `achieved_power_chi2()`/`power_check_chi2()`
+  (via statsmodels' `GofChisquarePower`) and `cohens_f_from_eta_sq()`/
+  `achieved_power_anova()`/`power_check_anova()` (via `FTestAnovaPower`,
+  using the test's actual per-group sizes threaded through
+  `sweep_hypotheses()`'s row assembly, not approximated from eta-squared
+  alone) round out the three families. Both cross-checked against Cohen's
+  (1988)/G*Power canonical reference values in tests (w=0.3, df=1 → n≈87
+  for 80% power; f=0.25, k=3 groups → n≈159 total). `interpret_power_check()`
+  became a small dispatcher on the check dict's own `"test"` key, so
+  `app.py`'s existing "Power" badge and underpowered-findings expander in
+  the Hypothesis Sweep tab — and therefore `detector_runner`'s "Run All
+  Detectors" (Run 26), which calls `annotate_power()` unchanged — now
+  cover all three families with no app.py logic changes beyond two label
+  tweaks. Pearson (correlation) rows remain out of scope, documented as a
+  real follow-on: correlation power needs a Fisher z-transform noncentral
+  distribution family, not the chi-square family the other three share.
+  Pure statsmodels, zero new Gemini calls. Side fix: hardened
+  `experiment_design._round_up()` against `statsmodels.solve_power()`
+  occasionally returning a size-1 numpy array instead of a plain float (a
+  pre-existing risk on the t-test path too, just never triggered there).
+  26 new tests (25 in `tests/test_experiment_design.py`, `tests/test_
+  hypothesis_sweep.py` updated for the new `group_sizes`/`dof` row fields
+  plus an end-to-end integration test), full suite 502 → 528 green, zero
+  regressions. Live-verified via Playwright across all four viewport/theme
+  combinations — including mobile **light** theme, using the exact working
+  selector path (`stExpandSidebarButton` → "App Preferences" expander →
+  `stSelectbox` → `<li>` option, clicked as real Playwright pointer events
+  rather than raw DOM `.click()`, which BaseWeb's Select doesn't register)
+  documented for future runs; screenshots in `.prism/runs/2026-08-12-run27/`.
+
 ## 2026-08-12 (Run 26)
 
 ### Added

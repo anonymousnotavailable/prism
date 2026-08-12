@@ -25,6 +25,34 @@ stakeholder gets from Optimizely/Evan Miller's calculator to within
 rounding. Every public function returns a plain dict (`{"error": "..."}`
 on invalid input) rather than raising, matching `stats_lab`'s contract, so
 a Streamlit caller never needs a try/except around these.
+
+Post-hoc power also covers the two other test families `hypothesis_sweep`
+runs, not just t-tests:
+
+- **Chi-square** (`achieved_power_chi2`/`power_check_chi2`), via
+  statsmodels' `GofChisquarePower`. The standardized effect size Cohen's w
+  is derived directly from the test's own raw statistic and n
+  (`cohens_w_from_chi2`, w = sqrt(chi2/n)) rather than back-computed from
+  Cramer's V — V's relationship to w depends on the contingency table's
+  row/column *shape* (min(rows, cols) - 1), and more than one table shape
+  can share the same degrees of freedom, so going through V would need the
+  shape threaded through separately anyway. Going through the raw
+  statistic needs nothing beyond what `stats_lab.run_chi2()` already
+  returns (the statistic, n, and dof), and is the same identity R's `pwr`
+  package documentation uses to relate the two effect sizes.
+- **ANOVA** (`achieved_power_anova`/`power_check_anova`), via statsmodels'
+  `FTestAnovaPower`, using Cohen's f derived from eta-squared
+  (`cohens_f_from_eta_sq`) and the actual group count/total n from the
+  test's own group sizes — not approximated from eta-squared alone, per
+  the same reasoning. This assumes a roughly balanced design (equal-ish
+  group sizes), the standard assumption `FTestAnovaPower` itself makes; a
+  wildly unbalanced ANOVA's achieved power is an approximation, same
+  caveat every commercial ANOVA power calculator carries.
+
+Correlation (Pearson) power is deliberately **not** covered — it needs a
+Fisher z-transform noncentral distribution family, a genuinely different
+approach than the noncentral-chi-square family the other three share, and
+is left as a real, separate follow-on rather than approximated here.
 """
 
 from __future__ import annotations
@@ -46,7 +74,14 @@ _MAX_SOLVABLE_N = 1_000_000
 
 
 def _round_up(n: float) -> int:
-    return int(math.ceil(n))
+    # statsmodels' solve_power() sometimes returns a size-1 numpy array
+    # rather than a plain float (depends on which root-finder path it took
+    # internally) — .item() unwraps that to a Python scalar regardless of
+    # ndim, without numpy's "implicit array-to-scalar conversion"
+    # deprecation warning that a bare float(n) can trigger for ndim > 0.
+    if hasattr(n, "item"):
+        n = n.item()
+    return int(math.ceil(float(n)))
 
 
 def sample_size_two_proportions(
@@ -208,6 +243,7 @@ def power_check_ttest(
             recommended_n_per_group = None
 
     return {
+        "test": "ttest",
         "achieved_power": achieved,
         "target_power": target_power,
         "alpha": alpha,
@@ -222,16 +258,162 @@ def power_check_ttest(
     }
 
 
-def interpret_power_check(check: dict) -> str:
-    """Plain-English verdict for a `power_check_ttest()` result, e.g.
-    "⚠️ Underpowered: with 15 samples per group, this test had only 18%
-    power to detect an effect this size — a follow-up would need ~176
-    samples per group for 80% power." Never raises on a missing
-    recommendation (zero/near-zero effect size).
-    """
-    if check.get("error"):
-        return check["error"]
+def cohens_w_from_chi2(chi2_statistic: float, n: int) -> float:
+    """Cohen's w computed directly from a chi-square test's own raw
+    statistic and sample size (w = sqrt(chi2 / n)) — the standardized
+    effect size `achieved_power_chi2`/`power_check_chi2` expect.
 
+    Deliberately not derived from Cramer's V: V's conversion back to w
+    needs the contingency table's row/column *shape* (min(rows, cols) -
+    1), which isn't recoverable from V and the test's degrees of freedom
+    alone — the same dof can come from more than one table shape (e.g.
+    dof=4 from a 3x3 table or a 2x5 table have different min-dim). Going
+    through the raw statistic sidesteps that ambiguity entirely.
+    """
+    if n <= 0:
+        return 0.0
+    return math.sqrt(max(chi2_statistic, 0.0) / n)
+
+
+def achieved_power_chi2(cohens_w: float, n: int, dof: int, alpha: float = DEFAULT_ALPHA) -> float:
+    """Post-hoc power of a chi-square test of independence that already
+    ran, given its standardized effect size (Cohen's w — see
+    `cohens_w_from_chi2`), sample size, and degrees of freedom.
+    """
+    if n < 2 or dof < 1:
+        return 0.0
+    from statsmodels.stats.power import GofChisquarePower
+
+    try:
+        power = GofChisquarePower().power(
+            effect_size=abs(cohens_w), nobs=n, alpha=alpha, n_bins=dof + 1
+        )
+    except Exception:
+        return 0.0
+    return float(min(max(power, 0.0), 1.0))
+
+
+def power_check_chi2(
+    cohens_w: float,
+    n: int,
+    dof: int,
+    alpha: float = DEFAULT_ALPHA,
+    target_power: float = DEFAULT_POWER,
+) -> dict:
+    """Full post-hoc power verdict for a chi-square test result, same
+    contract as `power_check_ttest` (achieved power, pass/fail against
+    `target_power`, and a follow-up sample size when underpowered) — but
+    keyed on total row count `n` rather than per-group sizes, since a
+    contingency table doesn't have two independent group sizes the way a
+    t-test does.
+    """
+    achieved = achieved_power_chi2(cohens_w, n, dof, alpha=alpha)
+    underpowered = achieved < target_power
+
+    recommended_n: Optional[int] = None
+    if abs(cohens_w) > 1e-9 and dof >= 1:
+        try:
+            from statsmodels.stats.power import GofChisquarePower
+
+            n_needed = GofChisquarePower().solve_power(
+                effect_size=abs(cohens_w), alpha=alpha, power=target_power, n_bins=dof + 1
+            )
+            if n_needed and n_needed <= _MAX_SOLVABLE_N:
+                recommended_n = _round_up(n_needed)
+        except Exception:
+            recommended_n = None
+
+    return {
+        "test": "chi2",
+        "achieved_power": achieved,
+        "target_power": target_power,
+        "alpha": alpha,
+        "n": n,
+        "dof": dof,
+        "cohens_w": cohens_w,
+        "underpowered": underpowered,
+        "recommended_n": recommended_n,
+    }
+
+
+def cohens_f_from_eta_sq(eta_sq: float) -> float:
+    """Cohen's f (the effect size `FTestAnovaPower` expects) from
+    eta-squared: f = sqrt(eta_sq / (1 - eta_sq)). Clamped just under 1.0
+    so a (near-)perfect fit doesn't divide by zero and return infinity.
+    """
+    eta_sq = min(max(eta_sq, 0.0), 0.999999)
+    return math.sqrt(eta_sq / (1 - eta_sq))
+
+
+def achieved_power_anova(
+    cohens_f: float, k_groups: int, nobs_total: int, alpha: float = DEFAULT_ALPHA
+) -> float:
+    """Post-hoc power of a one-way ANOVA that already ran, given its
+    standardized effect size (Cohen's f — see `cohens_f_from_eta_sq`),
+    group count, and total sample size across all groups. Assumes a
+    roughly balanced design, the same assumption `FTestAnovaPower` itself
+    makes.
+    """
+    if k_groups < 2 or nobs_total < k_groups * 2:
+        return 0.0
+    from statsmodels.stats.power import FTestAnovaPower
+
+    try:
+        power = FTestAnovaPower().power(
+            effect_size=abs(cohens_f), nobs=nobs_total, alpha=alpha, k_groups=k_groups
+        )
+    except Exception:
+        return 0.0
+    return float(min(max(power, 0.0), 1.0))
+
+
+def power_check_anova(
+    eta_sq: float,
+    k_groups: int,
+    nobs_total: int,
+    alpha: float = DEFAULT_ALPHA,
+    target_power: float = DEFAULT_POWER,
+) -> dict:
+    """Full post-hoc power verdict for a one-way ANOVA result, same
+    contract as `power_check_ttest`/`power_check_chi2` but keyed on group
+    count and total n (a follow-up study's recommended size is reported
+    both as a total and divided evenly per group).
+    """
+    cohens_f = cohens_f_from_eta_sq(eta_sq)
+    achieved = achieved_power_anova(cohens_f, k_groups, nobs_total, alpha=alpha)
+    underpowered = achieved < target_power
+
+    recommended_n_total: Optional[int] = None
+    if cohens_f > 1e-9 and k_groups >= 2:
+        try:
+            from statsmodels.stats.power import FTestAnovaPower
+
+            n_needed = FTestAnovaPower().solve_power(
+                effect_size=cohens_f, alpha=alpha, power=target_power, k_groups=k_groups
+            )
+            if n_needed and n_needed <= _MAX_SOLVABLE_N:
+                recommended_n_total = _round_up(n_needed)
+        except Exception:
+            recommended_n_total = None
+
+    return {
+        "test": "anova",
+        "achieved_power": achieved,
+        "target_power": target_power,
+        "alpha": alpha,
+        "k_groups": k_groups,
+        "nobs_total": nobs_total,
+        "eta_sq": eta_sq,
+        "cohens_f": cohens_f,
+        "underpowered": underpowered,
+        "recommended_n_total": recommended_n_total,
+        "recommended_n_per_group": (
+            _round_up(recommended_n_total / k_groups) if recommended_n_total is not None else None
+        ),
+    }
+
+
+def _interpret_power_check_ttest(check: dict) -> str:
     pct = f"{check['achieved_power']:.0%}"
     n1, n2 = check["n1"], check["n2"]
     n_desc = f"{n1} vs {n2}" if n1 != n2 else str(n1)
@@ -256,6 +438,76 @@ def interpret_power_check(check: dict) -> str:
         f"~{check['recommended_n_per_group']:,} samples per group to reach "
         f"{check['target_power']:.0%} power."
     )
+
+
+def _interpret_power_check_chi2(check: dict) -> str:
+    pct = f"{check['achieved_power']:.0%}"
+    n = check["n"]
+
+    if not check["underpowered"]:
+        return (
+            f"✅ Well-powered: with {n:,} rows, this chi-square test had {pct} power "
+            f"to detect an association this strong (target: {check['target_power']:.0%})."
+        )
+
+    if check["recommended_n"] is None:
+        return (
+            f"⚠️ Underpowered: with {n:,} rows, this chi-square test had only {pct} "
+            "power to detect an association this strong — the association is too weak "
+            "for any finite sample size to reliably detect."
+        )
+
+    return (
+        f"⚠️ Underpowered: with {n:,} rows, this chi-square test had only {pct} power "
+        f"to detect an association this strong — a follow-up should collect "
+        f"~{check['recommended_n']:,} rows total to reach {check['target_power']:.0%} power."
+    )
+
+
+def _interpret_power_check_anova(check: dict) -> str:
+    pct = f"{check['achieved_power']:.0%}"
+    k, n = check["k_groups"], check["nobs_total"]
+
+    if not check["underpowered"]:
+        return (
+            f"✅ Well-powered: with {n:,} rows across {k} groups, this ANOVA had {pct} "
+            f"power to detect a difference this large (target: {check['target_power']:.0%})."
+        )
+
+    if check["recommended_n_total"] is None:
+        return (
+            f"⚠️ Underpowered: with {n:,} rows across {k} groups, this ANOVA had only "
+            f"{pct} power to detect a difference this large — the effect is too close "
+            "to zero for any finite sample size to reliably detect."
+        )
+
+    return (
+        f"⚠️ Underpowered: with {n:,} rows across {k} groups, this ANOVA had only {pct} "
+        f"power to detect a difference this large — a follow-up should collect "
+        f"~{check['recommended_n_total']:,} rows total (~{check['recommended_n_per_group']:,} "
+        f"per group) to reach {check['target_power']:.0%} power."
+    )
+
+
+def interpret_power_check(check: dict) -> str:
+    """Plain-English verdict for a `power_check_ttest()`/`power_check_chi2()`/
+    `power_check_anova()` result, dispatching on the check's own `"test"`
+    key (defaults to `"ttest"` for any caller built before that key
+    existed, preserving the original contract), e.g. "⚠️ Underpowered: with
+    15 samples per group, this test had only 18% power to detect an effect
+    this size — a follow-up would need ~176 samples per group for 80%
+    power." Never raises on a missing recommendation (zero/near-zero
+    effect size).
+    """
+    if check.get("error"):
+        return check["error"]
+
+    test = check.get("test", "ttest")
+    if test == "chi2":
+        return _interpret_power_check_chi2(check)
+    if test == "anova":
+        return _interpret_power_check_anova(check)
+    return _interpret_power_check_ttest(check)
 
 
 def interpret_sample_size_proportions(result: dict) -> str:

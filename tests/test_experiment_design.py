@@ -4,10 +4,16 @@ calculator and post-hoc power checks for existing test results.
 from __future__ import annotations
 
 from modules.experiment_design import (
+    achieved_power_anova,
+    achieved_power_chi2,
     achieved_power_ttest,
+    cohens_f_from_eta_sq,
+    cohens_w_from_chi2,
     interpret_power_check,
     interpret_sample_size_means,
     interpret_sample_size_proportions,
+    power_check_anova,
+    power_check_chi2,
     power_check_ttest,
     sample_size_two_means,
     sample_size_two_proportions,
@@ -185,3 +191,137 @@ def test_interpret_sample_size_means_text():
 def test_interpret_sample_size_means_error_passthrough():
     result = sample_size_two_means(mean_diff=5.0, std_dev=0.0)
     assert interpret_sample_size_means(result) == result["error"]
+
+
+# --- cohens_w_from_chi2 / achieved_power_chi2 / power_check_chi2 -----------
+# Reference values are Cohen's (1988) canonical chi-square power tables,
+# reproduced by G*Power and R's pwr.chisq.test: w=0.3 (medium effect),
+# df=1, alpha=.05 needs n~87 for 80% power.
+
+def test_cohens_w_from_chi2_matches_definition():
+    # w = sqrt(chi2 / n) by definition; chi2=7.83, n=87 -> w ~ 0.3
+    w = cohens_w_from_chi2(chi2_statistic=7.83, n=87)
+    assert 0.29 <= w <= 0.31
+
+
+def test_cohens_w_from_chi2_handles_zero_n():
+    assert cohens_w_from_chi2(chi2_statistic=10.0, n=0) == 0.0
+
+
+def test_achieved_power_chi2_matches_known_reference():
+    power = achieved_power_chi2(cohens_w=0.3, n=87, dof=1)
+    assert 0.75 <= power <= 0.85
+
+
+def test_achieved_power_chi2_increases_with_sample_size():
+    small_n = achieved_power_chi2(cohens_w=0.2, n=30, dof=1)
+    large_n = achieved_power_chi2(cohens_w=0.2, n=500, dof=1)
+    assert large_n > small_n
+
+
+def test_achieved_power_chi2_handles_degenerate_inputs_without_raising():
+    assert achieved_power_chi2(cohens_w=0.3, n=1, dof=1) == 0.0
+    assert achieved_power_chi2(cohens_w=0.3, n=100, dof=0) == 0.0
+
+
+def test_power_check_chi2_flags_underpowered_result():
+    check = power_check_chi2(cohens_w=0.2, n=30, dof=1)
+    assert check["underpowered"] is True
+    assert check["achieved_power"] < 0.8
+    assert check["recommended_n"] > 30
+    assert check["test"] == "chi2"
+
+
+def test_power_check_chi2_flags_well_powered_result():
+    check = power_check_chi2(cohens_w=0.3, n=500, dof=1)
+    assert check["underpowered"] is False
+    assert check["achieved_power"] > 0.95
+
+
+def test_power_check_chi2_handles_zero_effect_size_without_raising():
+    check = power_check_chi2(cohens_w=0.0, n=50, dof=2)
+    assert check.get("error") is None
+    assert check["underpowered"] is True
+    assert check["recommended_n"] is None
+
+
+def test_interpret_power_check_dispatches_to_chi2_text():
+    check = power_check_chi2(cohens_w=0.2, n=30, dof=1)
+    text = interpret_power_check(check)
+    assert "underpowered" in text.lower()
+    assert "%" in text
+    assert "chi-square" in text.lower()
+
+
+# --- cohens_f_from_eta_sq / achieved_power_anova / power_check_anova -------
+# Reference values are Cohen's (1988) canonical ANOVA power tables: f=0.25
+# (medium effect), k=3 groups, alpha=.05 needs total n~159 (~53/group) for
+# 80% power.
+
+def test_cohens_f_from_eta_sq_matches_definition():
+    # f = sqrt(eta_sq / (1 - eta_sq)); eta_sq=0.0588 -> f ~ 0.25 (medium)
+    f = cohens_f_from_eta_sq(0.0588)
+    assert 0.24 <= f <= 0.26
+
+
+def test_cohens_f_from_eta_sq_guards_perfect_fit():
+    # eta_sq -> 1 would divide by zero; must return a large-but-finite f.
+    f = cohens_f_from_eta_sq(1.0)
+    assert f > 0 and f < float("inf")
+
+
+def test_achieved_power_anova_matches_known_reference():
+    power = achieved_power_anova(cohens_f=0.25, k_groups=3, nobs_total=159)
+    assert 0.75 <= power <= 0.85
+
+
+def test_achieved_power_anova_increases_with_sample_size():
+    small_n = achieved_power_anova(cohens_f=0.2, k_groups=3, nobs_total=60)
+    large_n = achieved_power_anova(cohens_f=0.2, k_groups=3, nobs_total=600)
+    assert large_n > small_n
+
+
+def test_achieved_power_anova_handles_degenerate_inputs_without_raising():
+    assert achieved_power_anova(cohens_f=0.25, k_groups=1, nobs_total=100) == 0.0
+    assert achieved_power_anova(cohens_f=0.25, k_groups=3, nobs_total=2) == 0.0
+
+
+def test_power_check_anova_flags_underpowered_result():
+    check = power_check_anova(eta_sq=0.02, k_groups=3, nobs_total=60)
+    assert check["underpowered"] is True
+    assert check["achieved_power"] < 0.8
+    assert check["recommended_n_total"] > 60
+    assert check["recommended_n_per_group"] == -(-check["recommended_n_total"] // 3)
+    assert check["test"] == "anova"
+
+
+def test_power_check_anova_flags_well_powered_result():
+    check = power_check_anova(eta_sq=0.15, k_groups=3, nobs_total=300)
+    assert check["underpowered"] is False
+    assert check["achieved_power"] > 0.95
+
+
+def test_power_check_anova_handles_zero_effect_size_without_raising():
+    check = power_check_anova(eta_sq=0.0, k_groups=3, nobs_total=60)
+    assert check.get("error") is None
+    assert check["underpowered"] is True
+    assert check["recommended_n_total"] is None
+    assert check["recommended_n_per_group"] is None
+
+
+def test_interpret_power_check_dispatches_to_anova_text():
+    check = power_check_anova(eta_sq=0.02, k_groups=3, nobs_total=60)
+    text = interpret_power_check(check)
+    assert "underpowered" in text.lower()
+    assert "%" in text
+    assert "anova" in text.lower()
+
+
+def test_interpret_power_check_still_handles_ttest_dict_without_test_key():
+    # Older/other callers may build a ttest-shaped dict without an explicit
+    # "test" key (power_check_ttest's original contract) — must still be
+    # interpreted as a t-test, not raise a KeyError.
+    check = power_check_ttest(cohens_d=0.3, n1=15, n2=15)
+    check.pop("test", None)
+    text = interpret_power_check(check)
+    assert "underpowered" in text.lower()
