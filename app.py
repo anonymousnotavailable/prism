@@ -38,6 +38,7 @@ from modules import (
     data_engine,
     dataset_knowledge,
     datetime_intel,
+    detector_runner,
     domains,
     drift,
     enrichment,
@@ -167,6 +168,8 @@ _DEFAULTS = {
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
     "hypothesis_sweep_confounder_check": None,  # hypothesis_sweep.cross_check_confounders() result for the last sweep
     "hypothesis_sweep_confounder_narrations": {},  # cache of confounder_detection.narrate_confounder_finding() results, keyed like confounder_narrations
+    "detector_runner_last_ran": [],  # detector names fired by the last "Run All Detectors" click (modules/detector_runner.py), for a one-line confirmation caption
+    "detector_runner_last_skipped": [],  # [{"detector","reason"}, ...] from that same click
     "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
     "forecast_result": None,  # last "Generate Forecast" result dict from Forecasting
     "forecast_error": None,  # error from the last forecast attempt, if any
@@ -316,6 +319,10 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hypothesis_sweep_narration = None
     st.session_state.hypothesis_sweep_narration_fingerprint = None
     st.session_state.hypothesis_sweep_narration_verification = None
+    st.session_state.hypothesis_sweep_confounder_check = None
+    st.session_state.hypothesis_sweep_confounder_narrations = {}
+    st.session_state.detector_runner_last_ran = []
+    st.session_state.detector_runner_last_skipped = []
     st.session_state.mllab_feature_selection_result = None
     st.session_state.forecast_result = None
     st.session_state.forecast_error = None
@@ -1631,6 +1638,62 @@ elif st.session_state.active_section == "Overview":
     # Atlas's proactive alert HUD (announce_ambient_insights() -> raise_alert())
     # — clear it so the orb doesn't keep pulsing for something already read.
     atlas.clear_alert()
+
+    # ------------------------------------------------------------------
+    # Run All Detectors — modules/detector_runner.py. Auto-Insights and
+    # Confounder Check already ran on upload; Hypothesis Sweep and Anomaly
+    # Detection are equally automatic (no column/target picking needed)
+    # but otherwise stay dormant until the user visits Stats Lab / the
+    # Anomaly Detection expander below and clicks their own button — which
+    # is also why Agent Summary right below this often has too few
+    # detectors to say anything yet. One click here fires both, using the
+    # exact same functions and session-state slots those manual buttons
+    # do, so the panels below (and Agent Summary) light up immediately.
+    # Hidden once both have already run this session — nothing left for
+    # it to do automatically at that point.
+    # ------------------------------------------------------------------
+    _already_have_sweep = st.session_state.hypothesis_sweep_result is not None
+    _already_have_anomaly = st.session_state.anomaly_result_df is not None
+    if not (_already_have_sweep and _already_have_anomaly):
+        _autorun_eligible, _autorun_block_reason = detector_runner.autorun_eligible(df, column_types)
+        with st.container(border=True):
+            st.markdown("#### ⚡ Run All Detectors")
+            st.caption(
+                "Hypothesis Sweep and Anomaly Detection are fully automatic — no columns to "
+                "pick — but only run when you open their own tab. Fire both now in one click."
+            )
+            if not _autorun_eligible:
+                st.info(_autorun_block_reason)
+            elif st.button("⚡ Run All Detectors", key="run_all_detectors_btn", type="primary"):
+                with st.spinner(ui.get_loading_message()):
+                    _run_result = detector_runner.run_all_detectors(
+                        df, column_types,
+                        already_have_sweep=_already_have_sweep,
+                        already_have_anomaly=_already_have_anomaly,
+                    )
+                if "hypothesis_sweep" in _run_result["ran"]:
+                    st.session_state.hypothesis_sweep_result = _run_result["sweep_result"]
+                    st.session_state.hypothesis_sweep_confounder_check = _run_result["confounder_check"]
+                    st.session_state.hypothesis_sweep_narration = None
+                    st.session_state.hypothesis_sweep_narration_fingerprint = None
+                    st.session_state.hypothesis_sweep_narration_verification = None
+                    st.session_state.hypothesis_sweep_confounder_narrations = {}
+                if "anomaly" in _run_result["ran"]:
+                    st.session_state.anomaly_result_df = _run_result["anomaly_result_df"]
+                    st.session_state.anomaly_error = _run_result["anomaly_error"]
+                    st.session_state.anomaly_methods_summary = None
+                    st.session_state.anomaly_narration = None
+                    st.session_state.anomaly_narration_fingerprint = None
+                    st.session_state.anomaly_narration_verification = None
+                    st.session_state.anomaly_driver_narration = None
+                    st.session_state.anomaly_driver_narration_fingerprint = None
+                    st.session_state.anomaly_driver_narration_verification = None
+                st.session_state.detector_runner_last_ran = _run_result["ran"]
+                st.session_state.detector_runner_last_skipped = _run_result["skipped"]
+                st.rerun()  # see the Agent Summary same-pass-staleness note below
+
+            if st.session_state.detector_runner_last_ran:
+                st.caption(f"✅ Ran: {', '.join(st.session_state.detector_runner_last_ran)}. See the results below.")
 
     # ------------------------------------------------------------------
     # Agent Summary — the orchestration layer over every detector panel
