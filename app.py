@@ -4028,9 +4028,10 @@ elif st.session_state.active_section == "Stats Lab":
         if st.button("Run Hypothesis Sweep", key="run_hypothesis_sweep_btn"):
             with st.spinner(ui.get_loading_message()):
                 sweep_result_new = hypothesis_sweep.sweep_hypotheses(df, column_types)
-                # Post-hoc power check on every significant t-test row — no
-                # extra Gemini call, pure statsmodels. See annotate_power()'s
-                # docstring for why it's scoped to t-tests only.
+                # Post-hoc power check on every significant row (t-test,
+                # chi-square, ANOVA) — no extra Gemini call, pure statsmodels.
+                # See annotate_power()'s docstring for why Pearson rows are
+                # deliberately excluded.
                 sweep_result_new = hypothesis_sweep.annotate_power(sweep_result_new)
                 st.session_state.hypothesis_sweep_result = sweep_result_new
                 # Agentic follow-up, same spinner: does the sweep's own strongest
@@ -4094,17 +4095,18 @@ elif st.session_state.active_section == "Stats Lab":
                     st.plotly_chart(sweep_chart, use_container_width=True)
 
                 # Power check detail — a "Power" badge in the table above is
-                # easy to skim past; underpowered t-test findings get a
-                # plain-English callout with a concrete follow-up sample size,
-                # same "don't just flag it, tell them what to do next"
-                # pattern as the confounder cross-check below.
+                # easy to skim past; underpowered findings (t-test, chi-square,
+                # or ANOVA — see annotate_power()) get a plain-English callout
+                # with a concrete follow-up sample size, same "don't just flag
+                # it, tell them what to do next" pattern as the confounder
+                # cross-check below.
                 underpowered_rows = [
                     r for r in significant_rows
                     if r.get("power_check") and r["power_check"]["underpowered"]
                 ]
                 if underpowered_rows:
                     with st.expander(
-                        f"⚠️ {len(underpowered_rows)} significant t-test result"
+                        f"⚠️ {len(underpowered_rows)} significant result"
                         f"{'s' if len(underpowered_rows) != 1 else ''} may be underpowered",
                         expanded=False,
                     ):

@@ -98,11 +98,15 @@ def sweep_hypotheses(
                 "effect_size_name": result["effect_size_name"],
                 "effect_size_label": result["effect_size_label"],
                 "n": n,
-                # Per-group n for t-test rows only (needed for a post-hoc power
-                # check — see annotate_power() below); None for every other
-                # test type, where "power" isn't a single well-defined number
-                # from just an effect size and a combined n.
-                "group_sizes": dict(result["groups"]) if result["test"] == "ttest" else None,
+                # Per-group n for ttest/anova rows (needed for a post-hoc power
+                # check — see annotate_power() below); None for pearson (no
+                # groups) and chi2 (a contingency table, not per-group counts).
+                "group_sizes": (
+                    dict(result["groups"]) if result["test"] in ("ttest", "anova") else None
+                ),
+                # Degrees of freedom, chi2 rows only (also for annotate_power()
+                # below — chi-square power needs dof, not just Cramer's V).
+                "dof": result.get("dof"),
             }
         )
 
@@ -137,23 +141,23 @@ def sweep_hypotheses(
 
 
 def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT_POWER) -> dict:
-    """Attach a post-hoc power check (`experiment_design.power_check_ttest`)
-    to every significant t-test row in a sweep result.
+    """Attach a post-hoc power check to every significant row in a sweep
+    result, across all three test families that have a well-defined power
+    formula: t-test (`experiment_design.power_check_ttest`), chi-square
+    (`power_check_chi2`), and one-way ANOVA (`power_check_anova`).
 
-    A significant t-test only tells you *this* sample showed an effect —
-    it says nothing about whether the study had enough power to reliably
+    A significant result only tells you *this* sample showed an effect —
+    it says nothing about whether the test had enough power to reliably
     find one in the first place. A "significant" result from 8 rows per
     group is far less trustworthy than the same p-value from 800, and this
     surfaces that distinction automatically rather than making the user
     reason about sample size themselves.
 
-    Scoped to t-test rows only (Cohen's d + two known group sizes map
-    directly onto `TTestIndPower`); ANOVA/chi-square/Pearson rows get
-    `power_check: None` — extending post-hoc power to those test families
-    is a real but separate effort (chi-square power depends on the
-    contingency table's shape, not just Cramer's V; ANOVA depends on group
-    count, not just eta-squared), left for a future pass rather than
-    approximated here.
+    Pearson (correlation) rows get `power_check: None` — correlation power
+    needs a Fisher z-transform noncentral distribution family, a genuinely
+    different approach than the noncentral-chi-square family the other
+    three share, and is left as a real, separate follow-on rather than
+    approximated here (see `experiment_design`'s module docstring).
 
     Non-mutating: returns a new dict with a new `tested` list; the input
     `result` (and its row dicts) are left untouched.
@@ -165,9 +169,12 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
     annotated_rows = []
     for row in result["tested"]:
         row = dict(row)
+        test = row.get("test")
         group_sizes = row.get("group_sizes")
+        dof = row.get("dof")
+
         if (
-            row.get("test") == "ttest"
+            test == "ttest"
             and row.get("significant")
             and group_sizes
             and len(group_sizes) == 2
@@ -176,6 +183,29 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
             n1, n2 = list(group_sizes.values())
             row["power_check"] = experiment_design.power_check_ttest(
                 row["effect_size"], n1, n2, alpha=alpha, target_power=target_power
+            )
+        elif (
+            test == "anova"
+            and row.get("significant")
+            and group_sizes
+            and len(group_sizes) >= 2
+            and all(n >= 2 for n in group_sizes.values())
+        ):
+            k_groups = len(group_sizes)
+            nobs_total = sum(group_sizes.values())
+            row["power_check"] = experiment_design.power_check_anova(
+                row["effect_size"], k_groups, nobs_total, alpha=alpha, target_power=target_power
+            )
+        elif (
+            test == "chi2"
+            and row.get("significant")
+            and dof
+            and dof >= 1
+            and row.get("n", 0) >= 2
+        ):
+            cohens_w = experiment_design.cohens_w_from_chi2(row["statistic"], row["n"])
+            row["power_check"] = experiment_design.power_check_chi2(
+                cohens_w, row["n"], dof, alpha=alpha, target_power=target_power
             )
         else:
             row["power_check"] = None

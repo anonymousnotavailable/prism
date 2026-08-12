@@ -1784,3 +1784,101 @@ option-by-text). Merged `feature/run-full-analysis` into `main` with
 Run 27: chi-square/ANOVA post-hoc power (Run 25/26's standing backlog
 item), or extending `detector_runner.py` to also auto-run Anomaly
 Drivers.
+
+---
+
+## Run 27 — 2026-08-12
+
+**Phase 0/1:** Cold-start install succeeded cleanly this time (no
+cryptography/cffi build issue for once). Baseline `pytest -q`: 502
+passed, matching Run 26's tip exactly — no drift. Audit
+(`.prism/audit_2026-08-12-run27.md`) found no real TODO/FIXME debt and
+`.gitignore` still covers secrets. One correction to Run 26's own
+backlog note: "Anomaly Drivers auto-run" (Run 26's logged backlog #2)
+turns out to already be effectively resolved — `app.py`'s Anomaly
+Detection expander computes `find_anomaly_drivers()` unconditionally
+whenever `anomaly_result_df` is populated (not gated behind its own
+button), and `detector_runner.run_all_detectors()` already writes into
+that exact slot. Only the Gemini narration button stays manual, by
+design. This narrowed Phase 2's candidate set.
+
+**Phase 2 research** (`.prism/research_2026-08-12-run27.md`, 5 searches):
+2026 data-analyst interview prep sources continue to name chi-square and
+ANOVA alongside t-tests in the same "power analysis" breath Run 25's own
+research surfaced — confirming Run 25/26's twice-logged backlog item
+("chi-square/ANOVA post-hoc power... needs the actual contingency-table
+shape/group count threaded through, not approximated from Cramer's
+V/eta-squared alone") is still the highest-evidence, best-scoped move
+available. Competitor tooling (Julius AI/Hex/Deepnote) and data-
+storytelling trends surfaced nothing Prism doesn't already cover.
+
+**Selected: chi-square + ANOVA post-hoc power, extending
+`hypothesis_sweep.annotate_power()`.** Chosen over the Anomaly-Drivers
+option (already done, see above) and over Pearson/Fisher-z correlation
+power (logged as the next real follow-on — a genuinely different
+noncentral-distribution family, not a quick bolt-on). Satisfies the
+required agentic-AI-analysis theme the same way Run 25 justified the
+t-test half of this same feature: it's an automatic follow-up question
+the already-agentic Hypothesis Sweep now asks about its own significant
+chi-square/ANOVA findings too, with zero new user action and zero new
+Gemini calls — the self-verifying-agent pattern extended to two more
+test families instead of stopping at t-tests.
+
+**Technical approach, resolving what stalled the last two runs':**
+Cohen's w for the chi-square case is derived *directly from the test's
+own raw chi-square statistic and n* (`cohens_w_from_chi2`, w =
+sqrt(chi2/n)) rather than back-computed from Cramer's V — V's relationship
+to w needs the contingency table's row/column shape (min(rows,cols)-1),
+and the same degrees of freedom can come from more than one table shape,
+so going through V would need the shape threaded through anyway. Going
+through the raw statistic needs nothing beyond what `stats_lab.run_chi2()`
+already returns (statistic, n, dof) — cleaner than what both prior runs'
+backlog notes assumed was necessary. ANOVA's Cohen's f comes from
+eta-squared (`cohens_f_from_eta_sq`), with the actual per-group sizes
+(`run_anova()`'s own `groups` dict) threaded through `sweep_hypotheses()`'s
+row assembly for group count and total n — not approximated from
+eta-squared alone. Both cross-checked in tests against Cohen's (1988)/
+G*Power canonical reference values (w=.3, df=1 → n≈87 for 80% power;
+f=.25, k=3 → n≈159 total) via statsmodels' `GofChisquarePower`/
+`FTestAnovaPower`. `interpret_power_check()` became a small dispatcher on
+the check dict's own `"test"` key so `app.py`'s existing call site needed
+no logic changes — the "Power" badge and underpowered-findings expander
+in Hypothesis Sweep (and therefore `detector_runner`'s "Run All
+Detectors", which calls `annotate_power()` unchanged) now cover all three
+families automatically, no app.py wiring beyond two label-text tweaks.
+
+**Result:** 26 new tests (25 in `tests/test_experiment_design.py` for
+the new `cohens_w_from_chi2`/`achieved_power_chi2`/`power_check_chi2`/
+`cohens_f_from_eta_sq`/`achieved_power_anova`/`power_check_anova`
+functions and the `interpret_power_check` dispatcher, 1 net new in
+`tests/test_hypothesis_sweep.py` after updating several existing tests'
+now-outdated assumptions — `group_sizes`/`dof` threading, and an
+end-to-end integration test proving all three significant test families
+in a planted-signal fixture get readable power prose with zero raises).
+Full suite: 502 → 528 passing, zero regressions. Side fix: hardened
+`experiment_design._round_up()` against `statsmodels.solve_power()`
+occasionally returning a size-1 numpy array instead of a plain float
+(silent pre-existing risk on the ttest path too, just never triggered
+there — numpy has flagged the bare `float()` conversion this exposed as
+a future hard error).
+
+**Run 27 summary:** Shipped chi-square + ANOVA post-hoc power, extending
+`hypothesis_sweep.annotate_power()` (Run 25's t-test-only version) to
+all three test families the sweep runs — closing a gap logged across two
+consecutive prior runs. Cohen's w derived directly from the raw
+chi-square statistic (not Cramer's V, sidestepping the shape-ambiguity
+problem both prior runs flagged); Cohen's f from eta-squared with real
+per-group sizes threaded through. Both cross-checked against Cohen's
+(1988)/G*Power canonical reference values. `interpret_power_check()`
+became a dispatcher so `app.py`/`detector_runner` needed no logic
+changes. 26 new tests, 502→528 green, zero regressions. Verified live
+via Playwright across desktop+mobile, dark+light — including finally
+nailing mobile light theme's exact selector path
+(`stExpandSidebarButton` + real pointer clicks on the BaseWeb selectbox),
+closing a 7+-run-old automation gap. Merged `feature/chi2-anova-power`
+into `main` with `--no-ff`, updated `CHANGELOG.md`, pushed to
+`origin/main`. Full report: `RUN_REPORT_2026-08-12-run27.md`. Recommended
+for Run 28: correlation/Fisher-z power (closes the power-check set fully,
+small/self-contained), or a fresh agentic-AI-analysis angle from a
+differently-sourced Phase 2 research pass (this run's and Run 26's
+competitor-tooling searches both came up empty for new gaps).
