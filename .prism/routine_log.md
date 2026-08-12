@@ -1969,3 +1969,76 @@ web research for a new competitor-gap feature increasingly unproductive
 — try a structural self-audit of `modules/` vs. `app.py` wiring instead,
 or consider that the detector/orchestrator surface may have reached a
 natural plateau for this cycle format.
+
+---
+
+## Run 29 — 2026-08-12 — selection log (written before code merge)
+
+Fresh reset to `origin/main` at Run 28's tip (`8c3328d`) — no drift.
+Baseline `pytest -q`: 550 passed (matches Run 28's reported tip exactly),
+after the same `pip install --force-reinstall cffi cryptography` fix 6+
+prior runs have logged for this sandbox's cold-start `_cffi_backend` issue.
+Audit (`.prism/audit_2026-08-12-run29.md`): no TODO/FIXME debt, `.gitignore`
+still covers `.env`, no secrets — codebase remains clean. Given this run's
+explicit instruction to use fewer tokens, Phase 2 research was two targeted
+searches (not a full four-source sweep) aimed at confirming two gaps the
+structural read of `modules/` itself surfaced, rather than re-running the
+broad competitor/community sweep Runs 25-28 already exhausted with
+diminishing returns.
+
+**Selected: bootstrap confidence intervals on `auto_insights`' correlation
+findings** (`.prism/research_2026-08-12-run29.md`). Chosen over the other
+logged candidate (k-fold cross-validation for ML Lab) because it is the one
+that satisfies this run's required agentic-AI-analysis theme — it strengthens
+the zero-click, on-upload auto-insight pipeline itself, not a manually-opened
+tab — and because a bare point-estimate r with no uncertainty signal was a
+real, previously-unflagged gap: every other numeric-finding surface in the
+app (Hypothesis Sweep's post-hoc power badges, Runs 25-28) eventually got a
+confidence signal; Auto-Insights' correlation detector never had one.
+
+**Design:** `_bootstrap_corr_ci()` resamples row *pairs* (not each series
+independently — that would break the x/y linkage the correlation itself
+depends on) with replacement 500 times and returns the 95% percentile
+interval, deterministic via a fixed `random_state=42` so the same dataset
+always renders the same CI. Cost is bounded three ways so a large/wide
+upload can't make this the slow path: (1) only "high"-severity (strong,
+r≥0.85) pairs get bootstrapped at all — moderate correlations stay
+point-estimate-only, a deliberate severity/cost trade-off; (2) a fixed
+`MAX_BOOTSTRAP_PAIRS=20` cap per `generate_insights()` call, so a wide
+dataset with many near-duplicate columns can't blow up the upload path;
+(3) rows are subsampled to `BOOTSTRAP_MAX_N=5000` before resampling on
+datasets larger than that, keeping each pair's cost roughly constant
+regardless of the full dataset's size. A stress test (50K rows × 25
+mutually-near-duplicate columns, the worst realistic case) completes in
+~1.4s, within the module's documented "<2s on upload" budget. When the
+interval is wide despite a "strong" r (small-n, noisy relationships can
+still clear the 0.85 threshold on a lucky sample), the message appends an
+explicit "wide interval, treat with caution on this sample size" caveat —
+the point of a CI is exactly to catch that case a bare r hides.
+`app.py`'s Auto-Insights panel needed zero wiring changes — it already just
+renders `ins["message"]`, and the CI text is folded straight into that
+string, same "no downstream logic changes" pattern Runs 27/28 established
+for their dispatcher additions.
+
+**Result:** 9 new tests in `tests/test_auto_insights.py` (CI-helper edge
+cases — too-few-rows, zero-variance, deterministic reproducibility, NaN
+handling — plus integration tests proving the message/`"ci"` key show up
+for strong pairs and are deliberately absent for moderate ones and that a
+many-strong-pairs dataset never crashes or hangs). Full suite: 550 → 559
+green, zero regressions. Live-verified via Playwright: desktop (1440×900)
++ mobile (390×844), dark + light, all four showing a planted r=0.999
+correlation with its "(95% CI: 0.998 to 0.999.)" suffix rendering cleanly —
+no clipping, correct contrast in both themes, sidebar/Atlas panel
+unaffected. Screenshots in `.prism/runs/2026-08-12-run29/`.
+
+**Not built this run, logged as the strongest backlog candidate:** k-fold
+cross-validation for `mllab.run_baseline_models()` (currently a single
+80/20 split with no variance estimate — a standing, frequently-asked
+interview screening topic per this run's research). No approach was
+attempted and failed here; it simply wasn't this run's pick given the
+agentic-theme requirement. `sklearn.model_selection.cross_validate` +
+`StratifiedKFold`/`KFold` (sklearn already a dependency) reporting mean±std
+per metric alongside (not replacing) the existing single-split numbers is
+the natural next-run slice.
+
+Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).

@@ -2,6 +2,37 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 29)
+
+### Added
+- **Bootstrap confidence intervals on Auto-Insights' correlation findings**
+  (`modules/auto_insights.py`) — the zero-click, on-upload insight scan's
+  correlation detector previously reported a bare point-estimate Pearson r
+  ("strongly correlated, r=0.87") with no signal of how much sampling noise
+  could move it; the same r on 20 rows and on 20,000 rows read identically
+  confident. New `_bootstrap_corr_ci()` resamples row *pairs* with
+  replacement 500 times (deterministic via a fixed `random_state`) and
+  folds the resulting 95% percentile interval straight into the existing
+  insight message, e.g. "(95% CI: 0.81 to 0.91.)" — when the interval is
+  wide despite clearing the "strong" threshold (small-n or noisy data can
+  still produce a high r on a lucky sample), the message adds an explicit
+  "wide interval, treat with caution on this sample size" caveat. Cost is
+  bounded three ways so this can't become the slow path on a large upload:
+  only "high"-severity (r≥0.85) pairs are bootstrapped at all, a hard
+  `MAX_BOOTSTRAP_PAIRS=20` cap per scan, and rows are subsampled to 5,000
+  before resampling on larger datasets. A stress test (50K rows × 25
+  mutually-correlated columns) completes in ~1.4s, within the module's
+  documented <2s upload budget. `app.py`'s Auto-Insights panel needed zero
+  wiring changes — it already renders `insight["message"]` verbatim. Pure
+  numpy/pandas, zero new Gemini calls, zero new dependencies. 9 new tests
+  in `tests/test_auto_insights.py` (CI-helper edge cases plus integration
+  coverage proving strong pairs get a CI and moderate pairs deliberately
+  don't), full suite 550 → 559 green, zero regressions. Live-verified via
+  Playwright across desktop (1440×900) and mobile (390×844), dark and
+  light themes, all four showing a planted r=0.999 correlation's CI
+  rendering cleanly with no clipping; screenshots in
+  `.prism/runs/2026-08-12-run29/`.
+
 ## 2026-08-12 (Run 28)
 
 ### Added

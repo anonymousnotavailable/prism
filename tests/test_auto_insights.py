@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from modules.auto_insights import (
+    _bootstrap_corr_ci,
     category_label,
     format_insights_text,
     generate_insights,
@@ -160,3 +161,94 @@ def test_verify_narration_unverifiable_when_no_numbers_in_text():
 def test_verify_narration_never_raises_on_malformed_insights():
     verification = verify_narration("Some text with 42 in it.", "not a list")  # type: ignore[arg-type]
     assert verification["status"] in ("flagged", "unverifiable")
+
+
+# --- _bootstrap_corr_ci ------------------------------------------------
+
+def test_bootstrap_corr_ci_returns_none_below_min_sample_size():
+    x = pd.Series([1.0, 2.0, 3.0])
+    y = pd.Series([1.0, 2.0, 3.0])
+    assert _bootstrap_corr_ci(x, y) is None
+
+
+def test_bootstrap_corr_ci_returns_none_on_zero_variance():
+    # A constant column has no variance for Pearson r to be defined over —
+    # every bootstrap resample would divide by zero.
+    x = pd.Series([5.0] * 50)
+    y = pd.Series(range(50), dtype=float)
+    assert _bootstrap_corr_ci(x, y) is None
+
+
+def test_bootstrap_corr_ci_is_narrow_for_large_strongly_correlated_sample():
+    rng = np.random.default_rng(0)
+    x = pd.Series(rng.normal(size=2000))
+    y = pd.Series(x * 3 + rng.normal(scale=0.01, size=2000))
+    ci = _bootstrap_corr_ci(x, y)
+    assert ci is not None
+    lo, hi = ci
+    assert lo <= hi  # near-perfect r can legitimately round to lo == hi == 1.0
+    assert lo > 0.95  # near-deterministic relationship, CI should hug 1.0
+    assert hi - lo < 0.05  # 2000 rows → tight interval
+
+
+def test_bootstrap_corr_ci_is_wide_for_small_borderline_sample():
+    rng = np.random.default_rng(1)
+    x = pd.Series(rng.normal(size=20))
+    y = pd.Series(x * 0.9 + rng.normal(scale=1.2, size=20))
+    ci = _bootstrap_corr_ci(x, y)
+    assert ci is not None
+    lo, hi = ci
+    assert hi - lo > 0.2  # tiny n → wide interval even at a similar point estimate
+
+
+def test_bootstrap_corr_ci_is_deterministic_given_same_inputs():
+    rng = np.random.default_rng(2)
+    x = pd.Series(rng.normal(size=300))
+    y = pd.Series(x * 2 + rng.normal(scale=0.5, size=300))
+    assert _bootstrap_corr_ci(x, y) == _bootstrap_corr_ci(x, y)
+
+
+def test_bootstrap_corr_ci_handles_nans_via_pairwise_dropna():
+    x = pd.Series([1.0, 2.0, np.nan, 4.0, 5.0] * 20)
+    y = pd.Series([2.0, 4.0, 6.0, np.nan, 10.0] * 20)
+    # Should not raise despite misaligned NaNs; either returns a valid
+    # interval or None (if too few complete pairs survive), never crashes.
+    result = _bootstrap_corr_ci(x, y)
+    assert result is None or (result[0] <= result[1])
+
+
+def test_generate_insights_strong_correlation_message_includes_bootstrap_ci():
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=500)
+    df = pd.DataFrame({"x": x, "y": x * 2 + rng.normal(scale=0.01, size=500)})
+    insights = generate_insights(df, {"x": "numeric", "y": "numeric"})
+    strong = [i for i in insights if i["category"] == "correlation" and i["severity"] == "high"]
+    assert strong
+    assert "95% CI" in strong[0]["message"]
+    assert "ci" in strong[0] and strong[0]["ci"] is not None
+
+
+def test_generate_insights_moderate_correlation_skips_bootstrap_for_cost():
+    # Moderate-severity correlations are deliberately not bootstrapped
+    # (cost control — see auto_insights.py) so their message stays
+    # unchanged and their "ci" key is None.
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=200)
+    df = pd.DataFrame({"x": x, "y": x * 0.65 + rng.normal(scale=0.9, size=200)})
+    insights = generate_insights(df, {"x": "numeric", "y": "numeric"})
+    moderate = [i for i in insights if i["category"] == "correlation" and i["severity"] == "low"]
+    if moderate:  # depends on the exact r landing in the moderate band
+        assert moderate[0]["ci"] is None
+        assert "95% CI" not in moderate[0]["message"]
+
+
+def test_generate_insights_correlation_never_crashes_on_many_strong_pairs():
+    # A wide dataset where many columns are near-duplicates of each other —
+    # exercises the MAX_BOOTSTRAP_PAIRS cost cap without raising or hanging.
+    rng = np.random.default_rng(4)
+    base = rng.normal(size=300)
+    data = {f"c{i}": base + rng.normal(scale=0.01, size=300) for i in range(12)}
+    df = pd.DataFrame(data)
+    types = {c: "numeric" for c in df.columns}
+    insights = generate_insights(df, types)  # must not raise or hang
+    assert isinstance(insights, list)

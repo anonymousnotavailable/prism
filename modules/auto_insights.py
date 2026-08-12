@@ -38,6 +38,21 @@ IMBALANCE_MINORITY_PCT = 10.0 # minority class <10% → imbalanced
 HIGH_CARDINALITY_RATIO = 0.9  # nunique/nrows > 0.9 → likely ID column
 MAX_INSIGHTS = 12             # cap total insights to avoid wall-of-text
 
+# Bootstrap CI for strong-correlation insights (see _bootstrap_corr_ci below).
+# Only "high"-severity (strong, |r| >= CORR_STRONG_THRESHOLD) pairs get a
+# bootstrap CI — moderate correlations are common enough in wide datasets
+# that bootstrapping every one of them would be needless cost for a
+# secondary-severity finding. MAX_BOOTSTRAP_PAIRS additionally bounds the
+# worst case (a dataset with many near-duplicate columns can have dozens of
+# pairs above the strong threshold) so generate_insights() never becomes the
+# slow path on upload.
+BOOTSTRAP_ITER = 500           # resamples per pair
+BOOTSTRAP_MAX_N = 5000          # subsample cap so one pair's CI stays O(1)-ish
+BOOTSTRAP_MIN_N = 10             # below this, a CI isn't meaningful
+BOOTSTRAP_CI_LEVEL = 0.95
+MAX_BOOTSTRAP_PAIRS = 20        # hard cap on CI computations per generate_insights() call
+WIDE_CI_SPAN = 0.3              # CI wider than this despite a "strong" r → flag as uncertain
+
 
 def _iqr_outlier_pct(series: pd.Series) -> float:
     """Percentage of values outside the 1.5×IQR fence."""
@@ -52,6 +67,67 @@ def _iqr_outlier_pct(series: pd.Series) -> float:
     upper = q3 + OUTLIER_IQR_MULTIPLIER * iqr
     outliers = ((clean < lower) | (clean > upper)).sum()
     return float(outliers / len(clean) * 100)
+
+
+def _bootstrap_corr_ci(
+    series_a: pd.Series,
+    series_b: pd.Series,
+    n_boot: int = BOOTSTRAP_ITER,
+    ci: float = BOOTSTRAP_CI_LEVEL,
+    random_state: int = 42,
+) -> Optional[tuple[float, float]]:
+    """Percentile bootstrap confidence interval for a Pearson correlation.
+
+    A point-estimate r alone doesn't say how much sampling noise could move
+    it — the same r=0.87 is a very different claim on 20 rows vs. 20,000.
+    This resamples row *pairs* with replacement (so x and y stay linked,
+    unlike resampling each series independently) n_boot times, recomputes r
+    on each resample, and returns the (ci*100)% percentile interval.
+
+    Deterministic given the same inputs (fixed random_state) so tests and
+    repeated runs on an unchanged dataset are reproducible.
+
+    Returns None (never raises) when there isn't enough data for a
+    meaningful interval: fewer than BOOTSTRAP_MIN_N complete pairs, or a
+    series with zero variance (undefined r — every resample would divide by
+    zero). For very large datasets, resampling is done on a fixed random
+    subsample capped at BOOTSTRAP_MAX_N rows rather than the full column —
+    keeps cost bounded on a 250K-row upload while the interval stays a
+    faithful (if very slightly wider) estimate of the true sampling
+    uncertainty.
+    """
+    paired = pd.DataFrame({"a": series_a, "b": series_b}).dropna()
+    n = len(paired)
+    if n < BOOTSTRAP_MIN_N:
+        return None
+
+    rng = np.random.default_rng(random_state)
+    if n > BOOTSTRAP_MAX_N:
+        sample_idx = rng.choice(n, size=BOOTSTRAP_MAX_N, replace=False)
+        paired = paired.iloc[sample_idx]
+        n = BOOTSTRAP_MAX_N
+
+    x = paired["a"].to_numpy(dtype=float)
+    y = paired["b"].to_numpy(dtype=float)
+    if np.std(x) == 0 or np.std(y) == 0:
+        return None
+
+    boot_r = np.empty(n_boot)
+    for i in range(n_boot):
+        idx = rng.integers(0, n, size=n)
+        xs, ys = x[idx], y[idx]
+        xd, yd = xs - xs.mean(), ys - ys.mean()
+        denom = np.sqrt((xd**2).sum() * (yd**2).sum())
+        boot_r[i] = (xd * yd).sum() / denom if denom > 0 else np.nan
+
+    boot_r = boot_r[~np.isnan(boot_r)]
+    if len(boot_r) < n_boot * 0.5:
+        return None
+
+    alpha = (1 - ci) / 2
+    lo, hi = np.percentile(boot_r, [alpha * 100, (1 - alpha) * 100])
+    lo, hi = float(np.clip(lo, -1.0, 1.0)), float(np.clip(hi, -1.0, 1.0))
+    return round(min(lo, hi), 3), round(max(lo, hi), 3)
 
 
 def _detect_distribution_insights(df: pd.DataFrame, column_types: dict[str, str]) -> list[dict]:
@@ -98,6 +174,7 @@ def _detect_correlation_insights(df: pd.DataFrame, column_types: dict[str, str])
         return insights
     corr = df[numeric_cols].corr()
     seen = set()
+    n_bootstrapped = 0
     for i, col_a in enumerate(numeric_cols):
         for col_b in numeric_cols[i + 1:]:
             r = corr.loc[col_a, col_b]
@@ -108,16 +185,28 @@ def _detect_correlation_insights(df: pd.DataFrame, column_types: dict[str, str])
                 continue
             seen.add(key)
             if abs(r) >= CORR_STRONG_THRESHOLD:
+                ci = None
+                if n_bootstrapped < MAX_BOOTSTRAP_PAIRS:
+                    ci = _bootstrap_corr_ci(df[col_a], df[col_b])
+                    n_bootstrapped += 1
+                message = (
+                    f"'{col_a}' and '{col_b}' are strongly correlated (r={r:.3f}). "
+                    f"If both are used as features, multicollinearity may inflate variance "
+                    f"in linear models — consider dropping one or using PCA."
+                )
+                if ci is not None:
+                    lo, hi = ci
+                    message += f" (95% CI: {lo:.3f} to {hi:.3f}"
+                    if (hi - lo) >= WIDE_CI_SPAN:
+                        message += " — wide interval, treat with caution on this sample size"
+                    message += ".)"
                 insights.append({
                     "category": "correlation",
                     "severity": "high",
                     "column": f"{col_a} ↔ {col_b}",
                     "metric": f"r={r:.3f}",
-                    "message": (
-                        f"'{col_a}' and '{col_b}' are strongly correlated (r={r:.3f}). "
-                        f"If both are used as features, multicollinearity may inflate variance "
-                        f"in linear models — consider dropping one or using PCA."
-                    ),
+                    "message": message,
+                    "ci": ci,
                 })
             elif abs(r) >= CORR_MODERATE_THRESHOLD:
                 insights.append({
@@ -129,6 +218,7 @@ def _detect_correlation_insights(df: pd.DataFrame, column_types: dict[str, str])
                         f"'{col_a}' and '{col_b}' are moderately correlated (r={r:.3f}). "
                         f"Worth investigating whether one drives the other."
                     ),
+                    "ci": None,
                 })
     return insights
 
