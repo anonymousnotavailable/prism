@@ -541,14 +541,34 @@ def test_annotate_power_covers_significant_chi2_row():
     assert row["power_check"]["dof"] == row["dof"]
 
 
-def test_annotate_power_still_skips_pearson_rows():
-    # Correlation power (Fisher z) is a deliberately separate, unbuilt
-    # follow-on — see annotate_power()'s docstring.
+def test_annotate_power_covers_significant_pearson_row():
+    # _correlated_df() plants a strong, near-deterministic x~y correlation.
     df = _correlated_df()
     result = sweep_hypotheses(df, _column_types(df))
     annotated = annotate_power(result)
-    pearson_rows = [r for r in annotated["tested"] if r["test"] == "pearson"]
-    assert pearson_rows and all(r["power_check"] is None for r in pearson_rows)
+    row = next(r for r in annotated["tested"] if r["test"] == "pearson")
+    assert row["significant"] is True
+    assert row["power_check"] is not None
+    assert row["power_check"]["test"] == "pearson"
+    assert row["power_check"]["n"] == row["n"]
+
+
+def test_annotate_power_flags_underpowered_significant_pearson_row():
+    # Small n, modest planted correlation -> when significant, power should
+    # still be well under 80%.
+    rng = np.random.default_rng(11)
+    n = 15
+    x = rng.normal(size=n)
+    y = 0.5 * x + rng.normal(scale=1.0, size=n)
+    df = pd.DataFrame({"x": x, "y": y})
+    result = sweep_hypotheses(df, {"x": "numeric", "y": "numeric"})
+    annotated = annotate_power(result)
+    row = next(r for r in annotated["tested"] if r["test"] == "pearson")
+    if row["significant"]:
+        assert row["power_check"] is not None
+        assert row["power_check"]["underpowered"] is True
+    else:
+        assert row["power_check"] is None
 
 
 def test_annotate_power_handles_empty_result():
@@ -567,11 +587,11 @@ def test_annotate_power_does_not_mutate_input():
 
 
 # --- integration: full sweep -> annotate_power -> app-facing badge/prose ---
-# for all three now-covered test families in one pass, the way app.py's
+# for all four now-covered test families in one pass, the way app.py's
 # Hypothesis Sweep tab and detector_runner.run_all_detectors() actually
 # consume it end to end.
 
-def test_annotate_power_end_to_end_covers_all_three_families_with_readable_prose():
+def test_annotate_power_end_to_end_covers_all_four_families_with_readable_prose():
     from modules.experiment_design import interpret_power_check
 
     df = _correlated_df()
@@ -580,14 +600,13 @@ def test_annotate_power_end_to_end_covers_all_three_families_with_readable_prose
 
     significant = [r for r in annotated["tested"] if r["significant"]]
     by_test = {r["test"]: r for r in significant}
-    assert "anova" in by_test and "chi2" in by_test  # both are planted signals in _correlated_df()
+    # all four families have planted signals in _correlated_df(): x~y
+    # (pearson), z~group (anova), group~tier (chi2).
+    assert "anova" in by_test and "chi2" in by_test and "pearson" in by_test
 
     seen_families = set()
     for row in significant:
         check = row.get("power_check")
-        if row["test"] == "pearson":
-            assert check is None
-            continue
         assert check is not None, f"expected a power_check for a significant {row['test']} row"
         assert check["test"] == row["test"]
         text = interpret_power_check(check)

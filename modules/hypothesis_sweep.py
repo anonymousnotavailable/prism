@@ -142,9 +142,12 @@ def sweep_hypotheses(
 
 def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT_POWER) -> dict:
     """Attach a post-hoc power check to every significant row in a sweep
-    result, across all three test families that have a well-defined power
-    formula: t-test (`experiment_design.power_check_ttest`), chi-square
-    (`power_check_chi2`), and one-way ANOVA (`power_check_anova`).
+    result, across all four test families `sweep_hypotheses()` runs:
+    t-test (`experiment_design.power_check_ttest`), chi-square
+    (`power_check_chi2`), one-way ANOVA (`power_check_anova`), and Pearson
+    correlation (`power_check_correlation`, via a Fisher z-transform —
+    see `experiment_design`'s module docstring for why that's a genuinely
+    different distribution family than the other three).
 
     A significant result only tells you *this* sample showed an effect —
     it says nothing about whether the test had enough power to reliably
@@ -152,12 +155,6 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
     group is far less trustworthy than the same p-value from 800, and this
     surfaces that distinction automatically rather than making the user
     reason about sample size themselves.
-
-    Pearson (correlation) rows get `power_check: None` — correlation power
-    needs a Fisher z-transform noncentral distribution family, a genuinely
-    different approach than the noncentral-chi-square family the other
-    three share, and is left as a real, separate follow-on rather than
-    approximated here (see `experiment_design`'s module docstring).
 
     Non-mutating: returns a new dict with a new `tested` list; the input
     `result` (and its row dicts) are left untouched.
@@ -206,6 +203,14 @@ def annotate_power(result: dict, target_power: float = experiment_design.DEFAULT
             cohens_w = experiment_design.cohens_w_from_chi2(row["statistic"], row["n"])
             row["power_check"] = experiment_design.power_check_chi2(
                 cohens_w, row["n"], dof, alpha=alpha, target_power=target_power
+            )
+        elif (
+            test == "pearson"
+            and row.get("significant")
+            and row.get("n", 0) >= 4
+        ):
+            row["power_check"] = experiment_design.power_check_correlation(
+                row["effect_size"], row["n"], alpha=alpha, target_power=target_power
             )
         else:
             row["power_check"] = None

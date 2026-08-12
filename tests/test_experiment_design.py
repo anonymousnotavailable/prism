@@ -6,15 +6,20 @@ from __future__ import annotations
 from modules.experiment_design import (
     achieved_power_anova,
     achieved_power_chi2,
+    achieved_power_correlation,
     achieved_power_ttest,
     cohens_f_from_eta_sq,
     cohens_w_from_chi2,
+    fisher_z,
     interpret_power_check,
+    interpret_sample_size_correlation,
     interpret_sample_size_means,
     interpret_sample_size_proportions,
     power_check_anova,
     power_check_chi2,
+    power_check_correlation,
     power_check_ttest,
+    sample_size_correlation,
     sample_size_two_means,
     sample_size_two_proportions,
 )
@@ -325,3 +330,143 @@ def test_interpret_power_check_still_handles_ttest_dict_without_test_key():
     check.pop("test", None)
     text = interpret_power_check(check)
     assert "underpowered" in text.lower()
+
+
+# --- fisher_z / achieved_power_correlation / power_check_correlation -------
+# Reference values are Cohen's (1988) canonical correlation power tables,
+# reproduced by G*Power's "Correlation: bivariate normal model" and R's
+# pwr.r.test: r=0.3 (medium effect), alpha=.05, power=.8 needs n~84-85 —
+# n=((z_alpha/2 + z_beta)/atanh(0.3))^2 + 3 ~= 84.92, textbook tables round
+# this up to 85.
+
+def test_fisher_z_matches_definition():
+    # z = arctanh(r) = 0.5*ln((1+r)/(1-r))
+    assert abs(fisher_z(0.3) - 0.30952) < 1e-4
+    assert fisher_z(0.0) == 0.0
+
+
+def test_fisher_z_handles_perfect_correlation_without_raising():
+    # r=+-1 would blow up arctanh to +-infinity; must clamp to a large-but-
+    # finite value instead.
+    z = fisher_z(1.0)
+    assert z > 0 and z < float("inf")
+    z_neg = fisher_z(-1.0)
+    assert z_neg < 0 and z_neg > float("-inf")
+
+
+def test_achieved_power_correlation_matches_known_reference():
+    power = achieved_power_correlation(r=0.3, n=85)
+    assert 0.75 <= power <= 0.85
+
+
+def test_achieved_power_correlation_increases_with_sample_size():
+    small_n = achieved_power_correlation(r=0.2, n=30)
+    large_n = achieved_power_correlation(r=0.2, n=500)
+    assert large_n > small_n
+
+
+def test_achieved_power_correlation_zero_effect_equals_alpha():
+    # No true correlation -> power to (falsely) reject is just alpha.
+    power = achieved_power_correlation(r=0.0, n=100, alpha=0.05)
+    assert 0.03 <= power <= 0.07
+
+
+def test_achieved_power_correlation_is_symmetric_in_sign():
+    assert achieved_power_correlation(r=0.4, n=50) == achieved_power_correlation(r=-0.4, n=50)
+
+
+def test_achieved_power_correlation_handles_degenerate_inputs_without_raising():
+    assert achieved_power_correlation(r=0.3, n=0) == 0.0
+    assert achieved_power_correlation(r=0.3, n=3) == 0.0  # n-3 must be > 0
+    assert achieved_power_correlation(r=1.0, n=100) == 1.0
+
+
+def test_power_check_correlation_flags_underpowered_result():
+    check = power_check_correlation(r=0.2, n=30)
+    assert check["underpowered"] is True
+    assert check["achieved_power"] < 0.8
+    assert check["recommended_n"] > 30
+    assert check["test"] == "pearson"
+
+
+def test_power_check_correlation_flags_well_powered_result():
+    check = power_check_correlation(r=0.5, n=200)
+    assert check["underpowered"] is False
+    assert check["achieved_power"] > 0.95
+
+
+def test_power_check_correlation_handles_zero_effect_size_without_raising():
+    check = power_check_correlation(r=0.0, n=50)
+    assert check.get("error") is None
+    assert check["underpowered"] is True
+    assert check["recommended_n"] is None
+
+
+def test_power_check_correlation_recommended_n_actually_reaches_target():
+    # The recommended n, plugged back in, should really clear target_power
+    # (not just the closed-form approximation before rounding).
+    check = power_check_correlation(r=0.15, n=40, target_power=0.8)
+    assert check["recommended_n"] is not None
+    achieved_at_recommended = achieved_power_correlation(r=0.15, n=check["recommended_n"])
+    assert achieved_at_recommended >= 0.8
+
+
+def test_interpret_power_check_dispatches_to_pearson_text():
+    check = power_check_correlation(r=0.15, n=30)
+    text = interpret_power_check(check)
+    assert "underpowered" in text.lower()
+    assert "%" in text
+    assert "correlation" in text.lower()
+
+
+def test_interpret_power_check_dispatches_to_pearson_well_powered_text():
+    check = power_check_correlation(r=0.5, n=200)
+    text = interpret_power_check(check)
+    assert "well-powered" in text.lower()
+
+
+# --- sample_size_correlation / interpret_sample_size_correlation -----------
+
+def test_sample_size_correlation_matches_known_medium_effect():
+    result = sample_size_correlation(r=0.3)
+    assert result.get("error") is None
+    assert 80 <= result["n"] <= 90
+
+
+def test_sample_size_correlation_smaller_effect_needs_more_n():
+    small_effect = sample_size_correlation(r=0.1)
+    large_effect = sample_size_correlation(r=0.5)
+    assert small_effect["n"] > large_effect["n"]
+
+
+def test_sample_size_correlation_higher_power_needs_more_n():
+    low_power = sample_size_correlation(r=0.3, power=0.8)
+    high_power = sample_size_correlation(r=0.3, power=0.95)
+    assert high_power["n"] > low_power["n"]
+
+
+def test_sample_size_correlation_sign_does_not_matter():
+    assert sample_size_correlation(r=0.3)["n"] == sample_size_correlation(r=-0.3)["n"]
+
+
+def test_sample_size_correlation_rejects_zero_r():
+    result = sample_size_correlation(r=0.0)
+    assert result.get("error")
+
+
+def test_sample_size_correlation_rejects_out_of_range_r():
+    for bad_r in (1.0, -1.0, 1.5, -2.0):
+        result = sample_size_correlation(r=bad_r)
+        assert result.get("error")
+
+
+def test_interpret_sample_size_correlation_text():
+    result = sample_size_correlation(r=0.3)
+    text = interpret_sample_size_correlation(result)
+    assert "paired observations" in text
+    assert str(result["n"]) in text.replace(",", "")
+
+
+def test_interpret_sample_size_correlation_error_passthrough():
+    result = sample_size_correlation(r=0.0)
+    assert interpret_sample_size_correlation(result) == result["error"]

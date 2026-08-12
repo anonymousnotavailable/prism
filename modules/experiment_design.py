@@ -49,10 +49,19 @@ runs, not just t-tests:
   wildly unbalanced ANOVA's achieved power is an approximation, same
   caveat every commercial ANOVA power calculator carries.
 
-Correlation (Pearson) power is deliberately **not** covered — it needs a
-Fisher z-transform noncentral distribution family, a genuinely different
-approach than the noncentral-chi-square family the other three share, and
-is left as a real, separate follow-on rather than approximated here.
+- **Correlation (Pearson)** (`achieved_power_correlation`/
+  `power_check_correlation`), via the exact Fisher z-transform method —
+  the same technique R's `pwr.r.test` and G*Power's "Correlation:
+  bivariate normal model" use, and a genuinely different noncentral
+  distribution family than the chi-square family the other three share
+  (Fisher's z of the sample r is approximately Normal under the null,
+  not noncentral chi-square). `fisher_z(r) = arctanh(r)`; achieved power
+  is evaluated from the noncentrality that r's Fisher z implies at a
+  given n, no effect-size back-conversion ambiguity to resolve (unlike
+  chi-square/ANOVA, r *is* the standardized effect size already). Also
+  gets a planning-side `sample_size_correlation()`, matching
+  `sample_size_two_proportions()`/`sample_size_two_means()`'s "before an
+  experiment" role for the other two.
 """
 
 from __future__ import annotations
@@ -60,6 +69,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
+from scipy import stats as scipy_stats
 from statsmodels.stats.power import NormalIndPower, TTestIndPower
 from statsmodels.stats.proportion import proportion_effectsize
 
@@ -413,6 +423,146 @@ def power_check_anova(
     }
 
 
+def fisher_z(r: float) -> float:
+    """Fisher z-transform of a Pearson correlation: z = arctanh(r) =
+    0.5*ln((1+r)/(1-r)). Clamped to r in [-0.999999, 0.999999] first so a
+    (near-)perfect +-1 correlation doesn't blow up to +-infinity.
+    """
+    r = min(max(r, -0.999999), 0.999999)
+    return math.atanh(r)
+
+
+def achieved_power_correlation(r: float, n: int, alpha: float = DEFAULT_ALPHA) -> float:
+    """Post-hoc power of a Pearson correlation significance test that
+    already ran, given the observed r and sample size n, via the exact
+    Fisher z-transform method (same technique R's `pwr.r.test` and
+    G*Power's "Correlation: bivariate normal model" use, and Cohen's
+    (1988) canonical correlation power tables).
+
+    Under H0 (rho=0), Fisher's z of the sample r is approximately
+    Normal(0, 1/sqrt(n-3)) — a variance that doesn't depend on the true
+    correlation, unlike r itself. Achieved power is the probability that
+    |z| clears the two-sided critical value, evaluated at the
+    noncentrality the *observed* r implies for this n:
+    power = 1 - Phi(z_crit - ncp) + Phi(-z_crit - ncp), where
+    ncp = fisher_z(r) * sqrt(n - 3) and z_crit = Phi^-1(1 - alpha/2).
+
+    Needs at least 4 paired observations (n-3 > 0 for the standard error
+    to be defined) — returns 0.0 below that, same "no reliable power
+    estimate from too little data" convention as achieved_power_ttest/
+    chi2/anova.
+    """
+    if n < 4:
+        return 0.0
+    z_r = fisher_z(r)
+    se = 1.0 / math.sqrt(n - 3)
+    ncp = z_r / se
+    z_crit = scipy_stats.norm.ppf(1 - alpha / 2)
+    power = (
+        1 - scipy_stats.norm.cdf(z_crit - ncp) + scipy_stats.norm.cdf(-z_crit - ncp)
+    )
+    return float(min(max(power, 0.0), 1.0))
+
+
+def _n_needed_for_correlation_power(
+    r: float, alpha: float, target_power: float
+) -> Optional[int]:
+    """Sample size needed for a Pearson correlation of magnitude r to reach
+    `target_power`, starting from the standard closed-form Fisher-z
+    approximation (Cohen 1988; the same formula R's `pwr.r.test` uses):
+    n ~= ((z_alpha/2 + z_beta) / fisher_z(r))^2 + 3 — then nudged upward
+    (never down) until plugging the rounded n back into
+    `achieved_power_correlation` actually clears `target_power`, since the
+    closed form drops the exact formula's small second (opposite-tail)
+    term. Returns None when no finite n reaches the target (r too close to
+    zero, or the closed-form estimate exceeds `_MAX_SOLVABLE_N`).
+    """
+    z_r = fisher_z(r)
+    if abs(z_r) < 1e-9:
+        return None
+    z_alpha = scipy_stats.norm.ppf(1 - alpha / 2)
+    z_beta = scipy_stats.norm.ppf(target_power)
+    n_est = ((z_alpha + z_beta) / abs(z_r)) ** 2 + 3
+    if not math.isfinite(n_est) or n_est > _MAX_SOLVABLE_N:
+        return None
+
+    n = max(4, _round_up(n_est))
+    guard = 0
+    while (
+        achieved_power_correlation(r, n, alpha=alpha) < target_power
+        and n < _MAX_SOLVABLE_N
+        and guard < 50
+    ):
+        n += 1
+        guard += 1
+    return n
+
+
+def power_check_correlation(
+    r: float,
+    n: int,
+    alpha: float = DEFAULT_ALPHA,
+    target_power: float = DEFAULT_POWER,
+) -> dict:
+    """Full post-hoc power verdict for a Pearson correlation result, same
+    contract as `power_check_ttest`/`power_check_chi2`/`power_check_anova`
+    (achieved power, pass/fail against `target_power`, and a follow-up
+    sample size when underpowered) — keyed on total paired-observation
+    count `n`, since correlation has no per-group sizes.
+
+    Returns {test: "pearson", achieved_power, target_power, alpha, n, r,
+    underpowered, recommended_n}. When r is (near) zero, no finite sample
+    size reaches target_power — `recommended_n` is `None` in that case
+    rather than a misleadingly huge or infinite number.
+    """
+    achieved = achieved_power_correlation(r, n, alpha=alpha)
+    underpowered = achieved < target_power
+
+    recommended_n: Optional[int] = None
+    if abs(fisher_z(r)) > 1e-9:
+        recommended_n = _n_needed_for_correlation_power(r, alpha, target_power)
+
+    return {
+        "test": "pearson",
+        "achieved_power": achieved,
+        "target_power": target_power,
+        "alpha": alpha,
+        "n": n,
+        "r": r,
+        "underpowered": underpowered,
+        "recommended_n": recommended_n,
+    }
+
+
+def sample_size_correlation(
+    r: float,
+    alpha: float = DEFAULT_ALPHA,
+    power: float = DEFAULT_POWER,
+) -> dict:
+    """Required sample size to reliably detect a Pearson correlation of
+    magnitude `r` — the "before an experiment" counterpart to
+    `power_check_correlation`, e.g. "how many paired observations do I
+    need to reliably detect a correlation this strong?".
+
+    Returns {r, alpha, power, n} or {"error": "..."} on invalid input.
+    `r` must be strictly between -1 and 1 and non-zero: a zero correlation
+    has no finite required sample size, and +-1 needs no sample at all
+    (not a meaningful planning question).
+    """
+    if not (-1.0 < r < 1.0):
+        return {"error": "r must be strictly between -1 and 1."}
+    if r == 0:
+        return {
+            "error": "r must be non-zero — a zero correlation has no finite required sample size."
+        }
+
+    n = _n_needed_for_correlation_power(r, alpha, power)
+    if n is None:
+        return {"error": "Could not solve for a finite sample size for this r."}
+
+    return {"r": r, "alpha": alpha, "power": power, "n": n}
+
+
 def _interpret_power_check_ttest(check: dict) -> str:
     pct = f"{check['achieved_power']:.0%}"
     n1, n2 = check["n1"], check["n2"]
@@ -489,15 +639,41 @@ def _interpret_power_check_anova(check: dict) -> str:
     )
 
 
+def _interpret_power_check_pearson(check: dict) -> str:
+    pct = f"{check['achieved_power']:.0%}"
+    n = check["n"]
+
+    if not check["underpowered"]:
+        return (
+            f"✅ Well-powered: with {n:,} paired observations, this correlation test had "
+            f"{pct} power to detect a relationship this strong (target: "
+            f"{check['target_power']:.0%})."
+        )
+
+    if check["recommended_n"] is None:
+        return (
+            f"⚠️ Underpowered: with {n:,} paired observations, this correlation test had "
+            f"only {pct} power to detect a relationship this strong — the correlation is "
+            "too weak for any finite sample size to reliably detect."
+        )
+
+    return (
+        f"⚠️ Underpowered: with {n:,} paired observations, this correlation test had only "
+        f"{pct} power to detect a relationship this strong — a follow-up should collect "
+        f"~{check['recommended_n']:,} paired observations to reach "
+        f"{check['target_power']:.0%} power."
+    )
+
+
 def interpret_power_check(check: dict) -> str:
     """Plain-English verdict for a `power_check_ttest()`/`power_check_chi2()`/
-    `power_check_anova()` result, dispatching on the check's own `"test"`
-    key (defaults to `"ttest"` for any caller built before that key
-    existed, preserving the original contract), e.g. "⚠️ Underpowered: with
-    15 samples per group, this test had only 18% power to detect an effect
-    this size — a follow-up would need ~176 samples per group for 80%
-    power." Never raises on a missing recommendation (zero/near-zero
-    effect size).
+    `power_check_anova()`/`power_check_correlation()` result, dispatching
+    on the check's own `"test"` key (defaults to `"ttest"` for any caller
+    built before that key existed, preserving the original contract), e.g.
+    "⚠️ Underpowered: with 15 samples per group, this test had only 18%
+    power to detect an effect this size — a follow-up would need ~176
+    samples per group for 80% power." Never raises on a missing
+    recommendation (zero/near-zero effect size).
     """
     if check.get("error"):
         return check["error"]
@@ -507,6 +683,8 @@ def interpret_power_check(check: dict) -> str:
         return _interpret_power_check_chi2(check)
     if test == "anova":
         return _interpret_power_check_anova(check)
+    if test == "pearson":
+        return _interpret_power_check_pearson(check)
     return _interpret_power_check_ttest(check)
 
 
@@ -531,4 +709,15 @@ def interpret_sample_size_means(result: dict) -> str:
         f"{result['cohens_d']:.2f}) with {result['power']:.0%} power at "
         f"α={result['alpha']}, you need **~{result['n_per_group']:,} samples per "
         f"group** (~{result['total_n']:,} total)."
+    )
+
+
+def interpret_sample_size_correlation(result: dict) -> str:
+    """Plain-English readout of a `sample_size_correlation()` result."""
+    if result.get("error"):
+        return result["error"]
+    return (
+        f"To reliably detect a correlation of r={result['r']:.2f} with "
+        f"{result['power']:.0%} power at α={result['alpha']}, you need "
+        f"**~{result['n']:,} paired observations**."
     )

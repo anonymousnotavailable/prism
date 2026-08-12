@@ -4029,9 +4029,8 @@ elif st.session_state.active_section == "Stats Lab":
             with st.spinner(ui.get_loading_message()):
                 sweep_result_new = hypothesis_sweep.sweep_hypotheses(df, column_types)
                 # Post-hoc power check on every significant row (t-test,
-                # chi-square, ANOVA) — no extra Gemini call, pure statsmodels.
-                # See annotate_power()'s docstring for why Pearson rows are
-                # deliberately excluded.
+                # chi-square, ANOVA, Pearson correlation) — no extra
+                # Gemini call, pure statsmodels/scipy.
                 sweep_result_new = hypothesis_sweep.annotate_power(sweep_result_new)
                 st.session_state.hypothesis_sweep_result = sweep_result_new
                 # Agentic follow-up, same spinner: does the sweep's own strongest
@@ -4096,10 +4095,10 @@ elif st.session_state.active_section == "Stats Lab":
 
                 # Power check detail — a "Power" badge in the table above is
                 # easy to skim past; underpowered findings (t-test, chi-square,
-                # or ANOVA — see annotate_power()) get a plain-English callout
-                # with a concrete follow-up sample size, same "don't just flag
-                # it, tell them what to do next" pattern as the confounder
-                # cross-check below.
+                # ANOVA, or Pearson correlation — see annotate_power()) get a
+                # plain-English callout with a concrete follow-up sample size,
+                # same "don't just flag it, tell them what to do next" pattern
+                # as the confounder cross-check below.
                 underpowered_rows = [
                     r for r in significant_rows
                     if r.get("power_check") and r["power_check"]["underpowered"]

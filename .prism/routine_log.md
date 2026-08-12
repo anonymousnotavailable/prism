@@ -1882,3 +1882,59 @@ for Run 28: correlation/Fisher-z power (closes the power-check set fully,
 small/self-contained), or a fresh agentic-AI-analysis angle from a
 differently-sourced Phase 2 research pass (this run's and Run 26's
 competitor-tooling searches both came up empty for new gaps).
+
+---
+
+## Run 28 — 2026-08-12 — selection log (written before code merge)
+
+Fresh reset to `origin/main` at Run 27's tip (`a127600`) — no drift.
+Baseline `pytest -q`: 528 passed (matches Run 27's reported tip exactly),
+after the same `pip install --force-reinstall cffi cryptography` fix
+5+ prior runs have logged for this sandbox's cold-start `_cffi_backend`
+issue. Audit (`.prism/audit_2026-08-12-run28.md`): no real TODO/FIXME
+debt, `.gitignore` still covers `.env`, no secrets present — codebase
+remains clean, matching Run 27's own finding.
+
+**Phase 2 research** (`.prism/research_2026-08-12-run28.md`, 3 searches):
+evaluated both of Run 27's logged options with fresh evidence. Industry-
+practice search reconfirms the Fisher z-transform correlation-power
+technique for the third consecutive research pass — closed-form, well-
+documented, low implementation risk. Two community-discussion searches
+(Hacker News, then a different subreddit — a genuinely new source class
+per Run 27's specific suggestion) both came up empty for a concrete new
+agentic-AI-analysis gap, same outcome Run 26/27's competitor-tooling
+searches already hit.
+
+**Selected: correlation (Pearson) post-hoc power via Fisher z-transform**,
+extending `modules/experiment_design.py` / `hypothesis_sweep.
+annotate_power()` to the fourth and final test family Hypothesis Sweep
+runs. Explicitly sanctioned by this run's own instructions ("pick ONE
+feature that satisfies the required agentic-AI-analysis theme OR is the
+correlation-power backlog closer") — chosen over forcing a fresh agentic
+feature this run because the community-discussion research produced no
+real alternative, while correlation power has three consecutive runs'
+worth of confirming evidence, a low-risk closed-form path, and directly
+closes the power-check backlog set Runs 25/26/27 built up to.
+
+**Design, resolving what Runs 25/26/27 correctly deferred:** correlation
+needs a genuinely different noncentral-distribution family (Fisher z, not
+noncentral chi-square) — implemented via the exact two-term normal-CDF
+power formula (same technique R's `pwr.r.test`/G*Power's "Correlation:
+bivariate normal model" use): under H0, Fisher's z of the sample r is
+approximately Normal(0, 1/sqrt(n-3)); achieved power is evaluated at the
+noncentrality implied by the observed r. `power_check_correlation()`
+follows the same `{test, achieved_power, target_power, alpha,
+underpowered, recommended_n}` contract as the other three, and
+`interpret_power_check()`'s existing dispatcher gains one more branch
+(`"pearson"`) — `app.py`'s call site needs no logic changes, only the
+same two-label-tweak pattern Run 27 used. `hypothesis_sweep.
+annotate_power()`'s pearson branch needs no new row-assembly wiring
+(unlike ttest's `group_sizes`/chi2's `dof`) since a pearson row's
+`effect_size` (r) and `n` were already present in every row. Also adding
+the planning-side `sample_size_correlation()`, symmetric with the
+existing `sample_size_two_proportions()`/`sample_size_two_means()` —
+completes the module's stated "two audiences, one set of formulas"
+pattern for all four test families rather than leaving correlation
+planning asymmetric with its own post-hoc check.
+
+Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).

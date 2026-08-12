@@ -2,6 +2,47 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 28)
+
+### Added
+- **Correlation (Pearson) post-hoc power via Fisher z-transform**
+  (`modules/experiment_design.py`, `modules/hypothesis_sweep.py`) —
+  extends `hypothesis_sweep.annotate_power()` (Run 25/27) to the fourth
+  and final test family Hypothesis Sweep runs, closing the power-check
+  backlog set fully (t-test, chi-square, ANOVA, and now Pearson
+  correlation). New `experiment_design.fisher_z()` (`arctanh(r)`,
+  clamped to avoid blowing up at r=±1) and `achieved_power_correlation()`
+  implement the exact two-term normal-CDF power formula R's `pwr.r.test`
+  and G*Power's "Correlation: bivariate normal model" use — Fisher's z of
+  the sample r is approximately Normal(0, 1/sqrt(n-3)) under the null,
+  and achieved power is evaluated at the noncentrality the observed r
+  implies. `power_check_correlation()` follows the same `{test,
+  achieved_power, target_power, alpha, underpowered, recommended_n}`
+  contract as the other three families; `_n_needed_for_correlation_power()`
+  starts from the standard closed-form approximation (Cohen 1988) and
+  nudges the recommended n upward until it actually clears the target
+  power when plugged back in, rather than trusting the approximation's
+  rounding blindly. `interpret_power_check()`'s existing dispatcher
+  gained one more branch (`"pearson"`) — `app.py`'s call site needed no
+  logic changes, only two label-text tweaks (same pattern as Run 27).
+  Also added the planning-side `sample_size_correlation()` +
+  `interpret_sample_size_correlation()`, symmetric with the existing
+  `sample_size_two_proportions()`/`sample_size_two_means()`, completing
+  the module's "two audiences, one set of formulas" pattern for all four
+  test families. Both cross-checked against Cohen's (1988)/G*Power
+  canonical reference values in tests (r=0.3, α=.05 → n≈85 for 80%
+  power). Pure scipy/statsmodels, zero new Gemini calls. 22 new tests
+  (20 in `tests/test_experiment_design.py`, 2 net new in `tests/
+  test_hypothesis_sweep.py` after replacing the now-outdated "Pearson
+  rows always skip power" tests with coverage of the new branch), full
+  suite 528 → 550 green, zero regressions. Live-verified via Playwright:
+  desktop dark/light (`samples/stock_data.csv`, 6 strong Pearson
+  findings all correctly showing "✅ 100%" power) and desktop+mobile dark
+  (a small synthetic 20-row fixture with a planted r=0.53 correlation,
+  correctly flagged "⚠️ 68% ... a follow-up should collect ~26 paired
+  observations to reach 80% power" — matching a standalone reference
+  computation exactly); screenshots in `.prism/runs/2026-08-12-run28/`.
+
 ## 2026-08-12 (Run 27)
 
 ### Added
