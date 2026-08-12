@@ -2,6 +2,38 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 35)
+
+### Added
+- **Robust Regression comparison** (`modules/regression_diagnostics.py`) —
+  Huber, RANSAC, and Theil-Sen regressors (`sklearn.linear_model`, already
+  pinned, zero new dependencies) fit alongside the existing OLS diagnostics
+  fit, so a panel that could previously only *detect* a high-leverage
+  outlier or non-normal residuals now has an actual next step: per-model
+  R², a coefficient comparison table, a grouped bar chart, and a
+  plain-English verdict covering RANSAC's inlier fraction and whether any
+  coefficient's sign flips between OLS and Huber (directional instability,
+  not just noise). 12 new tests in `tests/test_robust_regression.py`.
+- **Decision threshold tuning + probability calibration** (`modules/
+  mllab.py`) — the "beyond SMOTE" levers for imbalanced binary
+  classification: `tune_decision_threshold()` sweeps 0.01-0.99 scoring
+  precision/recall/F1 and a configurable false-positive/false-negative
+  cost at each cutoff (F1-optimal and cost-optimal thresholds against the
+  default 0.5 baseline); `run_probability_calibration()` fits
+  `CalibratedClassifierCV` (isotonic or sigmoid) on a fresh clone of the
+  fitted model via its own internal cross-validation, comparing Brier
+  score and a reliability diagram before/after on the held-out test set.
+  Both are output-level fixes on an already-trained model — cheaper than
+  resampling and add no synthetic data. New panel in ML Lab directly below
+  the binary ROC/PR curves. `run_baseline_models()` now also returns
+  `y_train`. 16 new tests in `tests/test_threshold_calibration.py`.
+
+### Removed
+- **`modules/voice_input.py`** (the pre-Run-34 streamlit-mic-recorder
+  path) and the now-unused `streamlit-mic-recorder==0.0.8` dependency —
+  fully superseded by Run 34's `modules/web_speech.py`, confirmed to have
+  zero remaining call sites and zero test coverage before removal.
+
 ## 2026-08-12 (Run 34)
 
 ### Added
