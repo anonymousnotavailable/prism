@@ -556,6 +556,154 @@ def cross_check_interactions(
     return significant_fits[:top_k]
 
 
+def cross_check_categorical_interactions(
+    df: pd.DataFrame, column_types: dict[str, str], result: Optional[dict], top_k: int = 3
+) -> list[dict]:
+    """The chi-square analog of `cross_check_interactions()`: for the
+    sweep's strongest significant categorical/categorical (chi-square)
+    findings, check whether a *third* categorical column moderates the
+    strength of that association — is `cat_a` and `cat_b` more (or less)
+    associated within some levels of `other_col` than others?
+
+    `cross_check_interactions()` answers this for a numeric outcome via a
+    two-way ANOVA interaction term. There's no numeric outcome here, so the
+    equivalent tool is a log-linear (Poisson GLM) model over the full
+    `cat_a x cat_b x other_col` contingency table: fit the saturated model
+    (every two-way interaction plus the three-way `cat_a:cat_b:other_col`
+    term) against the model without that three-way term, and run a
+    likelihood-ratio test on the deviance difference. A significant result
+    means the two-way association's *shape* genuinely differs across levels
+    of `other_col`, not just an additive shift in cell counts.
+
+    Candidate "other" columns are every remaining categorical column with
+    2-10 distinct levels (same cardinality cap `cross_check_interactions()`
+    uses), skipping any candidate whose full `cat_a x cat_b x other_col`
+    grid averages fewer than 2 observations per cell — too sparse for a
+    stable log-linear fit. p-values across every candidate actually fit are
+    FDR-corrected together (same multiple-comparisons rationale used
+    throughout this module). Deterministic, no Gemini call. Never raises: a
+    malformed `result`, an unfittable candidate, or a statsmodels
+    convergence failure just skips that candidate.
+
+    Returns a list of {cat_a, cat_b, other_col, interaction_p,
+    interaction_p_adj, cramers_v_by_level: {other_level: float}} sorted by
+    interaction_p_adj ascending, capped to `top_k`. Empty when there's no
+    significant chi2 row, no viable third column, or nothing survives
+    correction.
+    """
+    try:
+        tested = result.get("tested") if result else None
+        if not tested:
+            return []
+        significant_chi2 = [
+            r for r in tested if r.get("significant") and r.get("test") == "chi2"
+        ]
+    except (TypeError, AttributeError, KeyError):
+        return []
+
+    if not significant_chi2:
+        return []
+
+    import numpy as np
+    import statsmodels.api as sm
+    import statsmodels.formula.api as smf
+    from statsmodels.stats.multitest import multipletests
+
+    candidates = []  # each: (cat_a, cat_b, other_col, counts_df)
+    for row in significant_chi2[:top_k]:
+        cat_a, cat_b = row["col_a"], row["col_b"]
+        other_cols = [
+            c for c, t in column_types.items()
+            if t == "categorical" and c not in (cat_a, cat_b)
+        ]
+        for other_col in other_cols:
+            try:
+                clean = df[[cat_a, cat_b, other_col]].dropna()
+                a_levels = clean[cat_a].unique()
+                b_levels = clean[cat_b].unique()
+                other_levels = clean[other_col].unique()
+                if not (2 <= len(a_levels) <= 10 and 2 <= len(b_levels) <= 10):
+                    continue
+                if not (2 <= len(other_levels) <= 10):
+                    continue
+                grid_size = len(a_levels) * len(b_levels) * len(other_levels)
+                if grid_size < 4 or len(clean) / grid_size < 2:
+                    continue
+                full_index = pd.MultiIndex.from_product(
+                    [a_levels, b_levels, other_levels], names=[cat_a, cat_b, other_col]
+                )
+                counts = (
+                    clean.groupby([cat_a, cat_b, other_col])
+                    .size()
+                    .reindex(full_index, fill_value=0)
+                    .reset_index(name="count")
+                )
+            except (TypeError, ValueError, KeyError):
+                continue
+            candidates.append((cat_a, cat_b, other_col, clean, counts))
+
+    if not candidates:
+        return []
+
+    fits = []
+    for cat_a, cat_b, other_col, clean, counts in candidates:
+        try:
+            qa, qb, qo = f"Q('{cat_a}')", f"Q('{cat_b}')", f"Q('{other_col}')"
+            full_formula = f"count ~ C({qa}) * C({qb}) * C({qo})"
+            reduced_formula = (
+                f"count ~ C({qa})*C({qb}) + C({qa})*C({qo}) + C({qb})*C({qo})"
+            )
+            full_model = smf.glm(full_formula, data=counts, family=sm.families.Poisson()).fit()
+            reduced_model = smf.glm(
+                reduced_formula, data=counts, family=sm.families.Poisson()
+            ).fit()
+            lr_stat = 2 * (full_model.llf - reduced_model.llf)
+            df_diff = full_model.df_model - reduced_model.df_model
+            if lr_stat < 0 or df_diff <= 0:
+                continue
+            p_value = float(stats_lab.stats.chi2.sf(lr_stat, df_diff))
+            if np.isnan(p_value):
+                continue
+        except Exception:
+            continue
+
+        cramers_v_by_level = {}
+        for level, sub in clean.groupby(other_col):
+            table = pd.crosstab(sub[cat_a], sub[cat_b])
+            if table.shape[0] < 2 or table.shape[1] < 2 or table.to_numpy().sum() == 0:
+                cramers_v_by_level[str(level)] = 0.0
+                continue
+            stat, _, _, _ = stats_lab.stats.chi2_contingency(table)
+            n = table.to_numpy().sum()
+            min_dim = min(table.shape) - 1
+            cramers_v_by_level[str(level)] = (
+                float(np.sqrt((stat / n) / min_dim)) if n > 0 and min_dim > 0 else 0.0
+            )
+
+        fits.append(
+            {
+                "cat_a": cat_a,
+                "cat_b": cat_b,
+                "other_col": other_col,
+                "interaction_p": p_value,
+                "cramers_v_by_level": cramers_v_by_level,
+            }
+        )
+
+    if not fits:
+        return []
+
+    p_values = [f["interaction_p"] for f in fits]
+    reject, p_adj, _, _ = multipletests(p_values, alpha=result.get("alpha", DEFAULT_ALPHA), method="fdr_bh")
+    for f, adj, sig in zip(fits, p_adj, reject):
+        f["interaction_p_adj"] = float(adj)
+        f["significant"] = bool(sig)
+
+    significant_fits = [f for f in fits if f["significant"]]
+    significant_fits.sort(key=lambda f: f["interaction_p_adj"])
+    return significant_fits[:top_k]
+
+
 def build_sweep_chart(result: dict, top_n: int = 15):
     """Horizontal bar chart of the top significant findings by |effect size|."""
     import plotly.express as px

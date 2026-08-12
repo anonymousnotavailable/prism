@@ -92,6 +92,8 @@ def run_all_detectors(
       "skipped": [{"detector": str, "reason": str}, ...],
       "sweep_result": Optional[dict],       # hypothesis_sweep.sweep_hypotheses() + annotate_power(), or None
       "confounder_check": list,             # hypothesis_sweep.cross_check_confounders() for the sweep above, [] if sweep didn't run
+      "interaction_check": list,            # hypothesis_sweep.cross_check_interactions() for the sweep above, [] if sweep didn't run
+      "categorical_interaction_check": list,  # hypothesis_sweep.cross_check_categorical_interactions() for the sweep above, [] if sweep didn't run
       "anomaly_result_df": Optional[pd.DataFrame],
       "anomaly_error": Optional[str],
     }
@@ -108,6 +110,8 @@ def run_all_detectors(
         "skipped": [],
         "sweep_result": None,
         "confounder_check": [],
+        "interaction_check": [],
+        "categorical_interaction_check": [],
         "anomaly_result_df": None,
         "anomaly_error": None,
     }
@@ -144,6 +148,16 @@ def run_all_detectors(
             result["confounder_check"] = hypothesis_sweep.cross_check_confounders(df, safe_column_types, sweep_result)
         except Exception:  # pragma: no cover - defensive, no known trigger
             result["confounder_check"] = []
+        try:
+            result["interaction_check"] = hypothesis_sweep.cross_check_interactions(df, safe_column_types, sweep_result)
+        except Exception:  # pragma: no cover - defensive, no known trigger
+            result["interaction_check"] = []
+        try:
+            result["categorical_interaction_check"] = hypothesis_sweep.cross_check_categorical_interactions(
+                df, safe_column_types, sweep_result
+            )
+        except Exception:  # pragma: no cover - defensive, no known trigger
+            result["categorical_interaction_check"] = []
 
     if already_have_anomaly:
         result["skipped"].append({"detector": "anomaly", "reason": "already run this session"})

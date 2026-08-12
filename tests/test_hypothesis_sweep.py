@@ -10,6 +10,7 @@ from modules.hypothesis_sweep import (
     DEFAULT_ALPHA,
     annotate_power,
     build_sweep_chart,
+    cross_check_categorical_interactions,
     cross_check_confounders,
     cross_check_interactions,
     fingerprint_sweep,
@@ -511,6 +512,101 @@ def test_cross_check_interactions_respects_top_k_cap():
     result = sweep_hypotheses(df, types)
     interactions = cross_check_interactions(df, types, result, top_k=1)
     assert len(interactions) <= 1
+
+
+# --- cross_check_categorical_interactions: three-way (chi2) association ---
+# The chi-square analog of cross_check_interactions: does the *association*
+# between two categorical columns itself depend on a third categorical
+# column, rather than a numeric mean depending on it? Tested via a log-
+# linear (Poisson GLM) likelihood-ratio test for the A:B:C three-way term.
+
+def _three_way_categorical_df(seed: int = 7) -> pd.DataFrame:
+    """Within region == "north", cat_a and cat_b are near-perfectly matched
+    (a1<->b1, a2<->b2). Within region == "south", cat_a and cat_b are
+    independent (uniform 50/50 regardless of cat_a). Pooling both regions
+    still leaves a real marginal association (so the plain two-way chi2 on
+    cat_a x cat_b is significant), but the *strength* of that association
+    genuinely depends on region — a three-way interaction, not just an
+    additive effect."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    n_per_cell = 70
+    for cat_a in ("a1", "a2"):
+        matched_b = "b1" if cat_a == "a1" else "b2"
+        other_b = "b2" if cat_a == "a1" else "b1"
+        # north: ~95% matched, 5% noise (avoids exact-zero-cell separation)
+        b_north = rng.choice([matched_b, other_b], size=n_per_cell, p=[0.95, 0.05])
+        rows.append(pd.DataFrame({"cat_a": cat_a, "cat_b": b_north, "region": "north"}))
+        # south: genuinely independent of cat_a
+        b_south = rng.choice(["b1", "b2"], size=n_per_cell, p=[0.5, 0.5])
+        rows.append(pd.DataFrame({"cat_a": cat_a, "cat_b": b_south, "region": "south"}))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_cross_check_categorical_interactions_flags_planted_effect_modification():
+    df = _three_way_categorical_df()
+    types = _column_types(df)
+    result = sweep_hypotheses(df, types)
+    ab = next(r for r in result["tested"] if {r["col_a"], r["col_b"]} == {"cat_a", "cat_b"})
+    assert ab["test"] == "chi2" and ab["significant"] is True  # sanity: pooled association is real too
+
+    interactions = cross_check_categorical_interactions(df, types, result)
+    assert interactions
+    hit = next(f for f in interactions if f["other_col"] == "region")
+    assert {hit["cat_a"], hit["cat_b"]} == {"cat_a", "cat_b"}
+    assert hit["significant"] is True
+    assert hit["interaction_p_adj"] < DEFAULT_ALPHA
+    assert set(hit["cramers_v_by_level"].keys()) == {"north", "south"}
+    # the planted signal: association is far stronger within north than south
+    assert hit["cramers_v_by_level"]["north"] > hit["cramers_v_by_level"]["south"]
+
+
+def test_cross_check_categorical_interactions_empty_when_no_significant_chi2_row():
+    rng = np.random.default_rng(13)
+    df = pd.DataFrame({
+        "cat_a": rng.choice(["a1", "a2"], size=120),
+        "cat_b": rng.choice(["b1", "b2"], size=120),
+        "region": rng.choice(["north", "south"], size=120),
+    })
+    result = sweep_hypotheses(df, _column_types(df))
+    assert cross_check_categorical_interactions(df, _column_types(df), result) == []
+
+
+def test_cross_check_categorical_interactions_empty_when_no_third_categorical_column():
+    df = _three_way_categorical_df()[["cat_a", "cat_b"]]
+    types = _column_types(df)
+    result = sweep_hypotheses(df, types)
+    assert cross_check_categorical_interactions(df, types, result) == []
+
+
+def test_cross_check_categorical_interactions_handles_missing_or_malformed_result_safely():
+    df = _three_way_categorical_df()
+    types = _column_types(df)
+    assert cross_check_categorical_interactions(df, types, None) == []
+    assert cross_check_categorical_interactions(df, types, {"tested": "not a list"}) == []
+
+
+def test_cross_check_categorical_interactions_respects_top_k_cap():
+    df = _three_way_categorical_df()
+    types = _column_types(df)
+    result = sweep_hypotheses(df, types)
+    interactions = cross_check_categorical_interactions(df, types, result, top_k=1)
+    assert len(interactions) <= 1
+
+
+def test_cross_check_categorical_interactions_never_raises_on_degenerate_input():
+    # A third categorical column with only 1 real level after dropna, and
+    # one with too many levels (>10) — both should just be skipped, not raise.
+    rng = np.random.default_rng(17)
+    df = pd.DataFrame({
+        "cat_a": rng.choice(["a1", "a2"], size=100),
+        "cat_b": rng.choice(["b1", "b2"], size=100),
+        "constant_col": "same",
+        "high_card_col": [f"lvl{i}" for i in range(100)],
+    })
+    result = sweep_hypotheses(df, _column_types(df))
+    # Should complete without raising regardless of whether anything's significant.
+    cross_check_categorical_interactions(df, _column_types(df), result)
 
 
 # --- group_sizes on ttest rows, and annotate_power() -----------------------

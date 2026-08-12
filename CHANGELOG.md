@@ -2,6 +2,36 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 31)
+
+### Added
+- **Association interaction check** (`modules/hypothesis_sweep.py`,
+  `cross_check_categorical_interactions()`) — the chi-square analog of Run
+  30's ANOVA interaction check: for the sweep's significant
+  categorical/categorical findings, does the *strength* of that association
+  itself depend on a third categorical column? There's no numeric outcome
+  for a two-way ANOVA to apply to here, so this fits a log-linear (Poisson
+  GLM) model over the full `cat_a x cat_b x other_col` contingency table
+  and runs a likelihood-ratio test on the three-way interaction term
+  (saturated model vs. the model with only two-way terms), FDR-corrected
+  across every candidate third column tested. New "🔗 Association
+  interaction check" panel in Stats Lab's Hypothesis Sweep, below the
+  existing ANOVA interaction panel, showing per-level Cramer's V. Closes
+  the exact follow-on Run 30 flagged and left open. 7 new tests
+  (`tests/test_hypothesis_sweep.py`).
+
+### Fixed
+- **"Run All Detectors" never computed the interaction checks** — the
+  one-click auto-run entry point (`modules/detector_runner.py`) already
+  wired the confounder cross-check in, but silently skipped both the ANOVA
+  interaction check (shipped Run 30) and the new association interaction
+  check above, so their panels could show a stale result from a previous
+  dataset instead of anything from the auto-run. Also added both to the
+  "clear all detector state on new dataset upload" reset block in
+  `app.py`, which had the same gap for the ANOVA interaction check since
+  Run 30. Found via code audit (grep of every `hypothesis_sweep_*`
+  session-state key against every place it's written), not a live repro.
+
 ## 2026-08-12 (Run 30)
 
 ### Added
