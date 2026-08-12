@@ -2,6 +2,53 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 32)
+
+### Added
+- **Structural break / changepoint detection** (`modules/forecasting.py`,
+  `detect_changepoints()`) — a new agentic-EDA question for the Forecasting
+  tab: not "what's the repeating pattern?" (STL decomposition's job) but
+  "did this metric's *level* permanently shift, and when?" Implemented as
+  a dependency-free binary segmentation algorithm (Scott & Knott, 1974 —
+  the same greedy-split idea underlying the `ruptures`/`changepoint`
+  packages' `Binseg` estimator) with a BIC-style penalty
+  (`penalty_scale * sigma^2 * ln(n)`) as the stopping rule, so it won't
+  manufacture breaks out of ordinary noise. Each candidate split is scored
+  in O(n) via prefix-sum vectorization (`sum(x^2) - sum(x)^2/n`), not
+  O(n^2), so it stays fast on large uploads. New "Structural Breaks
+  (Changepoint Detection)" panel in the Forecasting tab, below STL
+  Decomposition, reporting each break's date, before/after means, delta,
+  and percent change, plus a chart with a dashed vertical line at each
+  break. No new pip dependency, no Gemini calls. 16 new tests
+  (`tests/test_forecasting_changepoints.py`) covering a planted single
+  shift, multiple planted shifts, the `max_changepoints` cap, the
+  `min_segment_size` constraint, pure-noise (no false positives), a
+  constant series, determinism, and chart/verdict rendering.
+
+### Fixed
+- **`prepare_series()` silently zeroed out every value on a freshly
+  uploaded CSV** — the datetime column selectors on the Forecasting tab
+  list any column `data_engine.detect_column_types()` *labels* "datetime,"
+  but that's a content heuristic that never mutates the DataFrame itself;
+  a plain CSV upload's date column stays `object`/string dtype until the
+  user separately runs "Fix Column Types." `pandas.Series.asfreq()` on a
+  non-`DatetimeIndex` silently discards every value (turns the whole
+  series to `NaN`) rather than raising — so the entire Forecasting tab
+  (forecast, STL decomposition, and now the new changepoint detector) was
+  quietly dead for the common case of a dataset that hadn't been through
+  that manual coercion step first. Found via live Playwright verification
+  of the new feature (a planted +51% level shift rendered as "shifted from
+  nan to nan" with 5 spurious tiny breaks), not a pre-existing report.
+  `prepare_series()` now coerces the datetime column via `pd.to_datetime()`
+  before proceeding, with a clear error if nothing in it parses as a date.
+  2 new regression tests (`tests/test_forecasting_stl.py`).
+
+Full suite: 579 → 595 green, zero regressions. Verified live via
+Playwright: desktop (1440×900) + mobile (390×844), dark + light, all four
+showing a planted +51.0% level shift detected at the correct date, no
+clipping/overflow, correct contrast in both themes. Screenshots in
+`.prism/runs/2026-08-12-run32/`.
+
 ## 2026-08-12 (Run 31)
 
 ### Added

@@ -2146,3 +2146,90 @@ used" while also saying "don't use credits" — same contradiction every
 prior run has flagged. Ran one complete, safely verified cycle and
 stopped, per the hard guardrails, which take precedence over the
 scheduling prompt's phrasing.
+
+## Run 32 — 2026-08-12
+
+Reused prior audit/research (no TODO/FIXME markers found, codebase clean;
+the "Not built" backlog was either stale-carried PyGWalker (L-effort,
+rejected ~20 runs running) or cosmetic S-effort items with no theme fit).
+Did fresh, targeted research instead: grepped CHANGELOG/modules for
+existing agentic-EDA coverage (extremely mature after 31 runs — anomaly
+narration, hypothesis suggestion, auto-insights, orchestrator cross-checks,
+STL decomposition all already shipped) and picked the one clear remaining
+gap: `modules/forecasting.py` had trend/seasonality decomposition but no
+way to answer "did this metric's level permanently shift, and when?" —
+a distinct, evidence-backed interview-relevant question (structural break
+/ changepoint detection is a standard time-series analyst technique) that
+nothing in the app covered yet.
+
+**Shipped:** `forecasting.detect_changepoints()` — dependency-free binary
+segmentation (Scott & Knott 1974, the same idea behind `ruptures`'s Binseg)
+with a BIC-style penalty, O(n) per split via prefix-sum vectorization. New
+"Structural Breaks" panel in the Forecasting tab. Satisfies this cycle's
+mandatory agentic-AI-analysis theme (automatic anomaly/insight narration
+about *when* and *how much* a series' level moved). Not an Atlas/JARVIS
+slice this run (no voice/HUD work touched) — core analysis capability took
+the one feature slot instead, per the "core capability must still ship
+every run" rule.
+
+**Bundled fix (found via live Playwright repro while verifying the new
+feature, not a pre-existing report):** `prepare_series()` — shared by
+`run_forecast()`, `decompose_series()`, and the new `detect_changepoints()`
+— silently zeroed out every value whenever the datetime column was still
+`object`/string dtype, which is the *default* state for any freshly
+uploaded CSV (column-type detection only labels a column "datetime," it
+never coerces the DataFrame). `Series.asfreq()` on a non-DatetimeIndex
+discards all values with no error raised. This means the entire Forecasting
+tab (forecast + STL decomposition, both previously shipped and marked
+verified in Runs 7/8's reports) has likely been silently broken for the
+common case of a dataset that hasn't been run through the sidebar's "Fix
+Column Types" step first — a real, high-value catch this run's live
+verification step surfaced that no prior run's testing happened to trigger
+(their test fixtures all construct DataFrames with `pd.date_range()`
+already `datetime64` dtype, so the unit tests never exercised the
+string-dtype path). Fixed by coercing via `pd.to_datetime()` at the top of
+`prepare_series()`. 2 new regression tests confirm both the fix and a
+clean error when nothing parses.
+
+Full suite: 579 → 595 green. Verified live via Playwright against a
+planted +50-point (~+51%) level shift at day 40 of a 90-day series: all
+four combinations (desktop 1440×900 / mobile 390×844 × dark/light) show
+"1 structural break detected... 2025-02-10... shifted up from 99.8 to 151
+(+51.0%)" — the exact planted signal, correct contrast, no clipping.
+Screenshots: `.prism/runs/2026-08-12-run32/`. Merged
+`feature/changepoint-detection` into `main` (`--no-ff`), full suite
+re-verified green post-merge. Pushed `main`.
+
+**Process note on this run's local `origin/main` scare:** immediately
+after merging, `git diff origin/main main` showed a 335-file, 27K-insertion
+difference and origin/main's cached log looked like a completely different,
+older lineage (pre-dating Run 1). A fresh `git fetch origin main` resolved
+it instantly — the container's cached remote-tracking ref was simply stale
+from before this session's first fetch; the real `origin/main` matched
+local `main`'s pre-merge tip exactly (0 behind). No divergence, no data
+loss, nothing to restore. Logging this because the hard guardrails call
+for stopping and restoring on "confusing or half-broken" repo state, and
+this looked exactly like that for about two minutes before `git fetch`
+resolved it — worth remembering that a stale local ref, not real
+divergence, is the first thing to rule out before treating a big diff
+against origin/main as an incident.
+
+**Not built (backlog, unchanged):** PyGWalker chart builder's remaining
+interaction model (L-effort, architecture-adjacent, ~20 runs carried).
+Unify Gemini client construction across `ai_analyst.py`/`atlas.py`
+(S-effort cosmetic, no evidenced bug, unchanged from Run 31). Live-Gemini
+verification (15th consecutive run, structural sandbox constraint — no
+network path to the real Gemini API from this environment). New candidate
+surfaced by this run's fix: audit whether any *other* module assumes a
+"datetime"-labeled column is already `datetime64` dtype without coercing
+(datetime_intel.py, drift.py, and the Visualize tab's own local
+`pd.to_datetime` call at app.py:3037 are the most likely places to check
+next) — `prepare_series()` is fixed, but the same class of bug could exist
+elsewhere.
+
+**Process note (unchanged from every run since Run 10):** this run's
+trigger again asked for the loop to repeat "until the session is 100%
+used" while also saying "don't use credits" — same contradiction every
+prior run has flagged. Ran one complete, safely verified cycle and
+stopped, per the hard guardrails, which take precedence over the
+scheduling prompt's phrasing.
