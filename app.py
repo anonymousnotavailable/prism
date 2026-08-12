@@ -118,6 +118,8 @@ _DEFAULTS = {
     "atlas_orchestration_alert_tier2_fingerprint": None,  # separate fingerprint tracker for the tier-2 lone-confounder-paradox alert (see _maybe_announce_orchestration())
     "regression_diag_result": None,  # fit_ols() result dict for the Regression Diagnostics panel
     "regression_diag_error": None,  # error from the last diagnostics fit attempt, if any
+    "robust_regression_result": None,  # fit_robust_regressors() result dict for the Robust Regression panel
+    "robust_regression_error": None,  # error from the last robust-regression fit attempt, if any
     "manual_chart_fig": None,  # last chart built via the Visualize tab's manual mode
     "manual_chart_error": None,  # error message from the last manual-chart build attempt, if any
     "last_file_name": None,  # detects a new upload vs. a plain rerun; also used in exports
@@ -6151,6 +6153,8 @@ elif st.session_state.active_section == "ML Lab":
                 if st.button("Run Regression Diagnostics", key="regression_diag_btn", use_container_width=True):
                     with st.spinner("Fitting OLS and running the diagnostic battery…"):
                         diag_fit = regression_diagnostics.fit_ols(df, mllab_selected_features, mllab_target_col)
+                        st.session_state.robust_regression_result = None  # a new OLS fit invalidates any prior robust-regression comparison
+                        st.session_state.robust_regression_error = None
                         if "error" in diag_fit:
                             st.session_state.regression_diag_result = None
                             st.session_state.regression_diag_error = diag_fit["error"]
@@ -6200,6 +6204,41 @@ elif st.session_state.active_section == "ML Lab":
                             st.plotly_chart(vif_fig, use_container_width=True)
                         else:
                             ui.render_empty_state("📊", "VIF needs 2+ features", "Multicollinearity can't be assessed with a single feature.")
+
+                    st.markdown("##### Robust Regression")
+                    st.caption(
+                        "OLS's diagnostics above can *detect* a high-leverage outlier or non-normal residuals but "
+                        "offer no alternative fit. These three (Huber, RANSAC, Theil-Sen — all scikit-learn, no new "
+                        "dependencies) down-weight or exclude outliers instead of letting them pull the fit, so "
+                        "comparing their coefficients to OLS's shows whether that warning above actually matters "
+                        "for this dataset's conclusions."
+                    )
+                    if st.button("Compare to Robust Regressors", key="robust_regression_btn", use_container_width=True):
+                        with st.spinner("Fitting Huber, RANSAC, and Theil-Sen…"):
+                            try:
+                                st.session_state.robust_regression_result = regression_diagnostics.fit_robust_regressors(diag_fit)
+                                st.session_state.robust_regression_error = None
+                            except Exception as e:
+                                st.session_state.robust_regression_result = None
+                                st.session_state.robust_regression_error = str(e)
+
+                    if st.session_state.robust_regression_error:
+                        st.error(st.session_state.robust_regression_error)
+                    elif st.session_state.robust_regression_result is not None:
+                        robust_result = st.session_state.robust_regression_result
+
+                        robust_metric_cols = st.columns(len(robust_result["r_squared"]))
+                        for metric_col, model_name in zip(robust_metric_cols, robust_result["r_squared"]):
+                            with metric_col:
+                                st.metric(f"{model_name} R²", f"{robust_result['r_squared'][model_name]:.3f}")
+
+                        with st.expander("Coefficient Comparison Table", expanded=False):
+                            st.dataframe(robust_result["coefficients"], use_container_width=True)
+
+                        for verdict_line in regression_diagnostics.robust_regression_verdict(robust_result):
+                            st.markdown(f"- {verdict_line}")
+
+                        st.plotly_chart(regression_diagnostics.build_robust_regression_chart(robust_result), use_container_width=True)
 
                 st.divider()
                 st.markdown("#### Prediction Intervals (Conformal Prediction)")

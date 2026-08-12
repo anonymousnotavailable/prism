@@ -2568,3 +2568,59 @@ documented as an automation limitation, not a product defect, since the same the
 code path was already confirmed correct on desktop and is provably viewport-independent.
 
 Full reasoning, screenshots, and Run 35 recommendation in `RUN_REPORT_2026-08-11-run34.md`.
+
+## Run 35 — 2026-08-12 — selection log
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `b0989ac` (Run 34's tip). 904 tests green
+before any changes, matching Run 34's final count exactly.
+
+**Phase 1 audit:** confirmed Run 34's `modules/voice_input.py` (superseded by `web_speech.py`)
+is fully dead — zero call sites in `app.py` or any module, zero test coverage. Removed it plus
+the now-unused `streamlit-mic-recorder==0.0.8` pip dependency, fixed README's stale module-tree
+entry, shipped on `chore/remove-voice-input-dead-code` merged `--no-ff` before feature work
+(904 tests green after, live smoke test HTTP 200 clean). Also discovered via grep, correcting two
+of the routine brief's suggested research angles before the sweep even started: `shap==0.49.1` is
+already pinned AND fully wired (`modules/mllab.py::explain_with_shap`) — model explainability is
+NOT a gap — and feature importance already has a 3-way consensus ranking (mutual info / L1 / RFE)
+via `run_feature_selection()`. Real Playwright pass (desktop 1440x960 + mobile-PWA 390x844, dark
+theme, `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` per Run 34's confirmed-working
+recipe) against the landing page and a loaded sample dataset found zero console/page errors and
+no new UI bugs. Full detail in `.prism/audit_2026-08-12-run35.md`.
+
+**Phase 2 research:** fresh WebSearch sweep confirmed the brief's own hunch about "imbalanced-
+learning beyond SMOTE" — SMOTE is genuinely the only lever offered today (`mllab.py`), with zero
+threshold tuning or probability calibration anywhere in the repo, and 2026 empirical results show
+decision-threshold tuning alone matches/beats SMOTE on F1 while adding no synthetic noise. Also
+confirmed outlier-robust regression (Huber/RANSAC/Theil-Sen) is a genuine zero-hit gap:
+`modules/regression_diagnostics.py` has OLS diagnostics (VIF, residual plots) but no alternative
+fit when those diagnostics flag a high-leverage outlier — same "diagnose but no next step" dead-
+end shape Run 34 found and closed for `normality_warnings()`. Ruled out quantile regression
+(overlaps existing conformal-prediction territory, weaker differentiation), WoE/target encoding
+(needs a new pip dependency, `feature-engine`, not pinned), data lineage/versioning (architecture-
+rewrite territory — no version-history concept exists in this session-scoped single-dataset app,
+explicitly out of scope per this run's own no-rewrites guardrail), and new agentic-EDA/multi-agent
+patterns (vague, Atlas-adjacent, and Atlas already substantively touched last run). Full ranked
+table in `.prism/research_2026-08-12-run35.md`.
+
+**Selected: (1) Robust Regression** (`modules/regression_diagnostics.py` extended) —
+`HuberRegressor`, `RANSACRegressor`, `TheilSenRegressor` (all `sklearn.linear_model`, already
+pinned at scikit-learn 1.6.1, zero new deps) fit alongside the existing OLS fit and compared via
+coefficient/R²/RMSE deltas, surfaced specifically when the existing diagnostics already flag
+high-leverage points or heavy-tailed residuals — turning a diagnose-only panel into one with an
+actual next step. **(2) Threshold Tuning + Probability Calibration** (`modules/mllab.py`
+extended) — optimal decision threshold via the PR curve already computed in
+`compute_roc_pr_curves()` (F1-maximizing by default, cost-ratio-adjustable), plus
+`CalibratedClassifierCV`/`calibration_curve` reliability diagram, offered as the next step after
+`check_class_imbalance()`'s warning alongside the existing SMOTE button rather than replacing it.
+
+**Why these over alternatives:** both zero new pip dependencies, M effort, low risk, non-Atlas
+(Atlas substantively touched last run per Run 34, and neither pick has Atlas involvement anyway),
+both confirmed as genuinely open by direct grep of the actual module files (not inherited
+assumption from a prior run's notes), and both close a real diagnose-without-a-next-step dead end
+matching the pattern Run 34 identified and closed for `normality_warnings()` — same shape,
+different modules.
+
+Plan: branch `feature/robust-regression` and `feature/threshold-calibration` off
+`claude/adoring-meitner-7xxgfq`, tests first, implement, full suite green at every stage, merge
+both `--no-ff` sequentially (no expected overlap — one lives in `regression_diagnostics.py`, the
+other in `mllab.py`), push.

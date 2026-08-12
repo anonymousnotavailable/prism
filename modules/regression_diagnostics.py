@@ -256,6 +256,166 @@ def plot_scale_location(diagnostics: dict) -> go.Figure:
     return fig
 
 
+def fit_robust_regressors(fit_result: dict) -> dict:
+    """Fit Huber, RANSAC, and Theil-Sen regressors on the same features/
+    target as the OLS fit in `fit_result`, for comparison against OLS's
+    coefficients when the diagnostics battery above flags a high-leverage
+    outlier or non-normal residuals — OLS's diagnostics can only *detect*
+    that problem, not offer an alternative fit. All three are in the
+    already-pinned `sklearn.linear_model` (scikit-learn 1.6.1) — zero new
+    dependencies.
+
+    - Huber: minimizes a loss that's quadratic for small residuals and
+      linear beyond a threshold (`epsilon`) — down-weights outliers rather
+      than ignoring them, fast, deterministic.
+    - RANSAC: repeatedly fits on random minimal subsets and keeps the
+      consensus set of "inliers" — the most aggressive of the three, best
+      when a *minority* of points are clearly wrong rather than the whole
+      distribution being heavy-tailed. `inlier_mask_` from its winning fit
+      is surfaced as `ransac_inlier_fraction`.
+    - Theil-Sen: median of pairwise slopes — highest breakdown point
+      (tolerates up to ~29% outliers) but the most expensive; capped via
+      `max_subpopulation` so runtime stays bounded on larger datasets.
+
+    Any individual model that fails to fit (e.g. RANSAC can't find a
+    consensus set on pathological data) is recorded in `errors` rather
+    than aborting the whole comparison — the other models' results still
+    render.
+
+    Returns {"coefficients": DataFrame indexed by "const" + feature names,
+    one column per model that fit successfully (always includes "OLS"),
+    "r_squared": {model: r2}, "rmse": {model: rmse},
+    "ransac_inlier_fraction": float in [0, 1] or None if RANSAC failed,
+    "errors": {model: error string}, "feature_names": list[str]}.
+    """
+    from sklearn.linear_model import HuberRegressor, RANSACRegressor, TheilSenRegressor
+    from sklearn.metrics import mean_squared_error, r2_score
+
+    feature_names = fit_result["feature_names"]
+    X_values = fit_result["X"][feature_names].to_numpy(dtype=float)
+    y_values = fit_result["y"].to_numpy(dtype=float)
+
+    ols_model = fit_result["model"]
+    ols_params = ols_model.params
+    ols_preds = ols_model.fittedvalues.to_numpy()
+
+    coef_rows: dict[str, dict[str, float]] = {
+        "OLS": {"const": float(ols_params.get("const", 0.0)), **{f: float(ols_params[f]) for f in feature_names}}
+    }
+    r_squared: dict[str, float] = {"OLS": float(ols_model.rsquared)}
+    rmse: dict[str, float] = {"OLS": float(np.sqrt(mean_squared_error(y_values, ols_preds)))}
+    errors: dict[str, str] = {}
+    ransac_inlier_fraction: Optional[float] = None
+
+    model_ctors = {
+        "Huber": lambda: HuberRegressor(),
+        "RANSAC": lambda: RANSACRegressor(random_state=42),
+        "Theil-Sen": lambda: TheilSenRegressor(random_state=42, max_subpopulation=10_000),
+    }
+
+    for name, ctor in model_ctors.items():
+        try:
+            model = ctor()
+            model.fit(X_values, y_values)
+            preds = model.predict(X_values)
+            if name == "RANSAC":
+                coef = model.estimator_.coef_
+                intercept = float(model.estimator_.intercept_)
+                ransac_inlier_fraction = float(np.mean(model.inlier_mask_))
+            else:
+                coef = model.coef_
+                intercept = float(model.intercept_)
+            coef_rows[name] = {"const": intercept, **{f: float(c) for f, c in zip(feature_names, coef)}}
+            r_squared[name] = float(r2_score(y_values, preds))
+            rmse[name] = float(np.sqrt(mean_squared_error(y_values, preds)))
+        except Exception as e:
+            errors[name] = str(e)
+
+    coef_df = pd.DataFrame(coef_rows).reindex(["const"] + feature_names).round(4)
+
+    return {
+        "coefficients": coef_df,
+        "r_squared": r_squared,
+        "rmse": rmse,
+        "ransac_inlier_fraction": ransac_inlier_fraction,
+        "errors": errors,
+        "feature_names": feature_names,
+    }
+
+
+def robust_regression_verdict(comparison: dict) -> list[str]:
+    """Plain-English read-out comparing OLS to the robust alternatives —
+    whether outliers are meaningfully steering the OLS fit, and whether
+    any coefficient's direction (not just magnitude) depends on which
+    estimator is used.
+    """
+    verdicts: list[str] = []
+    coef_df = comparison["coefficients"]
+    feature_names = comparison["feature_names"]
+
+    frac = comparison.get("ransac_inlier_fraction")
+    if frac is not None:
+        pct_outliers = (1 - frac) * 100
+        if pct_outliers >= 5:
+            verdicts.append(
+                f"⚠️ RANSAC flagged {pct_outliers:.1f}% of rows as outliers when finding its consensus fit — "
+                "that's enough to meaningfully pull OLS's coefficients off course. Prefer the Huber or RANSAC "
+                "coefficients over OLS's for this dataset."
+            )
+        else:
+            verdicts.append(
+                f"✅ RANSAC found only {pct_outliers:.1f}% of rows to be outliers — OLS's fit is not being "
+                "dominated by a small subset of extreme points."
+            )
+
+    sign_flips = []
+    for feat in feature_names:
+        ols_c = coef_df.loc[feat, "OLS"] if "OLS" in coef_df.columns else None
+        huber_c = coef_df.loc[feat, "Huber"] if "Huber" in coef_df.columns else None
+        if ols_c is None or huber_c is None or pd.isna(ols_c) or pd.isna(huber_c):
+            continue
+        if np.sign(ols_c) != np.sign(huber_c) and abs(ols_c) > 1e-9 and abs(huber_c) > 1e-9:
+            sign_flips.append(feat)
+
+    if sign_flips:
+        names = ", ".join(sign_flips)
+        verdicts.append(
+            f"⚠️ Sign flips between OLS and Huber for: {names} — OLS's estimate for these features is not just "
+            "noisy, it's directionally unstable under outlier influence. Trust the robust estimate over OLS's here."
+        )
+    else:
+        verdicts.append(
+            "✅ No coefficient sign flip between OLS and the robust alternatives — directionally, OLS's story "
+            "holds even under outlier-robust refitting."
+        )
+
+    for name, err in comparison.get("errors", {}).items():
+        verdicts.append(f"ℹ️ {name} regression could not be fit: {err}")
+
+    return verdicts
+
+
+def build_robust_regression_chart(comparison: dict) -> go.Figure:
+    """Grouped bar chart comparing each feature's coefficient across OLS
+    and every robust model that fit successfully. The intercept ("const")
+    is excluded — it's usually on a different scale than the slope
+    coefficients and isn't the number a reader compares across models.
+    """
+    coef_df = comparison["coefficients"]
+    feature_names = comparison["feature_names"]
+    plot_df = coef_df.loc[feature_names].reset_index().rename(columns={"index": "feature"})
+    melted = plot_df.melt(id_vars="feature", var_name="model", value_name="coefficient").dropna(subset=["coefficient"])
+
+    fig = px.bar(
+        melted, x="feature", y="coefficient", color="model", barmode="group",
+        title="Coefficient Comparison: OLS vs. Robust Regressors",
+        labels={"coefficient": "Coefficient", "feature": "Feature"},
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="gray")
+    fig.update_layout(margin=dict(t=50, b=10, l=10, r=10))
+    return fig
+
+
 def plot_vif_chart(vif_table: pd.DataFrame) -> Optional[go.Figure]:
     """Horizontal bar chart of VIF per feature, with threshold reference lines."""
     if vif_table.empty:
