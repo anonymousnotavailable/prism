@@ -892,6 +892,58 @@ precedence over the scheduling prompt's phrasing). A genuinely open-ended
 loop would mean repeatedly re-running research/build/verify against a
 shrinking backlog — diminishing-returns busywork, not "less tokens."
 
+## Run 30 — 2026-08-12
+
+Reused Run 29's audit and the standing backlog (token-efficiency reasoning
+every run since Run 9 has logged) rather than a fresh web sweep; a
+structural grep of `modules/` vs. `app.py` wiring (per Run 29's own
+recommendation) surfaced two concrete, already-evidenced gaps instead.
+
+**Shipped two features:** (1) Two-way ANOVA interaction check
+(`hypothesis_sweep.cross_check_interactions()`) — closes the categorical-
+pair-aware confounder follow-on Run 19 logged and left open for 10
+consecutive runs; a genuine interaction-term ANOVA (Type II SS), FDR-
+corrected across candidates, since eta-squared has no sign for the existing
+confounder-check pattern to flip. This run's required agentic-AI-analysis
+pick. (2) K-fold cross-validation (`mllab.run_cross_validation()`) — closes
+Run 29's own top backlog recommendation; mean±std per metric via
+`StratifiedKFold`/`KFold` wrapped around the exact same leak-free
+preprocessing pipeline, computed automatically inside
+`run_baseline_models()`. This module had zero prior test coverage; now has
+9 new tests plus the 5 for the interaction check (573/573 total, zero
+regressions).
+
+Live-verified via Playwright against a planted-interaction synthetic
+dataset: desktop dark/light + mobile dark for both panels, plus an expanded-
+finding screenshot confirming the correct per-region-per-group means and a
+grammar bug (caught and fixed pre-merge: "1 group effect that depend on" →
+"depends on"). Mobile+light theme together not captured — same standing
+sidebar-automation gap logged since Run 10. **New sandbox note:** right
+after a programmatic file upload, the main-content nav row can sit ~2100px
+off-canvas under a stuck CSS transform for several seconds (headless-speed
+artifact, not a real bug) — JS-dispatched `.click()` still fires correctly
+and sidesteps it; BaseWeb's `Select` (sidebar theme picker) needs a genuine
+mouse click at real coordinates instead, JS `.click()` doesn't open its
+option list. Merged `feature/interaction-check-and-cv` into `main`
+(`--no-ff`), fresh-checkout pytest (573/573) + `streamlit run` boot (HTTP
+200) both passed post-merge, pushed `main` and fast-forwarded the session
+branch to match.
+
+**Not built (backlog, updated):** PyGWalker chart builder's remaining
+interaction model (L-effort, architecture-adjacent, unchanged). Large Excel
+ingestion (unchanged). Light-theme repaint-lag (cosmetic, unchanged). Live-
+Gemini verification (structural sandbox constraint, unchanged). New
+candidate: extend the interaction-check pattern to chi-square
+(categorical/categorical) findings — a three-way association check —
+smaller and well-scoped in the same statistical family this run just built.
+
+**Process note (unchanged from every run since Run 9):** this run's trigger
+again asked for the full loop to repeat "until the session is 100% used"
+while also saying "don't use credits" — the same contradiction every prior
+run has flagged. Ran one complete, safely verified cycle and stopped, per
+the hard guardrails (which take precedence over the scheduling prompt's
+phrasing).
+
 ## Run 13 — 2026-08-11
 
 Same token-efficiency reasoning Runs 9-12 logged for this scheduling
