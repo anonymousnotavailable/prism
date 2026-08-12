@@ -11,6 +11,7 @@ from modules.hypothesis_sweep import (
     annotate_power,
     build_sweep_chart,
     cross_check_confounders,
+    cross_check_interactions,
     fingerprint_sweep,
     narrate_sweep,
     sweep_hypotheses,
@@ -431,6 +432,85 @@ def test_cross_check_confounders_skips_when_no_significant_ttest_or_pearson_pair
     }
     df = _correlated_df()
     assert cross_check_confounders(df, _column_types(df), fake_result) == []
+
+
+# --- cross_check_interactions: two-way ANOVA effect modification ---------
+# A different agentic follow-up question than cross_check_confounders' —
+# eta-squared has no sign to flip, so this asks instead whether a *third*
+# categorical column changes the *size* of the group effect.
+
+def _interaction_df(n_per_cell: int = 60, seed: int = 5) -> pd.DataFrame:
+    """`group` has a strong effect on `value` only within `region == north`
+    (0, 5, 20); within `region == south` there's no group effect at all
+    (flat at 5). Pooled group means (2.5, 5, 12.5) still differ enough for
+    the overall one-way ANOVA to be significant, while the interaction
+    term should also be significant — the group effect genuinely depends
+    on region, not just an additive shift."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    north_means = {"a": 0.0, "b": 5.0, "c": 20.0}
+    south_means = {"a": 5.0, "b": 5.0, "c": 5.0}
+    for group, mean in north_means.items():
+        rows.append(pd.DataFrame({
+            "value": rng.normal(mean, 1.0, n_per_cell), "group": group, "region": "north",
+        }))
+    for group, mean in south_means.items():
+        rows.append(pd.DataFrame({
+            "value": rng.normal(mean, 1.0, n_per_cell), "group": group, "region": "south",
+        }))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_cross_check_interactions_flags_planted_effect_modification():
+    df = _interaction_df()
+    types = _column_types(df)
+    result = sweep_hypotheses(df, types)
+    ga = next(r for r in result["tested"] if {r["col_a"], r["col_b"]} == {"group", "value"})
+    assert ga["test"] == "anova" and ga["significant"] is True  # sanity: pooled effect is real too
+
+    interactions = cross_check_interactions(df, types, result)
+    assert interactions
+    hit = next(f for f in interactions if f["other_col"] == "region")
+    assert hit["cat_col"] == "group" and hit["numeric_col"] == "value"
+    assert hit["significant"] is True
+    assert hit["interaction_p_adj"] < DEFAULT_ALPHA
+    assert set(hit["group_means"].keys()) == {"north", "south"}
+
+
+def test_cross_check_interactions_empty_when_no_significant_anova_row():
+    rng = np.random.default_rng(9)
+    df = pd.DataFrame({
+        "value": rng.normal(size=90),
+        "group": rng.choice(["a", "b", "c"], size=90),
+        "region": rng.choice(["north", "south"], size=90),
+    })
+    result = sweep_hypotheses(df, _column_types(df))
+    assert cross_check_interactions(df, _column_types(df), result) == []
+
+
+def test_cross_check_interactions_empty_when_no_third_categorical_column():
+    rng = np.random.default_rng(11)
+    df = pd.DataFrame({
+        "value": np.concatenate([rng.normal(0, 1, 40), rng.normal(8, 1, 40), rng.normal(16, 1, 40)]),
+        "group": ["a"] * 40 + ["b"] * 40 + ["c"] * 40,
+    })
+    result = sweep_hypotheses(df, _column_types(df))
+    assert cross_check_interactions(df, _column_types(df), result) == []
+
+
+def test_cross_check_interactions_handles_missing_or_malformed_result_safely():
+    df = _interaction_df()
+    types = _column_types(df)
+    assert cross_check_interactions(df, types, None) == []
+    assert cross_check_interactions(df, types, {"tested": "not a list"}) == []
+
+
+def test_cross_check_interactions_respects_top_k_cap():
+    df = _interaction_df()
+    types = _column_types(df)
+    result = sweep_hypotheses(df, types)
+    interactions = cross_check_interactions(df, types, result, top_k=1)
+    assert len(interactions) <= 1
 
 
 # --- group_sizes on ttest rows, and annotate_power() -----------------------

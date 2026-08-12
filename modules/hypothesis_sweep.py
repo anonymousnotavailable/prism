@@ -424,6 +424,138 @@ def cross_check_confounders(
     return scans
 
 
+def cross_check_interactions(
+    df: pd.DataFrame, column_types: dict[str, str], result: Optional[dict], top_k: int = 3
+) -> list[dict]:
+    """For the sweep's strongest significant one-way ANOVA findings (a
+    categorical column splitting a numeric column's mean across 3+ groups),
+    check whether a *third* categorical column moderates that difference —
+    does the size of the group effect actually depend on another factor?
+
+    This answers a different question than `cross_check_confounders()`:
+    a confounder check asks whether a *signed* effect (correlation r,
+    Cohen's d) flips or attenuates once a covariate is controlled for —
+    one-way ANOVA's eta-squared has no sign to flip, which is exactly why
+    `cross_check_confounders()`'s own docstring puts ANOVA pairs out of
+    scope. Effect modification is the analogous question for a multi-group
+    effect, answered with a genuine two-way ANOVA
+    (`numeric ~ C(cat) + C(other) + C(cat):C(other)`, Type II sum of
+    squares) — the interaction term's own p-value is what's tested, not a
+    derived correlation.
+
+    Candidate "other" columns are every remaining categorical column with
+    2-10 distinct levels (same cardinality cap `stats_lab.suggest_test`
+    uses for the cat_col itself), skipping any candidate whose cross-tab
+    with cat_col doesn't have at least 4 populated (cat, other) cells with
+    2+ rows each — too sparse a design matrix to fit a stable interaction
+    term. p-values across every candidate actually tested are FDR-corrected
+    together (same multiple-comparisons rationale `sweep_hypotheses()`
+    itself uses), and only interactions that survive correction are
+    returned. Deterministic, no Gemini call. Never raises: a malformed
+    `result`, an unfittable candidate, or a patsy/statsmodels fit failure
+    just skips that candidate rather than aborting the whole check.
+
+    Returns a list of {cat_col, numeric_col, other_col, interaction_p,
+    interaction_p_adj, group_means: {other_level: {cat_level: mean}}}
+    sorted by interaction_p_adj ascending, capped to `top_k` entries. Empty
+    when there's no significant ANOVA row, no viable third column, or
+    nothing survives correction.
+    """
+    try:
+        tested = result.get("tested") if result else None
+        if not tested:
+            return []
+        significant_anova = [
+            r for r in tested if r.get("significant") and r.get("test") == "anova"
+        ]
+    except (TypeError, AttributeError, KeyError):
+        return []
+
+    if not significant_anova:
+        return []
+
+    import statsmodels.formula.api as smf
+    from statsmodels.stats.anova import anova_lm
+    from statsmodels.stats.multitest import multipletests
+
+    candidates = []  # each: (cat_col, numeric_col, other_col, clean_df)
+    for row in significant_anova[:top_k]:
+        col_a, col_b = row["col_a"], row["col_b"]
+        if column_types.get(col_a) == "categorical":
+            cat_col, numeric_col = col_a, col_b
+        else:
+            cat_col, numeric_col = col_b, col_a
+
+        other_cols = [
+            c for c, t in column_types.items()
+            if t == "categorical" and c != cat_col
+        ]
+        for other_col in other_cols:
+            try:
+                clean = df[[numeric_col, cat_col, other_col]].dropna()
+                other_levels = clean[other_col].nunique()
+                if not (2 <= other_levels <= 10):
+                    continue
+                cell_counts = clean.groupby([cat_col, other_col]).size()
+                populated_cells = cell_counts[cell_counts >= 2]
+                if len(populated_cells) < 4:
+                    continue
+            except (TypeError, ValueError, KeyError):
+                continue
+            candidates.append((cat_col, numeric_col, other_col, clean))
+
+    if not candidates:
+        return []
+
+    fits = []
+    for cat_col, numeric_col, other_col, clean in candidates:
+        try:
+            formula = (
+                f"Q('{numeric_col}') ~ C(Q('{cat_col}')) + C(Q('{other_col}')) "
+                f"+ C(Q('{cat_col}')):C(Q('{other_col}'))"
+            )
+            model = smf.ols(formula, data=clean).fit()
+            aov = anova_lm(model, typ=2)
+            interaction_terms = [ix for ix in aov.index if ":" in ix]
+            if not interaction_terms:
+                continue
+            p_value = float(aov.loc[interaction_terms[0], "PR(>F)"])
+            if pd.isna(p_value):
+                continue
+        except Exception:
+            continue
+
+        group_means = {}
+        for other_level, sub in clean.groupby(other_col):
+            group_means[str(other_level)] = {
+                str(cat_level): float(vals.mean())
+                for cat_level, vals in sub.groupby(cat_col)[numeric_col]
+            }
+
+        fits.append(
+            {
+                "cat_col": cat_col,
+                "numeric_col": numeric_col,
+                "other_col": other_col,
+                "interaction_p": p_value,
+                "group_means": group_means,
+            }
+        )
+
+    if not fits:
+        return []
+
+    p_values = [f["interaction_p"] for f in fits]
+    reject, p_adj, _, _ = multipletests(p_values, alpha=result.get("alpha", DEFAULT_ALPHA), method="fdr_bh")
+    for f, adj, sig in zip(fits, p_adj, reject):
+        f["interaction_p_adj"] = float(adj)
+        f["significant"] = bool(sig)
+
+    significant_fits = [f for f in fits if f["significant"]]
+    significant_fits.sort(key=lambda f: f["interaction_p_adj"])
+    return significant_fits[:top_k]
+
+
 def build_sweep_chart(result: dict, top_n: int = 15):
     """Horizontal bar chart of the top significant findings by |effect size|."""
     import plotly.express as px
