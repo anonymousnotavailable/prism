@@ -270,6 +270,15 @@ def run_baseline_models(
             fitted_models["Random Forest"].feature_importances_, index=feature_names
         ).sort_values(ascending=False)
 
+    # K-fold cross-validation, same two models — see run_cross_validation()'s
+    # docstring for why a single 80/20 split's score alone isn't enough to
+    # call a model "stable." Never blocks the primary result: a CV failure
+    # (e.g. a genuinely tiny dataset) just leaves this key absent.
+    try:
+        cv_results = run_cross_validation(df, feature_cols, target_col, task_type)
+    except Exception as e:
+        cv_results = {"error": str(e)}
+
     return {
         "task_type": task_type,
         "results": results,
@@ -279,6 +288,7 @@ def run_baseline_models(
         "n_train": len(X_train),
         "n_test": len(X_test),
         "smote_before_after": smote_before_after,
+        "cv_results": cv_results,
         # Kept for SHAP explainability (see explain_with_shap below) — the
         # Random Forest specifically, since it's the model feature_importances_
         # already covers; re-fitting a second time just to explain it would
@@ -288,6 +298,101 @@ def run_baseline_models(
         "X_test_transformed": X_test_transformed,
         "feature_names": feature_names,
     }
+
+
+def run_cross_validation(
+    df: pd.DataFrame, feature_cols: list[str], target_col: str, task_type: str, n_splits: int = 5
+) -> dict:
+    """K-fold cross-validation for the same two baseline models, reporting
+    mean ± std per metric across folds instead of a single train/test
+    split's point estimate.
+
+    A single 80/20 split's score is one draw from a distribution of
+    possible splits — a hiring panel's standard follow-up to "what's your
+    model's accuracy?" is "how stable is that number across splits?", and
+    `run_baseline_models()`'s single split had no answer to that before
+    this function existed.
+
+    Uses the same preprocessing (median-impute + scale numeric,
+    most-frequent-impute + one-hot categorical) folded into an sklearn
+    `Pipeline` so each fold's transformer is fit only on that fold's
+    training rows — no leakage across folds. `StratifiedKFold` for
+    classification (keeps each fold's class balance close to the full
+    dataset's); plain `KFold` for regression. `n_splits` is capped down to
+    at most the smallest class's row count for classification (a class
+    with fewer rows than folds would leave some folds with zero examples of
+    it) and to at most `len(data) // 2` in general, with a floor of 2 —
+    cross-validation on a genuinely tiny dataset degrades gracefully to a
+    small number of folds rather than raising.
+
+    Returns {"results": {model_name: {metric_name: {"mean": float, "std":
+    float}}}, "n_splits": int actually used} or {"error": ...} if there are
+    fewer than 4 usable rows (the minimum for even a 2-fold split with 2+
+    rows per fold to make sense).
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+    data = df[feature_cols + [target_col]].dropna(subset=[target_col])
+    X = data[feature_cols]
+    y = data[target_col]
+
+    if len(data) < 4:
+        return {"error": "Need at least 4 rows with a non-null target to run cross-validation."}
+
+    categorical_features = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+    numeric_features = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", Pipeline([("impute", SimpleImputer(strategy="median")), ("scale", StandardScaler())]), numeric_features),
+            (
+                "cat",
+                Pipeline([("impute", SimpleImputer(strategy="most_frequent")), ("encode", OneHotEncoder(handle_unknown="ignore"))]),
+                categorical_features,
+            ),
+        ],
+        remainder="drop",
+    )
+
+    n_splits_used = min(n_splits, len(data) // 2)
+    if task_type == "classification":
+        n_splits_used = min(n_splits_used, int(y.value_counts().min()))
+    n_splits_used = max(2, n_splits_used)
+
+    if task_type == "classification":
+        cv = StratifiedKFold(n_splits=n_splits_used, shuffle=True, random_state=42)
+        scoring = {"accuracy": "accuracy", "f1": "f1_weighted"}
+        models = {
+            "Baseline": LogisticRegression(max_iter=1000),
+            "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42),
+        }
+    else:
+        cv = KFold(n_splits=n_splits_used, shuffle=True, random_state=42)
+        scoring = {"rmse": "neg_root_mean_squared_error", "r2": "r2"}
+        models = {
+            "Baseline": LinearRegression(),
+            "Random Forest": RandomForestRegressor(n_estimators=200, random_state=42),
+        }
+
+    results = {}
+    for name, model in models.items():
+        pipeline = Pipeline([("preprocess", preprocessor), ("model", model)])
+        scores = cross_validate(pipeline, X, y, cv=cv, scoring=scoring)
+        metrics = {}
+        for metric_name in scoring:
+            raw = scores[f"test_{metric_name}"]
+            if metric_name == "rmse":
+                raw = -raw  # sklearn's "neg_root_mean_squared_error" is negated so higher=better; flip back for display
+            metrics[metric_name] = {"mean": round(float(raw.mean()), 4), "std": round(float(raw.std()), 4)}
+        results[name] = metrics
+
+    return {"results": results, "n_splits": n_splits_used}
 
 
 def build_verdict(baseline_result: dict) -> str:

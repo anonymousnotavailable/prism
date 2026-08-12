@@ -168,6 +168,7 @@ _DEFAULTS = {
     "hypothesis_sweep_narration_verification": None,  # hypothesis_sweep.verify_narration() result for the narration above
     "hypothesis_sweep_confounder_check": None,  # hypothesis_sweep.cross_check_confounders() result for the last sweep
     "hypothesis_sweep_confounder_narrations": {},  # cache of confounder_detection.narrate_confounder_finding() results, keyed like confounder_narrations
+    "hypothesis_sweep_interaction_check": None,  # hypothesis_sweep.cross_check_interactions() result for the last sweep
     "detector_runner_last_ran": [],  # detector names fired by the last "Run All Detectors" click (modules/detector_runner.py), for a one-line confirmation caption
     "detector_runner_last_skipped": [],  # [{"detector","reason"}, ...] from that same click
     "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
@@ -4039,6 +4040,15 @@ elif st.session_state.active_section == "Stats Lab":
                 st.session_state.hypothesis_sweep_confounder_check = hypothesis_sweep.cross_check_confounders(
                     df, column_types, sweep_result_new
                 )
+                # Second agentic follow-up, same spinner: does a significant
+                # group difference (one-way ANOVA) actually depend on a third
+                # categorical column, or does it hold up the same way for
+                # everyone? Different question from the confounder check
+                # above (no signed effect to flip here) — see
+                # cross_check_interactions()'s docstring. No extra Gemini call.
+                st.session_state.hypothesis_sweep_interaction_check = hypothesis_sweep.cross_check_interactions(
+                    df, column_types, sweep_result_new
+                )
             st.session_state.hypothesis_sweep_narration = None
             st.session_state.hypothesis_sweep_narration_fingerprint = None
             st.session_state.hypothesis_sweep_narration_verification = None
@@ -4191,6 +4201,38 @@ elif st.session_state.active_section == "Stats Lab":
                                     else:
                                         st.session_state.hypothesis_sweep_confounder_narrations[sweep_cache_key] = sweep_conf_narration
                                         st.rerun()
+
+                # Interaction check — a different agentic follow-up than the
+                # confounder cross-check above: does a significant group
+                # difference (one-way ANOVA) actually depend on a third
+                # categorical column, i.e. does the group effect only show up
+                # for some segments? eta-squared has no sign to flip, so this
+                # is a genuine two-way ANOVA interaction test, not a
+                # derived-correlation check.
+                sweep_interaction_scan = st.session_state.hypothesis_sweep_interaction_check
+                if sweep_interaction_scan:
+                    n_interactions = len(sweep_interaction_scan)
+                    st.markdown(
+                        f"**🧩 Interaction check** — {n_interactions} group effect"
+                        f"{'s' if n_interactions != 1 else ''} that depend on a third column"
+                    )
+                    st.caption(
+                        "A significant group difference doesn't always mean it holds the same way "
+                        "for everyone — these effects change size (or disappear) depending on a "
+                        "second categorical factor."
+                    )
+                    for finding in sweep_interaction_scan:
+                        label = (
+                            f"🔀 **{finding['numeric_col']}** varies by **{finding['cat_col']}** "
+                            f"differently across **{finding['other_col']}**"
+                        )
+                        with st.expander(label, expanded=False):
+                            st.caption(
+                                f"Interaction p (FDR-adjusted) = {finding['interaction_p_adj']:.4g}"
+                            )
+                            means_df = pd.DataFrame(finding["group_means"]).T
+                            means_df.index.name = finding["other_col"]
+                            st.dataframe(means_df.round(3), use_container_width=True)
 
                 # AI narration — cached per fingerprint of this exact sweep result,
                 # same pattern as anomaly narration: only a genuinely different
@@ -4966,6 +5008,32 @@ elif st.session_state.active_section == "ML Lab":
                         st.metric(metric_name.upper(), value)
 
             st.success(mllab.build_verdict(baseline_result))
+
+            # K-fold cross-validation — how stable is the single split's
+            # score above across different train/test partitions? A single
+            # 80/20 split is one draw from a distribution; this reports that
+            # distribution's spread directly. Computed automatically inside
+            # run_baseline_models(), no extra click.
+            cv_results = baseline_result.get("cv_results")
+            if cv_results and "error" not in cv_results:
+                with st.expander(
+                    f"📊 {cv_results['n_splits']}-fold cross-validation — how stable is that score?",
+                    expanded=False,
+                ):
+                    st.caption(
+                        "The metrics above come from one 80/20 split. This re-splits the data "
+                        f"{cv_results['n_splits']} different ways and reports the mean ± standard "
+                        "deviation per metric across folds — a wide spread means the single-split "
+                        "number above shouldn't be trusted too literally."
+                    )
+                    cv_cols = st.columns(2)
+                    for cv_col, (model_name, metrics) in zip(cv_cols, cv_results["results"].items()):
+                        with cv_col:
+                            st.markdown(f"**{model_name}**")
+                            for metric_name, stat in metrics.items():
+                                st.metric(metric_name.upper(), f"{stat['mean']:.3f} ± {stat['std']:.3f}")
+            elif cv_results and "error" in cv_results:
+                st.caption(f"Cross-validation skipped: {cv_results['error']}")
 
             if baseline_result["confusion_matrix"] is not None:
                 st.plotly_chart(

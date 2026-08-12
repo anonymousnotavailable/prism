@@ -2,6 +2,47 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 30)
+
+### Added
+- **Hypothesis Sweep interaction check** (`modules/hypothesis_sweep.py`,
+  `cross_check_interactions()`) — a second, different agentic follow-up
+  question for the sweep's significant findings, alongside the existing
+  confounder cross-check. A significant one-way ANOVA (a categorical
+  column splitting a numeric column's mean across 3+ groups) has no
+  *signed* effect to flip the way a correlation or Cohen's d does, so
+  `cross_check_confounders()` explicitly puts ANOVA pairs out of scope.
+  This answers the analogous question for a multi-group effect instead:
+  does a *third* categorical column change the *size* of the group
+  difference? Fits a genuine two-way ANOVA
+  (`numeric ~ C(cat) + C(other) + C(cat):C(other)`, Type II sum of
+  squares) and tests the interaction term's own p-value, FDR-corrected
+  across every candidate "other" column actually tested. Candidates are
+  capped to 2-10-level categorical columns with a sufficiently populated
+  cross-tab (4+ cells with 2+ rows), so a sparse or high-cardinality
+  column can't produce an unstable fit. New "🧩 Interaction check" panel
+  in Stats Lab's Hypothesis Sweep, directly below the confounder
+  cross-check, showing per-level group means in an expandable table.
+  Deterministic, zero extra Gemini calls. 5 new tests.
+- **K-fold cross-validation for ML Lab** (`modules/mllab.py`,
+  `run_cross_validation()`) — the Baseline Model Runner's single 80/20
+  train/test split reports one point-estimate score with no sense of how
+  much that number would move on a different split, a standing gap a
+  hiring panel's standard follow-up ("how stable is that number?") had no
+  answer to. Computed automatically alongside every "Run Baseline Models"
+  click (no extra button): the same preprocessing pipeline (impute+scale
+  numeric, impute+one-hot categorical) is folded into an sklearn
+  `Pipeline` so each fold's transformer fits only on that fold's rows, no
+  cross-fold leakage. `StratifiedKFold` for classification, `KFold` for
+  regression, with the fold count capped down for small datasets or
+  small classes and a graceful `{"error": ...}` below 4 usable rows
+  instead of raising. New "📊 N-fold cross-validation" expander in ML Lab
+  showing mean ± std per metric for both models. 9 new tests
+  (`tests/test_mllab_cross_validation.py` — this is the first automated
+  coverage `run_baseline_models()` itself has had).
+
+Full suite: 559 → 573 green, zero regressions.
+
 ## 2026-08-12 (Run 29)
 
 ### Added
