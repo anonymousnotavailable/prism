@@ -1861,3 +1861,24 @@ occasionally returning a size-1 numpy array instead of a plain float
 (silent pre-existing risk on the ttest path too, just never triggered
 there — numpy has flagged the bare `float()` conversion this exposed as
 a future hard error).
+
+**Run 27 summary:** Shipped chi-square + ANOVA post-hoc power, extending
+`hypothesis_sweep.annotate_power()` (Run 25's t-test-only version) to
+all three test families the sweep runs — closing a gap logged across two
+consecutive prior runs. Cohen's w derived directly from the raw
+chi-square statistic (not Cramer's V, sidestepping the shape-ambiguity
+problem both prior runs flagged); Cohen's f from eta-squared with real
+per-group sizes threaded through. Both cross-checked against Cohen's
+(1988)/G*Power canonical reference values. `interpret_power_check()`
+became a dispatcher so `app.py`/`detector_runner` needed no logic
+changes. 26 new tests, 502→528 green, zero regressions. Verified live
+via Playwright across desktop+mobile, dark+light — including finally
+nailing mobile light theme's exact selector path
+(`stExpandSidebarButton` + real pointer clicks on the BaseWeb selectbox),
+closing a 7+-run-old automation gap. Merged `feature/chi2-anova-power`
+into `main` with `--no-ff`, updated `CHANGELOG.md`, pushed to
+`origin/main`. Full report: `RUN_REPORT_2026-08-12-run27.md`. Recommended
+for Run 28: correlation/Fisher-z power (closes the power-check set fully,
+small/self-contained), or a fresh agentic-AI-analysis angle from a
+differently-sourced Phase 2 research pass (this run's and Run 26's
+competitor-tooling searches both came up empty for new gaps).
