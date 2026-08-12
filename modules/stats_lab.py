@@ -5,6 +5,18 @@ one-way ANOVA, chi-square test of independence, or Pearson correlation
 significance) with a one-line reason, run_test() executes it via
 scipy.stats, and interpret_result()/normality_warnings() turn the raw
 numbers into a plain-English verdict plus assumption-check warnings.
+
+normality_warnings() has always been able to tell a user their data isn't
+normal — but until now that was a dead end: a warning with no valid next
+step. NONPARAMETRIC_ALTERNATIVE and run_nonparametric_alternative() close
+that gap: Mann-Whitney U (rank-based two-group comparison, replacing the
+t-test), Kruskal-Wallis (rank-based k-group comparison, replacing ANOVA),
+and Spearman's rho (rank-based monotonic association, replacing Pearson) —
+the standard non-parametric counterpart to each parametric test this module
+already runs, sharing its dispatch/interpret/effect-size machinery rather
+than bolting on a separate code path. Chi-square has no such counterpart
+here: it's already distribution-free (it tests category-count independence,
+not a mean/correlation that assumes normality), so it isn't in the map.
 """
 
 from __future__ import annotations
@@ -26,6 +38,9 @@ TEST_LABELS = {
     "anova": "One-way ANOVA",
     "chi2": "Chi-square test of independence",
     "pearson": "Pearson correlation significance",
+    "mannwhitney": "Mann-Whitney U test",
+    "kruskal": "Kruskal-Wallis H test",
+    "spearman": "Spearman rank correlation",
 }
 
 _EFFECT_SIZE_THRESHOLDS = {
@@ -33,7 +48,27 @@ _EFFECT_SIZE_THRESHOLDS = {
     "anova": [(0.01, "small"), (0.06, "medium"), (0.14, "large")],
     "chi2": [(0.1, "small"), (0.3, "medium"), (0.5, "large")],
     "pearson": [(0.1, "small"), (0.3, "medium"), (0.5, "large")],
+    # Rank-biserial r (Mann-Whitney) and Spearman's rho share Pearson's
+    # conventional correlation-strength bands; epsilon-squared (Kruskal-
+    # Wallis) shares ANOVA's eta-squared bands — both are the standard
+    # analogues cited for these statistics (e.g. Tomczak & Tomczak 2014).
+    "mannwhitney": [(0.1, "small"), (0.3, "medium"), (0.5, "large")],
+    "kruskal": [(0.01, "small"), (0.06, "medium"), (0.14, "large")],
+    "spearman": [(0.1, "small"), (0.3, "medium"), (0.5, "large")],
 }
+
+# Which non-parametric test replaces which parametric one when its normality
+# assumption looks shaky. Chi-square deliberately has no entry — it's
+# already distribution-free.
+NONPARAMETRIC_ALTERNATIVE = {
+    "ttest": "mannwhitney",
+    "anova": "kruskal",
+    "pearson": "spearman",
+}
+
+
+def has_nonparametric_alternative(test: str) -> bool:
+    return test in NONPARAMETRIC_ALTERNATIVE
 
 
 def _effect_size_label(test: str, value: float) -> str:
@@ -233,6 +268,113 @@ def run_pearson(df: pd.DataFrame, col_a: str, col_b: str) -> dict:
     }
 
 
+def run_mannwhitney(df: pd.DataFrame, numeric_col: str, cat_col: str) -> dict:
+    """Mann-Whitney U test — the rank-based, no-normality-assumed
+    counterpart to run_ttest() for exactly 2 groups. Effect size is the
+    rank-biserial correlation, computed from U itself (r = 2U/(n1*n2) - 1):
+    +1 means every value in group 1 outranks every value in group 2, -1 the
+    reverse, 0 means the groups' ranks are fully interleaved.
+    """
+    clean = df[[numeric_col, cat_col]].dropna()
+    levels = sorted(clean[cat_col].unique(), key=str)
+    if len(levels) != 2:
+        return {"error": f"'{cat_col}' must have exactly 2 categories for a Mann-Whitney U test (found {len(levels)})."}
+
+    group1 = clean.loc[clean[cat_col] == levels[0], numeric_col].to_numpy()
+    group2 = clean.loc[clean[cat_col] == levels[1], numeric_col].to_numpy()
+    if len(group1) < 1 or len(group2) < 1:
+        return {"error": "Each group needs at least 1 value to run a Mann-Whitney U test."}
+
+    stat, p_value = stats.mannwhitneyu(group1, group2, alternative="two-sided")
+    # scipy's U (`stat`) counts group1-over-group2 "wins" among all pairs;
+    # r = 2U/(n1*n2) - 1 rescales that win-rate to [-1, 1] so positive means
+    # group1 tends to rank higher than group2, negative the reverse — the
+    # sign convention matches the "medians" reported below (Kerby 2014).
+    rank_biserial = (2 * stat) / (len(group1) * len(group2)) - 1
+
+    label1, label2 = str(levels[0]), str(levels[1])
+    return {
+        "test": "mannwhitney",
+        "statistic": float(stat),
+        "p_value": float(p_value),
+        "effect_size": float(rank_biserial),
+        "effect_size_name": "rank-biserial r",
+        "effect_size_label": _effect_size_label("mannwhitney", rank_biserial),
+        "groups": {label1: len(group1), label2: len(group2)},
+        "medians": {label1: float(np.median(group1)), label2: float(np.median(group2))},
+    }
+
+
+def run_kruskal(df: pd.DataFrame, numeric_col: str, cat_col: str) -> dict:
+    """Kruskal-Wallis H test — the rank-based, no-normality-assumed
+    counterpart to run_anova() for 3+ groups. Effect size is epsilon-
+    squared, (H - k + 1) / (n - k): ANOVA's eta-squared, adapted for ranks.
+    """
+    clean = df[[numeric_col, cat_col]].dropna()
+    groups = {str(name): g[numeric_col].to_numpy() for name, g in clean.groupby(cat_col) if len(g) >= 1}
+    if len(groups) < 2:
+        return {"error": f"Need at least 2 groups with 1+ value each in '{cat_col}'."}
+
+    stat, p_value = stats.kruskal(*groups.values())
+
+    n = sum(len(g) for g in groups.values())
+    k = len(groups)
+    epsilon_sq = (stat - k + 1) / (n - k) if n > k else 0.0
+    epsilon_sq = max(0.0, epsilon_sq)  # can dip slightly negative near the null; floor at 0
+
+    return {
+        "test": "kruskal",
+        "statistic": float(stat),
+        "p_value": float(p_value),
+        "effect_size": float(epsilon_sq),
+        "effect_size_name": "epsilon-squared",
+        "effect_size_label": _effect_size_label("kruskal", epsilon_sq),
+        "groups": {name: len(g) for name, g in groups.items()},
+        "medians": {name: float(np.median(g)) for name, g in groups.items()},
+    }
+
+
+def run_spearman(df: pd.DataFrame, col_a: str, col_b: str) -> dict:
+    """Spearman rank correlation — the rank-based, no-normality-assumed
+    counterpart to run_pearson(). Measures monotonic (not necessarily
+    linear) association.
+    """
+    clean = df[[col_a, col_b]].dropna()
+    if len(clean) < 3:
+        return {"error": "Need at least 3 paired values to test correlation significance."}
+
+    rho, p_value = stats.spearmanr(clean[col_a], clean[col_b])
+
+    return {
+        "test": "spearman",
+        "statistic": float(rho),
+        "p_value": float(p_value),
+        "effect_size": float(rho),
+        "effect_size_name": "Spearman rho",
+        "effect_size_label": _effect_size_label("spearman", rho),
+        "n": len(clean),
+    }
+
+
+def run_nonparametric_alternative(df: pd.DataFrame, suggestion: dict) -> dict:
+    """Run whichever non-parametric test replaces suggestion['test'], reusing
+    the same column choices suggest_test() already made. Returns
+    {"error": ...} if suggestion['test'] has no alternative (chi2) or is
+    missing/unrecognized — never raises.
+    """
+    test = suggestion.get("test")
+    alternative = NONPARAMETRIC_ALTERNATIVE.get(test)
+    if alternative is None:
+        return {"error": f"No non-parametric alternative for '{test}'."}
+    if alternative == "mannwhitney":
+        return run_mannwhitney(df, suggestion["numeric_col"], suggestion["cat_col"])
+    if alternative == "kruskal":
+        return run_kruskal(df, suggestion["numeric_col"], suggestion["cat_col"])
+    if alternative == "spearman":
+        return run_spearman(df, suggestion["col_a"], suggestion["col_b"])
+    return {"error": f"No non-parametric alternative for '{test}'."}  # pragma: no cover — unreachable while the map above stays in sync
+
+
 def run_test(df: pd.DataFrame, suggestion: dict) -> dict:
     """Dispatch to the right run_* function based on a suggest_test() result."""
     test = suggestion.get("test")
@@ -261,6 +403,9 @@ def interpret_result(result: dict) -> str:
         "anova": "difference among the group means",
         "chi2": "association between the two columns",
         "pearson": "correlation",
+        "mannwhitney": "difference between the two group distributions",
+        "kruskal": "difference among the group distributions",
+        "spearman": "monotonic correlation",
     }[result["test"]]
 
     headline = f"Significant {subject} detected" if significant else f"No significant {subject} detected"
@@ -287,3 +432,24 @@ def normality_warnings(result: dict) -> list[str]:
             "approximation may be unreliable here; consider grouping rare categories together."
         )
     return warnings
+
+
+_SMALL_GROUP_N = 5  # below this, a rank test's p-value is too coarse to trust
+
+
+def nonparametric_notes(result: dict) -> list[str]:
+    """Plain-English caveats for a run_mannwhitney()/run_kruskal()/
+    run_spearman() result — the rank-test counterpart to normality_warnings()
+    above (those checks don't apply here: rank tests don't assume
+    normality, which is the whole point of reaching for one)."""
+    if result.get("error") or result.get("test") not in ("mannwhitney", "kruskal"):
+        return []
+    small = [name for name, n in result.get("groups", {}).items() if n < _SMALL_GROUP_N]
+    if not small:
+        return []
+    joined = ", ".join(f"'{name}' (n={result['groups'][name]})" for name in small)
+    return [
+        f"{joined} {'has' if len(small) == 1 else 'have'} fewer than {_SMALL_GROUP_N} values — "
+        "with so few observations, even a real difference may not reach significance; treat the "
+        "p-value as indicative rather than conclusive."
+    ]

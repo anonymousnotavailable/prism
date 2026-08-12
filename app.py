@@ -168,6 +168,7 @@ _DEFAULTS = {
     "auto_analyst_findings_error": None,  # error from the last findings synthesis, if any
     "auto_analyst_verification": [],  # per-finding fact-check results from modules.insight_verifier
     "stats_lab_result": None,  # last "Run Test" result dict from Stats Lab
+    "stats_lab_nonparam_result": None,  # last "Run non-parametric alternative" result dict
     "hypothesis_sweep_result": None,  # last "Run Hypothesis Sweep" result dict from Stats Lab
     "survival_result": None,  # last survival.survival_analysis() result dict from Stats Lab (kept across reruns so the panel doesn't collapse)
     "survival_narration": None,  # cached Gemini narration of survival_result, avoids re-spending a call per rerun
@@ -4303,6 +4304,7 @@ elif st.session_state.active_section == "Stats Lab":
 
             if st.button("Run Test", type="primary", use_container_width=True):
                 st.session_state.stats_lab_result = stats_lab.run_test(df, suggestion)
+                st.session_state.stats_lab_nonparam_result = None  # stale vs. the new primary result
 
             result = st.session_state.stats_lab_result
             if result is None:
@@ -4335,6 +4337,49 @@ elif st.session_state.active_section == "Stats Lab":
 
                     for warning_msg in stats_lab.normality_warnings(result):
                         st.warning(warning_msg)
+
+                    # normality_warnings() above used to be a dead end — it
+                    # could tell you the assumption was shaky with nothing to
+                    # do about it. Offer the rank-based counterpart test
+                    # whenever one exists (not just when a warning fired —
+                    # some users want the comparison regardless).
+                    if stats_lab.has_nonparametric_alternative(result["test"]):
+                        alt_label = stats_lab.TEST_LABELS[stats_lab.NONPARAMETRIC_ALTERNATIVE[result["test"]]]
+                        if st.button(f"Run non-parametric alternative ({alt_label})", key="run_nonparam_alt_btn"):
+                            st.session_state.stats_lab_nonparam_result = stats_lab.run_nonparametric_alternative(
+                                df, suggestion
+                            )
+
+                        nonparam_result = st.session_state.stats_lab_nonparam_result
+                        if nonparam_result is not None:
+                            if nonparam_result.get("error"):
+                                st.error(nonparam_result["error"])
+                            else:
+                                st.markdown(f"**{stats_lab.interpret_result(nonparam_result)}**")
+
+                                nc1, nc2, nc3 = st.columns(3)
+                                nc1.metric("Test statistic", f"{nonparam_result['statistic']:.4f}")
+                                nc2.metric("p-value", f"{nonparam_result['p_value']:.4g}")
+                                nc3.metric(
+                                    nonparam_result["effect_size_name"], f"{nonparam_result['effect_size']:.4f}"
+                                )
+
+                                if "medians" in nonparam_result:
+                                    st.markdown("**Group medians**")
+                                    medians_df = pd.DataFrame(
+                                        {
+                                            "Group": list(nonparam_result["medians"].keys()),
+                                            "Median": list(nonparam_result["medians"].values()),
+                                            "n": [
+                                                nonparam_result["groups"][g]
+                                                for g in nonparam_result["medians"]
+                                            ],
+                                        }
+                                    )
+                                    st.dataframe(medians_df, use_container_width=True, hide_index=True)
+
+                                for note in stats_lab.nonparametric_notes(nonparam_result):
+                                    st.warning(note)
 
         st.divider()
         st.markdown("#### 🔎 Hypothesis Sweep — automated multi-test scan")
