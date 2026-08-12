@@ -2,6 +2,41 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 34)
+
+### Added
+- **Web Speech API voice input for Atlas** (`modules/web_speech.py`, new
+  module) — replaces `modules/voice_input.py`'s streamlit-mic-recorder
+  path at both Atlas mic call sites (global command bar, side panel) with
+  a self-contained mic widget using the browser's native
+  `SpeechRecognition`/`webkitSpeechRecognition` API directly, feature-
+  detected client-side. The old path recorded raw audio in the browser and
+  shipped it to the Python process to call `SpeechRecognition`'s
+  `recognize_google()` — an undocumented Google endpoint reached over the
+  *server's* network — meaning voice availability was gated on whether a
+  pip package imported, not on whether the visitor's actual browser
+  supports speech recognition. The new path never leaves the browser
+  before landing back in Streamlit's own text widgets: verified with real
+  Playwright automation that the transcript delivery mechanism (native
+  value-setter + finding and clicking the widget's own submit control)
+  actually works end to end, and that a synthetic Enter keypress alone
+  does not. Explicit messages for every failure state — unsupported
+  browser, mic permission denied, no speech detected, network/service
+  unreachable, no microphone found — no silent failures. XSS-hardened
+  script embedding (JSON-encoded identifiers with `</` further escaped).
+  28 new tests. `modules/voice_input.py` and the `streamlit-mic-recorder`
+  dependency are left in place but no longer called from `app.py`.
+- **Non-parametric alternatives in Stats Lab** — `run_mannwhitney()`,
+  `run_kruskal()`, and `run_spearman()` in `modules/stats_lab.py` give
+  `normality_warnings()` an actual next step instead of a dead end: a
+  "Run non-parametric alternative" button appears after any t-test/ANOVA/
+  Pearson result, running the rank-based counterpart (Mann-Whitney U,
+  Kruskal-Wallis H, Spearman's rho respectively) via the already-pinned
+  `scipy.stats` — zero new dependencies. Chi-square has no counterpart
+  offered since it's already distribution-free. 45 new tests in
+  `tests/test_stats_lab.py`, which previously had zero coverage despite
+  driving user-facing statistical verdicts for all four existing tests.
+
 ## 2026-08-11 (Run 33)
 
 ### Fixed

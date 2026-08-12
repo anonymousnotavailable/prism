@@ -29,13 +29,18 @@ same "reach into `window.parent.document`" technique `modules/ui.py`'s
 already use, targeting a widget by its Streamlit `.st-key-<key>` CSS class
 (stable since Streamlit 1.38; this app pins 1.50).
 
-Browser support (2025-2026): `SpeechRecognition`/`webkitSpeechRecognition`
-ships in Chrome, Edge, and other Chromium-based browsers only — Firefox and
-Safari have never implemented it (Safari has no SpeechRecognition-family
-API at all as of this writing; Firefox has an experimental flag but it is
-not on by default). Feature-detecting `window.SpeechRecognition ||
-window.webkitSpeechRecognition` client-side is the only reliable check —
-user-agent sniffing is exactly the anti-pattern this module avoids.
+Browser support (2025-2026, confirmed via research this run — see
+.prism/research_2026-08-11-run34.md): Chrome, Edge, and other Chromium-
+based browsers have full support (cloud-based recognition, requires being
+online). Safari supports it too, from 14.1+ on macOS / 14.5+ on iOS,
+via the `webkitSpeechRecognition` prefix — and can run fully on-device
+once the user grants permission and installs the language pack, unlike
+Chrome/Edge's always-cloud approach. Firefox is the holdout: implemented
+but disabled by default behind the `dom.webspeech.recognition.enable`
+flag, so it's effectively unsupported for real users. Feature-detecting
+`window.SpeechRecognition || window.webkitSpeechRecognition` client-side
+(rather than user-agent sniffing, which this module deliberately avoids)
+is what correctly picks up Safari's support here.
 """
 
 from __future__ import annotations

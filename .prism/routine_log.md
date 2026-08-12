@@ -2461,3 +2461,110 @@ Analytics bugfix reaches the panel with only 1 numeric column present — all ze
 
 Full reasoning, verification transcript, and Run 34 recommendation in
 `RUN_REPORT_2026-08-11-run33.md`.
+
+## Run 34 — 2026-08-12 — PLAYWRIGHT FIX CONFIRMED (read this before diagnosing Playwright as blocked)
+
+**8 consecutive runs (26-33) were wrong about Playwright being blocked.** The actual
+situation: this sandbox has Chromium **pre-installed** at
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (matches the pinned
+`playwright==1.62.0` package's expected browser revision exactly — confirmed via
+`ls /opt/pw-browsers` and a successful `sync_playwright().chromium.launch(executable_path=...)`
+call this run). Running `playwright install chromium` tries to *download* a browser and gets a
+403 from the sandbox's egress policy — that 403 is what every prior run diagnosed as "Playwright
+is blocked here," which is the wrong conclusion. **Do not run `playwright install`.** Just pass
+`executable_path='/opt/pw-browsers/chromium-1194/chrome-linux/chrome'` (verify the exact path with
+`ls /opt/pw-browsers` first, since the revision number in the directory name may change) to
+`chromium.launch()`. This run used it successfully for real headless-Chromium automation:
+navigating the live `streamlit run` app, loading sample datasets, clicking real buttons, switching
+themes, granting mock microphone permissions, stubbing `window.SpeechRecognition`, and capturing
+screenshots at both desktop and mobile-PWA viewports in both dark and light themes. **Run 35+:
+do not re-diagnose this as blocked. Just use the executable_path.**
+
+One real Playwright-driven finding this run wouldn't have been caught by unit tests alone: a
+synthetic `KeyboardEvent('Enter')` dispatched at a Streamlit `chat_input`/`st.form` text widget
+does **not** trigger Streamlit's submit handler, even though the widget's value updates correctly
+(confirmed by directly testing the mechanism in a live headless-Chromium session before baking it
+into `modules/web_speech.py`) — the fix was finding and `.click()`-ing the widget's own submit
+control (send-arrow button / form submit button) instead. Also caught via a real screenshot: the
+Web Speech mic widget's `components.html()` iframe clipped ~3px off its longest unsupported-
+browser message at mobile width (61px content vs. 58px iframe) — fixed by bumping the default
+height before merging. Neither of these would have surfaced from pytest alone.
+
+## Run 34 — 2026-08-12 — selection log + result
+
+Synced to `origin/claude/adoring-meitner-7xxgfq` at `f880280` (Run 33's tip) per this run's git
+constraint. No reinstall needed — 831 tests green before any changes, matching Run 33's final
+count exactly.
+
+**Phase 1 audit correction:** this run's brief assumed a Next.js/React frontend and assumed Atlas
+had zero voice support to build from scratch. Both were wrong — Prism is a Streamlit app (no
+`package.json`/`node_modules` anywhere in the repo), and `modules/voice_input.py` already existed,
+wired into both Atlas mic call sites via the `streamlit-mic-recorder` pip package. Investigating
+that package's source (`streamlit_mic_recorder/__init__.py`) revealed it isn't Web Speech API at
+all: it records raw browser audio and ships it to the *Python process*, which calls
+`SpeechRecognition`'s `recognize_google()` — an undocumented Google endpoint reached over the
+server's network, wrapped in a bare `except: return None` (silent failure on any network issue).
+`voice_input.is_available()` checks whether the pip package imported, not whether the visitor's
+browser supports speech recognition — the wrong layer for that decision entirely. Also found:
+`modules/stats_lab.py` (t-test/ANOVA/chi-square/Pearson) had zero test coverage anywhere, and its
+`normality_warnings()` function was a dead end — it could tell a user their data wasn't normal but
+offered no valid alternative test. Full detail in `.prism/audit_2026-08-11-run34.md`.
+
+**Phase 2 research:** WebSearch confirmed 2025-2026 Web Speech API support is Chrome/Edge/Opera
+(cloud-based) **and Safari** (14.1+/14.5+, `webkitSpeechRecognition` prefix, can run fully
+on-device) — Safari support is a correction to the common "Chrome/Edge only" assumption. Firefox
+remains shipped-disabled behind a flag. Also confirmed 2026 copilot-UX best practice: a
+user-initiated mic button with explicit per-failure-mode messaging (not one generic fallback), and
+explicitly treating proactive/ambient voice and animated HUDs as separate, larger scope than a
+mic-input slice — matching this run's own scope discipline. Full detail in
+`.prism/research_2026-08-11-run34.md`.
+
+**Selected: (1) Web Speech API voice input for Atlas** (`modules/web_speech.py`, new module) —
+replaces the streamlit-mic-recorder path at both mic call sites with a self-contained widget using
+the browser's native `SpeechRecognition`/`webkitSpeechRecognition`, feature-detected client-side
+(zero pip dependency, zero server network call for transcription). Delivers its transcript into
+Atlas's existing `chat_input`/`text_input` widgets via the native value-setter trick plus finding
+and clicking the widget's own submit control — the Enter-key-simulation approach was tried first
+and proven **not to work** by real Playwright automation before being replaced. Explicit messaging
+for every failure state (unsupported browser, permission denied, no speech, network error, no
+mic). Scoped exactly per the brief: a working mic-input button feeding the existing text pipeline,
+no animated HUD, no proactive surfacing. **(2) Non-parametric alternatives in Stats Lab**
+(`modules/stats_lab.py` extended) — Mann-Whitney U / Kruskal-Wallis H / Spearman's rho as the
+rank-based counterparts to the existing t-test / ANOVA / Pearson, closing the
+`normality_warnings()` dead end found in Phase 1. Zero new pip dependencies (`scipy.stats` already
+pinned), zero Gemini calls.
+
+**Why these over alternatives:** the Atlas slot was pre-committed per this run's brief (16+ runs
+since Run 17's fast-path slice, doubly-flagged by Runs 31/32/33). The second pick was chosen after
+confirming Run 33's broader gap sweep was still accurate (most obvious feature ideas already
+shipped) and finding a real, narrow, well-scoped gap in an existing module rather than reaching for
+a speculative new one — both zero new dependencies, both M effort, both closing a *found* gap
+rather than an assumed one.
+
+**Shipped:** both, on `feature/atlas-web-speech` and `feature/stats-lab-nonparametric`, merged
+`--no-ff` into `claude/adoring-meitner-7xxgfq` sequentially (web-speech first, stats-lab-
+nonparametric branched off the already-merged base, matching Run 33's no-conflict precedent — the
+two features touch non-overlapping regions of `app.py`). Suite 831 → 904 (73 new tests: 28 for
+`web_speech`, 45 for `stats_lab` — the latter including full retroactive coverage of the
+previously-untested existing t-test/ANOVA/chi-square/Pearson functions, not just the 3 new ones).
+Zero regressions, zero merge conflicts. Caught and fixed two real bugs before merging: a backwards
+sign convention in the Mann-Whitney rank-biserial effect size (caught by a unit test), and an
+iframe height clipping the unsupported-browser message by ~3px at mobile width (caught by a real
+Playwright screenshot, not something a unit test could see).
+
+**Verification:** full pytest suite green at every stage (831 → 859 on the web-speech branch alone
+→ 904 after both merges). Live `streamlit run app.py` smoke test (HTTP 200, clean logs, no
+tracebacks) after each branch and on the final merged branch. Real Playwright screenshots (see the
+fix note above) at desktop (1440×960) and mobile-PWA (390×844) viewports, dark and light themes,
+covering: both mic widgets in their idle state, the unsupported-browser fallback message (both
+viewports), and a live end-to-end transcript delivery proof (stubbed `SpeechRecognition` firing a
+fake result, landing in Atlas's real chat history, triggering the real intent-router dispatch) —
+saved to `.prism/runs/2026-08-11-run34/`. `streamlit.testing.v1.AppTest` verification for the
+Stats Lab feature (pre-seeded session state, since prior runs' "any 2nd `.run()` throws" quirk
+reproduced identically this run too — worked around the same documented way). One screenshot
+combination (mobile + light theme) could not be reliably automated within this run's time budget
+(BaseWeb Select dropdown interaction was flaky specifically on the mobile/touch-emulated context) —
+documented as an automation limitation, not a product defect, since the same theme-token-passing
+code path was already confirmed correct on desktop and is provably viewport-independent.
+
+Full reasoning, screenshots, and Run 35 recommendation in `RUN_REPORT_2026-08-11-run34.md`.
