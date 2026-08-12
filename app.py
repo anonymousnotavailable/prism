@@ -215,6 +215,8 @@ _DEFAULTS = {
     "mllab_error": None,  # error from the last baseline model run, if any
     "mllab_shap_values": None,  # last "Generate SHAP Explanations" result (shap.Explanation), if any
     "mllab_shap_error": None,  # error from the last SHAP attempt, if any
+    "mllab_threshold_result": None,  # last tune_decision_threshold() result dict
+    "mllab_calibration_result": None,  # last run_probability_calibration() result dict
     "enrichment_report": None,  # last "Titan Enrichment" run's {"locations_enriched", ...} report
     "chaos_result": None,  # last "Run Chaos Test" preview: {"chaotic_df", "report", "before_health", "after_health"}
     "data_dictionary_rows": None,  # last-generated Data Dictionary rows (list[dict]), editable via st.data_editor
@@ -5969,6 +5971,8 @@ elif st.session_state.active_section == "ML Lab":
             st.session_state.mllab_conformal_error = None
             st.session_state.mllab_cv_result = None  # ditto for any prior cross-validation run
             st.session_state.mllab_cv_error = None
+            st.session_state.mllab_threshold_result = None  # ditto for any prior threshold-tuning run
+            st.session_state.mllab_calibration_result = None  # ditto for any prior calibration run
             try:
                 st.session_state.mllab_result = mllab.run_baseline_models(
                     df, mllab_selected_features, mllab_target_col, mllab_task_type, use_smote=mllab_use_smote
@@ -6039,6 +6043,76 @@ elif st.session_state.active_section == "ML Lab":
                     f"({len(baseline_result['confusion_labels'])} classes) — the test set may be too small to "
                     "have every class represented."
                 )
+
+            if roc_pr_curves is not None and roc_pr_curves["mode"] == "binary":
+                st.divider()
+                st.markdown("#### Decision Threshold Tuning & Probability Calibration")
+                st.caption(
+                    "SMOTE above is a data-level fix for imbalance — it resamples the training set. These two "
+                    "are output-level fixes on the model already trained: moving the decision cutoff away from "
+                    "the default 0.5, and checking whether predicted probabilities can be trusted at face value. "
+                    "Both are cheaper than resampling and add no synthetic data."
+                )
+                threshold_model_options = list(roc_pr_curves["roc"].keys())
+                threshold_model_default = "Random Forest" if "Random Forest" in threshold_model_options else threshold_model_options[0]
+                threshold_model = st.selectbox(
+                    "Model", threshold_model_options, index=threshold_model_options.index(threshold_model_default),
+                    key="mllab_threshold_model",
+                )
+
+                st.markdown("**Decision Threshold Tuning**")
+                threshold_cost_cols = st.columns(2)
+                with threshold_cost_cols[0]:
+                    threshold_cost_fp = st.number_input(
+                        "Cost per false positive", min_value=0.1, value=1.0, step=0.1, key="mllab_threshold_cost_fp",
+                    )
+                with threshold_cost_cols[1]:
+                    threshold_cost_fn = st.number_input(
+                        "Cost per false negative", min_value=0.1, value=1.0, step=0.1, key="mllab_threshold_cost_fn",
+                        help="Raise this above the false-positive cost when missing a positive case (e.g. "
+                             "churn, fraud, default) is more expensive than a false alarm.",
+                    )
+                if st.button("Tune Decision Threshold", key="mllab_threshold_btn", use_container_width=True):
+                    st.session_state.mllab_threshold_result = mllab.tune_decision_threshold(
+                        baseline_result, model_name=threshold_model, cost_fp=threshold_cost_fp, cost_fn=threshold_cost_fn,
+                    )
+
+                threshold_result = st.session_state.mllab_threshold_result
+                if threshold_result is not None:
+                    if "error" in threshold_result:
+                        st.warning(threshold_result["error"])
+                    else:
+                        threshold_metric_cols = st.columns(3)
+                        threshold_metric_cols[0].metric("Default (0.5) F1", f"{threshold_result['default_metrics']['f1']:.4f}")
+                        threshold_metric_cols[1].metric("Best F1", f"{threshold_result['best_f1']:.4f}", delta=f"threshold={threshold_result['best_threshold_f1']:.2f}")
+                        threshold_metric_cols[2].metric("Cost-optimal threshold", f"{threshold_result['best_threshold_cost']:.2f}")
+                        st.plotly_chart(mllab.build_threshold_chart(threshold_result), use_container_width=True)
+                        for verdict_line in mllab.threshold_verdict(threshold_result):
+                            st.markdown(f"- {verdict_line}")
+
+                st.markdown("**Probability Calibration**")
+                calibration_method = st.radio(
+                    "Method", ["isotonic", "sigmoid"], horizontal=True, key="mllab_calibration_method",
+                    help="Isotonic is more flexible but needs more data; sigmoid (Platt scaling) is more stable "
+                         "on smaller training sets.",
+                )
+                if st.button("Check Calibration", key="mllab_calibration_btn", use_container_width=True):
+                    with st.spinner("Cross-validating a calibrated version of the model…"):
+                        st.session_state.mllab_calibration_result = mllab.run_probability_calibration(
+                            baseline_result, model_name=threshold_model, method=calibration_method,
+                        )
+
+                calibration_result = st.session_state.mllab_calibration_result
+                if calibration_result is not None:
+                    if "error" in calibration_result:
+                        st.warning(calibration_result["error"])
+                    else:
+                        calib_metric_cols = st.columns(2)
+                        calib_metric_cols[0].metric("Brier score (uncalibrated)", f"{calibration_result['brier_before']:.4f}")
+                        calib_metric_cols[1].metric("Brier score (calibrated)", f"{calibration_result['brier_after']:.4f}")
+                        st.plotly_chart(mllab.build_calibration_chart(calibration_result), use_container_width=True)
+                        for verdict_line in mllab.calibration_verdict(calibration_result):
+                            st.markdown(f"- {verdict_line}")
 
             if baseline_result["feature_importances"] is not None:
                 st.plotly_chart(
