@@ -97,6 +97,12 @@ def test_run_all_detectors_runs_both_on_a_fresh_dataset():
     # confounder cross-check wired the same as the manual "Run Hypothesis
     # Sweep" button (see cross_check_confounders() call in app.py)
     assert isinstance(result["confounder_check"], list)
+    # Both interaction checks (ANOVA + chi-square) wired the same way — a
+    # standing gap this run closed: "Run All Detectors" used to skip both,
+    # leaving the panels stuck on a stale/empty result from before the
+    # dataset that got auto-run.
+    assert isinstance(result["interaction_check"], list)
+    assert isinstance(result["categorical_interaction_check"], list)
 
 
 def test_run_all_detectors_skips_sweep_already_computed_this_session():

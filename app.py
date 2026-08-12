@@ -169,6 +169,7 @@ _DEFAULTS = {
     "hypothesis_sweep_confounder_check": None,  # hypothesis_sweep.cross_check_confounders() result for the last sweep
     "hypothesis_sweep_confounder_narrations": {},  # cache of confounder_detection.narrate_confounder_finding() results, keyed like confounder_narrations
     "hypothesis_sweep_interaction_check": None,  # hypothesis_sweep.cross_check_interactions() result for the last sweep
+    "hypothesis_sweep_categorical_interaction_check": None,  # hypothesis_sweep.cross_check_categorical_interactions() result for the last sweep
     "detector_runner_last_ran": [],  # detector names fired by the last "Run All Detectors" click (modules/detector_runner.py), for a one-line confirmation caption
     "detector_runner_last_skipped": [],  # [{"detector","reason"}, ...] from that same click
     "mllab_feature_selection_result": None,  # last "Run Feature Selection" result dict from ML Lab
@@ -322,6 +323,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.hypothesis_sweep_narration_verification = None
     st.session_state.hypothesis_sweep_confounder_check = None
     st.session_state.hypothesis_sweep_confounder_narrations = {}
+    st.session_state.hypothesis_sweep_interaction_check = None
+    st.session_state.hypothesis_sweep_categorical_interaction_check = None
     st.session_state.detector_runner_last_ran = []
     st.session_state.detector_runner_last_skipped = []
     st.session_state.mllab_feature_selection_result = None
@@ -1675,6 +1678,8 @@ elif st.session_state.active_section == "Overview":
                 if "hypothesis_sweep" in _run_result["ran"]:
                     st.session_state.hypothesis_sweep_result = _run_result["sweep_result"]
                     st.session_state.hypothesis_sweep_confounder_check = _run_result["confounder_check"]
+                    st.session_state.hypothesis_sweep_interaction_check = _run_result["interaction_check"]
+                    st.session_state.hypothesis_sweep_categorical_interaction_check = _run_result["categorical_interaction_check"]
                     st.session_state.hypothesis_sweep_narration = None
                     st.session_state.hypothesis_sweep_narration_fingerprint = None
                     st.session_state.hypothesis_sweep_narration_verification = None
@@ -4049,6 +4054,16 @@ elif st.session_state.active_section == "Stats Lab":
                 st.session_state.hypothesis_sweep_interaction_check = hypothesis_sweep.cross_check_interactions(
                     df, column_types, sweep_result_new
                 )
+                # Third agentic follow-up, same spinner: the chi-square analog
+                # of the interaction check above — does the *association*
+                # between two categorical columns itself depend on a third
+                # categorical column? See cross_check_categorical_interactions()'s
+                # docstring. No extra Gemini call.
+                st.session_state.hypothesis_sweep_categorical_interaction_check = (
+                    hypothesis_sweep.cross_check_categorical_interactions(
+                        df, column_types, sweep_result_new
+                    )
+                )
             st.session_state.hypothesis_sweep_narration = None
             st.session_state.hypothesis_sweep_narration_fingerprint = None
             st.session_state.hypothesis_sweep_narration_verification = None
@@ -4234,6 +4249,43 @@ elif st.session_state.active_section == "Stats Lab":
                             means_df = pd.DataFrame(finding["group_means"]).T
                             means_df.index.name = finding["other_col"]
                             st.dataframe(means_df.round(3), use_container_width=True)
+
+                # Categorical interaction check — the chi-square analog of the
+                # panel above: does the *strength of association* between two
+                # categorical columns itself depend on a third categorical
+                # column? Tested via a log-linear (Poisson GLM) three-way
+                # interaction term, since there's no numeric outcome here for
+                # a two-way ANOVA to apply to.
+                sweep_cat_interaction_scan = st.session_state.hypothesis_sweep_categorical_interaction_check
+                if sweep_cat_interaction_scan:
+                    n_cat_interactions = len(sweep_cat_interaction_scan)
+                    st.markdown(
+                        f"**🔗 Association interaction check** — {n_cat_interactions} categorical "
+                        f"association{'s' if n_cat_interactions != 1 else ''} that "
+                        f"{'varies' if n_cat_interactions == 1 else 'vary'} across a third column"
+                    )
+                    st.caption(
+                        "A significant chi-square association doesn't always mean it holds the "
+                        "same way everywhere — these associations get stronger or weaker "
+                        "depending on a third categorical factor."
+                    )
+                    for finding in sweep_cat_interaction_scan:
+                        label = (
+                            f"🔗 **{finding['cat_a']}** ↔ **{finding['cat_b']}** association "
+                            f"varies across **{finding['other_col']}**"
+                        )
+                        with st.expander(label, expanded=False):
+                            st.caption(
+                                f"Interaction p (FDR-adjusted) = {finding['interaction_p_adj']:.4g}"
+                            )
+                            cv_df = pd.DataFrame(
+                                [
+                                    {"level": level, "Cramer's V": round(v, 3)}
+                                    for level, v in finding["cramers_v_by_level"].items()
+                                ]
+                            ).sort_values("Cramer's V", ascending=False)
+                            cv_df.columns = [finding["other_col"], "Cramer's V"]
+                            st.dataframe(cv_df, use_container_width=True, hide_index=True)
 
                 # AI narration — cached per fingerprint of this exact sweep result,
                 # same pattern as anomaly narration: only a genuinely different
