@@ -2624,3 +2624,19 @@ Plan: branch `feature/robust-regression` and `feature/threshold-calibration` off
 `claude/adoring-meitner-7xxgfq`, tests first, implement, full suite green at every stage, merge
 both `--no-ff` sequentially (no expected overlap — one lives in `regression_diagnostics.py`, the
 other in `mllab.py`), push.
+
+## Run 35 — 2026-08-12 — result
+
+Shipped: dead-code cleanup (`modules/voice_input.py` + `streamlit-mic-recorder` removed, confirmed
+zero remaining references), Robust Regression comparison (`modules/regression_diagnostics.py` —
+Huber/RANSAC/Theil-Sen vs. OLS, 12 tests), and Decision Threshold Tuning + Probability Calibration
+(`modules/mllab.py` — the "beyond SMOTE" imbalance levers, 16 tests). Suite 904 -> 932, zero
+regressions, zero merge conflicts (cleanup merged first, then robust-regression, then threshold-
+calibration branched off the already-merged base — non-overlapping files, same sequencing
+precedent as Runs 33/34). Verified via full pytest suite at every stage, live `streamlit run`
+smoke tests (HTTP 200, clean logs), and real Playwright screenshots (per Run 34's confirmed
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome` recipe — never `playwright install`) against
+real fitted models on real sample datasets (Stocks for robust regression, HR's 16%-imbalanced
+attrition target for threshold/calibration) at desktop dark/light and mobile-PWA dark, zero
+console errors. Full reasoning, screenshots, and Run 36 recommendation in
+`RUN_REPORT_2026-08-12-run35.md`.
