@@ -72,7 +72,7 @@ from modules import (
     type_coercion,
     ui,
     visualization,
-    voice_input,
+    web_speech,
 )
 
 try:
@@ -150,8 +150,6 @@ _DEFAULTS = {
     "second_file_name": None,  # detects a new second-file upload vs. a plain rerun
     "combine_preview_df": None,  # last previewed join result
     "combine_stats": None,  # stats dict for the last previewed join
-    "last_voice_text": None,  # dedupes repeated speech_to_text() return values across reruns
-    "pending_voice_question": None,  # a transcribed question waiting to be fed into the chat pipeline
     "theme_mode": theme.DEFAULT_THEME,  # one of theme.THEMES — sidebar selector
     "onboarding_dismissed": False,  # first-visit step-by-step intro, dismissible once per session
     "undo_stack": [],  # snapshots of {working_df, column_types, cleaning_log} before each mutation, capped at 10
@@ -253,6 +251,16 @@ for key, default_value in _DEFAULTS.items():
 theme.apply_custom_theme(st.session_state.theme_mode)
 theme.apply_plotly_theme(st.session_state.theme_mode)
 theme.sync_native_theme(st.session_state.theme_mode)
+
+
+def _active_theme_tokens() -> dict:
+    """The active theme's token dict, for anything (like modules/web_speech.py's
+    mic widget) that renders outside Streamlit's own CSS cascade — e.g. inside
+    a components.html() iframe — and so can't just inherit the page's CSS
+    custom properties across the frame boundary.
+    """
+    return theme.THEMES.get(st.session_state.theme_mode, theme.THEMES[theme.DEFAULT_THEME])
+
 
 UNDO_STACK_CAP = 10
 
@@ -1476,19 +1484,26 @@ _atlas_utterance = None
 with st.container(key="atlas_command_bar"):
     mic_col, hint_col = st.columns([1, 4])
     with mic_col:
-        if voice_input.is_available():
-            voice_text = voice_input.record_question(key="atlas_global_mic")
-            if voice_text and voice_text != st.session_state.last_voice_text:
-                st.session_state.last_voice_text = voice_text
-                atlas.set_state("listening")
-                _atlas_utterance = voice_text
-        else:
-            st.caption("Voice input unavailable — mic permission denied or package missing. Type a command below.")
+        # Web Speech API mic (modules/web_speech.py): runs entirely in the
+        # browser, feature-detected client-side, and hands its transcript
+        # straight to the chat_input below (key="atlas_command_input") by
+        # simulating a real type-and-press-Enter — so it needs no session-
+        # state dedup dance the way the old streamlit-mic-recorder path did
+        # (that widget kept re-returning its last transcript across reruns;
+        # a real chat_input submission only fires once, on its own run).
+        web_speech.render(
+            key="atlas_global_mic",
+            target_key="atlas_command_input",
+            theme_tokens=_active_theme_tokens(),
+        )
     with hint_col:
         if st.session_state.get("atlas_last_heard"):
             st.caption(f'Atlas heard: "{st.session_state.atlas_last_heard}"')
 
-typed_command = st.chat_input('Ask Atlas anything, or type a command — e.g. "clean the nulls"')
+typed_command = st.chat_input(
+    'Ask Atlas anything, or type a command — e.g. "clean the nulls"',
+    key="atlas_command_input",
+)
 if typed_command:
     _atlas_utterance = typed_command
 
@@ -1773,14 +1788,15 @@ if not st.session_state.demo_mode_running and not st.session_state.story_mode_ac
             if chip_row[i % 2].button(label, key=f"atlas_chip_{i}", use_container_width=True):
                 _atlas_utterance = label
 
-        if voice_input.is_available():
-            voice_text = voice_input.record_question(key="atlas_panel_mic")
-            if voice_text and voice_text != st.session_state.last_voice_text:
-                st.session_state.last_voice_text = voice_text
-                atlas.set_state("listening")
-                _atlas_utterance = voice_text
-        else:
-            st.caption("Voice unavailable — type below instead.")
+        # Same Web Speech API mic as the global command bar (see its call
+        # site above for why), targeting the panel's own text_input below —
+        # a single-text-input st.form submits on Enter by itself, which is
+        # exactly the key our injected keydown/keyup simulates.
+        web_speech.render(
+            key="atlas_panel_mic",
+            target_key="atlas_panel_text",
+            theme_tokens=_active_theme_tokens(),
+        )
 
         with st.form(key="atlas_panel_form", clear_on_submit=True, border=False):
             panel_text = st.text_input(
