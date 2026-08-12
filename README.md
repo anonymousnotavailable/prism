@@ -370,9 +370,9 @@ prism/
 │   ├── session_io.py        # JSON session save/load
 │   ├── join_engine.py       # Candidate join-key detection, join execution + stats
 │   ├── sql_lab.py           # DuckDB query execution, example query builder
-│   ├── voice_input.py       # streamlit-mic-recorder wrapper, graceful fallback
 │   ├── ai_analyst.py        # Gemini integration, safe code execution, self-healing retry
 │   ├── atlas.py             # Voice operator: intent router, command registry, TTS, persona, orb
+│   ├── web_speech.py        # Browser-native Web Speech API mic input for Atlas
 │   ├── auto_analyst.py      # v2: agentic plan generation + sequential sandboxed execution
 │   ├── stats_lab.py         # v2: test suggestion, scipy.stats execution, plain-English verdicts
 │   ├── forecasting.py       # v2: ETS/SARIMAX forecasting with confidence bands
