@@ -2094,3 +2094,55 @@ per metric alongside (not replacing) the existing single-split numbers is
 the natural next-run slice.
 
 Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).
+
+## Run 31 — 2026-08-12
+
+Reused Run 30's audit/research and standing backlog (token-efficiency
+reasoning every run since Run 9 has logged) — built exactly what Run 30's
+own report recommended as the next-run item.
+
+**Shipped:** the chi-square analog of Run 30's ANOVA interaction check —
+`hypothesis_sweep.cross_check_categorical_interactions()`. For the sweep's
+significant categorical/categorical (chi-square) findings, fits a
+log-linear (Poisson GLM) model over the full `cat_a x cat_b x other_col`
+contingency table and runs a likelihood-ratio test on the three-way
+interaction term (saturated vs. two-way-only model), FDR-corrected across
+every third-column candidate tested. New "🔗 Association interaction check"
+panel in Stats Lab below the existing ANOVA one, showing per-level Cramer's
+V. Satisfies this cycle's mandatory agentic-AI-analysis theme. 7 new tests.
+
+**Bundled fix (found via code audit, not live repro):** `detector_runner.
+run_all_detectors()` (the "⚡ Run All Detectors" one-click entry point)
+computed the confounder cross-check but never called either interaction
+check (ANOVA or the new categorical one) — so the one-click path could show
+weaker/stale results than clicking each tab manually. Wired both into
+`run_all_detectors()` and into `app.py`'s new-dataset reset block (which had
+the same gap for the ANOVA check since Run 30). 2 new assertions.
+
+Full suite: 573 → 579 green, zero regressions. Verified live via Playwright
+against a planted dataset (`cat_a`/`cat_b` 95%-matched within `region ==
+north`, independent within `south`): panel correctly showed
+`interaction_p_adj = 1.29e-30` and Cramer's V of 0.923 (north) vs. 0.0
+(south) — the exact planted signal, end-to-end through the real UI.
+Screenshots: desktop dark/light + mobile dark, `.prism/runs/2026-08-12-run31/`.
+Merged `feature/chi2-three-way-interaction-check` into `main` (`--no-ff`),
+full suite re-verified green post-merge, fresh-boot check (HTTP 200, no
+traceback) passed. Pushed `main` and fast-forwarded the session branch
+(`claude/adoring-meitner-ht4lkl`) to match. `.env`/secrets hygiene checked
+(clean — `.gitignore` covers `.env` and `secrets.toml`).
+
+**Not built (backlog, updated):** PyGWalker chart builder's remaining
+interaction model (L-effort, architecture-adjacent, unchanged — now the
+longest-standing item). Light-theme repaint-lag (cosmetic, unchanged).
+Live-Gemini verification (14th consecutive run, structural sandbox
+constraint). New small candidate: unify Gemini client construction across
+`ai_analyst.get_model()`/`get_sql_model()`/`atlas._client()` into one
+factory — noticed while reading `ai_analyst.py` this run, not evidenced as
+broken, S-effort cosmetic cleanup, not previously logged.
+
+**Process note (unchanged from every run since Run 10):** this run's
+trigger again asked for the loop to repeat "until the session is 100%
+used" while also saying "don't use credits" — same contradiction every
+prior run has flagged. Ran one complete, safely verified cycle and
+stopped, per the hard guardrails, which take precedence over the
+scheduling prompt's phrasing.
