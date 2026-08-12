@@ -61,6 +61,31 @@ def test_prepare_series_averages_duplicate_timestamps():
     assert series.loc["2026-01-01"] == 20.0  # mean of 10, 20, 30
 
 
+def test_prepare_series_coerces_string_dtype_datetime_column():
+    """Regression test: a freshly uploaded CSV's date column is `object`
+    dtype (data_engine.detect_column_types labels it "datetime" without
+    ever converting the DataFrame itself). Before this fix, Series.asfreq()
+    silently turned every value to NaN when the index wasn't already a real
+    DatetimeIndex — no error, just a dead Forecasting/Decomposition tab.
+    """
+    dates_as_strings = [d.strftime("%Y-%m-%d") for d in pd.date_range("2026-01-01", periods=30, freq="D")]
+    df = pd.DataFrame({"date": dates_as_strings, "value": range(30)})
+    assert df["date"].dtype == object
+
+    series, freq, error = prepare_series(df, "date", "value")
+    assert error is None
+    assert freq == "D"
+    assert series.isna().sum() == 0
+    assert list(series.values) == list(range(30))
+
+
+def test_prepare_series_errors_when_string_column_has_no_parseable_dates():
+    df = pd.DataFrame({"date": ["not", "a", "date"] * 4, "value": range(12)})
+    series, freq, error = prepare_series(df, "date", "value")
+    assert series is None
+    assert error is not None
+
+
 # --- can_decompose ----------------------------------------------------------
 
 def test_can_decompose_true_with_enough_weekly_cycles():

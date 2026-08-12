@@ -177,6 +177,8 @@ _DEFAULTS = {
     "forecast_error": None,  # error from the last forecast attempt, if any
     "stl_decomp_result": None,  # forecasting.decompose_series() output for the STL Decomposition panel
     "stl_decomp_error": None,  # error from the last decomposition attempt, if any
+    "changepoint_result": None,  # forecasting.detect_changepoints() output for the Structural Breaks panel
+    "changepoint_error": None,  # error from the last changepoint-detection attempt, if any
     "cluster_result": None,  # last "Run Clustering" result dict
     "cluster_segment_names": [],  # last "Name Segments with AI" descriptions
     "cluster_segment_error": None,  # error from the last segment-naming attempt, if any
@@ -332,6 +334,8 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.forecast_error = None
     st.session_state.stl_decomp_result = None
     st.session_state.stl_decomp_error = None
+    st.session_state.changepoint_result = None
+    st.session_state.changepoint_error = None
     st.session_state.cluster_result = None
     st.session_state.cluster_segment_names = []
     st.session_state.cluster_segment_error = None
@@ -4501,6 +4505,44 @@ elif st.session_state.active_section == "Forecasting":
             st.markdown(forecasting.decomposition_verdict(decomp_result))
             decomp_fig = forecasting.build_decomposition_chart(decomp_result, f"{forecast_num_col} decomposition")
             st.plotly_chart(decomp_fig, use_container_width=True)
+
+        st.divider()
+        st.markdown("#### Structural Breaks (Changepoint Detection)")
+        st.caption(
+            "Finds points where the series' *level* permanently shifted — not a single-point anomaly, "
+            "a lasting change (a policy, a system change, an external event). Uses penalized binary "
+            "segmentation so it won't manufacture breaks out of ordinary noise."
+        )
+        if st.button("Detect Structural Breaks", key="changepoint_btn", use_container_width=True):
+            cp_series, cp_freq, cp_prep_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if cp_prep_error:
+                st.session_state.changepoint_result = None
+                st.session_state.changepoint_error = cp_prep_error
+            else:
+                with st.spinner(ui.get_loading_message()):
+                    cp_outcome = forecasting.detect_changepoints(cp_series)
+                if cp_outcome.get("error"):
+                    st.session_state.changepoint_result = None
+                    st.session_state.changepoint_error = cp_outcome["error"]
+                else:
+                    st.session_state.changepoint_result = cp_outcome
+                    st.session_state.changepoint_error = None
+
+        if st.session_state.changepoint_error:
+            st.error(st.session_state.changepoint_error)
+        elif st.session_state.changepoint_result is None:
+            ui.render_empty_state(
+                "🪢", "No break detection yet", 'Click "Detect Structural Breaks" to scan the series for level shifts.'
+            )
+        else:
+            cp_result = st.session_state.changepoint_result
+            st.markdown(forecasting.changepoint_verdict(cp_result))
+            cp_chart_series, _, cp_chart_error = forecasting.prepare_series(df, forecast_dt_col, forecast_num_col)
+            if cp_chart_error:
+                st.error(cp_chart_error)
+            else:
+                cp_fig = forecasting.build_changepoint_chart(cp_chart_series, cp_result, f"{forecast_num_col} structural breaks")
+                st.plotly_chart(cp_fig, use_container_width=True)
 
 # --------------------------------------------------------------------------
 # Clustering tab — KMeans on standardized numeric columns with an

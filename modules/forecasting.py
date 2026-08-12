@@ -47,6 +47,21 @@ def prepare_series(df: pd.DataFrame, datetime_col: str, numeric_col: str) -> tup
     if clean.empty:
         return None, None, "No non-null paired values in the selected columns."
 
+    # `column_types`'s "datetime" label is a content heuristic (data_engine.
+    # detect_column_types) — it never mutates the DataFrame itself, so a
+    # freshly uploaded CSV's date column is still plain `object`/string
+    # dtype unless the user separately ran "Fix Column Types." Coerce here
+    # rather than trust the caller: Series.asfreq() below silently discards
+    # every value (turns the whole series to NaN, no error raised) when the
+    # index isn't already a real DatetimeIndex, since it can't align
+    # string labels against the new datetime index it builds.
+    if not pd.api.types.is_datetime64_any_dtype(clean[datetime_col]):
+        clean = clean.copy()
+        clean[datetime_col] = pd.to_datetime(clean[datetime_col], errors="coerce", format="mixed")
+        clean = clean.dropna(subset=[datetime_col])
+        if clean.empty:
+            return None, None, f"Could not parse any values in '{datetime_col}' as dates."
+
     series = clean.groupby(datetime_col)[numeric_col].mean().sort_index()
     if len(series) < MIN_HISTORY_POINTS:
         return None, None, f"Only {len(series)} distinct timestamps found — need at least {MIN_HISTORY_POINTS} to forecast."
@@ -260,4 +275,179 @@ def build_decomposition_chart(decomposition: dict, title: str) -> go.Figure:
     fig.add_hline(y=0, line_dash="dot", line_color="gray", row=4, col=1)
 
     fig.update_layout(title=title, showlegend=False, height=700, margin=dict(t=60, b=10, l=10, r=10))
+    return fig
+
+
+# ==========================================================================
+# Changepoint / structural-break detection — binary segmentation with a
+# BIC-style penalty. Answers a different question than STL decomposition:
+# not "what's the repeating pattern?" but "did this metric's *level*
+# permanently shift, and when?" — the kind of question a demo audience asks
+# about a revenue/traffic series ("what happened in March?").
+#
+# Deliberately dependency-free (no `ruptures`/`changepoint` package): this is
+# a from-scratch implementation of classic binary segmentation (Scott &
+# Knott, 1974) — the same greedy split-on-largest-residual-reduction idea
+# those libraries use for their `Binseg` estimator — with a BIC-style
+# penalty (`penalty_scale * sigma^2 * ln(n)`) as the stopping rule so the
+# detector doesn't manufacture breaks out of pure noise. Everything here
+# reuses numpy, already a hard dependency.
+# ==========================================================================
+
+DEFAULT_MIN_SEGMENT_SIZE = 5
+MAX_CHANGEPOINTS_DEFAULT = 5
+CHANGEPOINT_PENALTY_SCALE = 2.0
+
+
+def _segment_ss(values: np.ndarray) -> float:
+    """Sum of squared deviations from the segment's own mean."""
+    if len(values) == 0:
+        return 0.0
+    return float(np.sum((values - values.mean()) ** 2))
+
+
+def _best_split(values: np.ndarray, min_segment_size: int) -> Optional[tuple[int, float]]:
+    """Best single split point for `values`, vectorized via prefix sums so
+    every candidate split is scored in O(m) total rather than O(m) work
+    per candidate. Returns (split_index, cost_improvement) — the index is
+    relative to the start of `values` — or None if no split respects
+    `min_segment_size` on both sides.
+    """
+    m = len(values)
+    if m < 2 * min_segment_size:
+        return None
+
+    cs = np.concatenate(([0.0], np.cumsum(values)))
+    css = np.concatenate(([0.0], np.cumsum(values ** 2)))
+
+    ks = np.arange(min_segment_size, m - min_segment_size + 1)
+    left_n, right_n = ks, m - ks
+    left_sum, right_sum = cs[ks], cs[m] - cs[ks]
+    left_ss = css[ks] - (left_sum ** 2) / left_n
+    right_ss = (css[m] - css[ks]) - (right_sum ** 2) / right_n
+    split_cost = left_ss + right_ss
+
+    best_pos = int(np.argmin(split_cost))
+    base_cost = css[m] - (cs[m] ** 2) / m
+    improvement = float(base_cost - split_cost[best_pos])
+    return int(ks[best_pos]), improvement
+
+
+def detect_changepoints(
+    series: pd.Series,
+    max_changepoints: int = MAX_CHANGEPOINTS_DEFAULT,
+    min_segment_size: Optional[int] = None,
+    penalty_scale: float = CHANGEPOINT_PENALTY_SCALE,
+) -> dict:
+    """Detect structural breaks (permanent mean shifts) in `series` via
+    penalized binary segmentation. At each step, every current segment is
+    scanned for its single best internal split (the one minimizing combined
+    within-segment sum of squares); the globally strongest candidate across
+    all segments is accepted only if its cost improvement clears a
+    BIC-style penalty, then the process repeats on the resulting segments
+    until no candidate clears the penalty or `max_changepoints` is reached.
+
+    Returns a dict with "changepoints" (a list of dicts, one per detected
+    break, ordered by position: "position", "date", "before_mean",
+    "after_mean", "delta", "pct_change", "before_n", "after_n") and
+    "n_segments" — or "error" if the series is too short.
+    """
+    values = series.values.astype(float)
+    n = len(values)
+
+    if min_segment_size is None:
+        min_segment_size = max(DEFAULT_MIN_SEGMENT_SIZE, n // 20)
+
+    if n < 2 * min_segment_size:
+        return {
+            "error": f"Need at least {2 * min_segment_size} observations for changepoint detection "
+                     f"(min segment size {min_segment_size}) — only {n} available."
+        }
+
+    global_var = float(np.var(values))
+    if global_var == 0:
+        return {"changepoints": [], "n_segments": 1, "penalty": 0.0}
+
+    penalty = penalty_scale * global_var * np.log(n)
+
+    segments = [(0, n)]
+    split_positions: list[int] = []
+    while len(split_positions) < max_changepoints:
+        best = None  # (improvement, absolute_split_pos, segment_list_index)
+        for i, (start, end) in enumerate(segments):
+            result = _best_split(values[start:end], min_segment_size)
+            if result is None:
+                continue
+            local_k, improvement = result
+            if improvement <= penalty:
+                continue
+            if best is None or improvement > best[0]:
+                best = (improvement, start + local_k, i)
+        if best is None:
+            break
+        _, split_pos, seg_idx = best
+        start, end = segments.pop(seg_idx)
+        segments.insert(seg_idx, (split_pos, end))
+        segments.insert(seg_idx, (start, split_pos))
+        split_positions.append(split_pos)
+
+    split_positions.sort()
+    boundaries = [0] + split_positions + [n]
+    changepoints = []
+    for i, pos in enumerate(split_positions):
+        before_start, before_end = boundaries[i], pos
+        after_start, after_end = pos, boundaries[i + 2]
+        before_mean = float(values[before_start:before_end].mean())
+        after_mean = float(values[after_start:after_end].mean())
+        delta = after_mean - before_mean
+        pct_change = (delta / abs(before_mean)) if before_mean != 0 else None
+        changepoints.append({
+            "position": pos,
+            "date": series.index[pos],
+            "before_mean": before_mean,
+            "after_mean": after_mean,
+            "delta": delta,
+            "pct_change": pct_change,
+            "before_n": before_end - before_start,
+            "after_n": after_end - after_start,
+        })
+
+    return {"changepoints": changepoints, "n_segments": len(split_positions) + 1, "penalty": float(penalty)}
+
+
+def changepoint_verdict(result: dict) -> str:
+    """Plain-English read of the detected breaks (or their absence)."""
+    changepoints = result.get("changepoints", [])
+    if not changepoints:
+        return (
+            "No statistically meaningful structural breaks detected — the series' level looks stable "
+            "throughout (any wiggles are within what a BIC-penalized detector treats as noise)."
+        )
+
+    lines = [f"**{len(changepoints)} structural break{'s' if len(changepoints) != 1 else ''} detected:**"]
+    for cp in changepoints:
+        direction = "up" if cp["delta"] > 0 else "down"
+        pct_text = f" ({cp['pct_change']:+.1%})" if cp["pct_change"] is not None else ""
+        lines.append(
+            f"- **{pd.Timestamp(cp['date']).date()}** — level shifted {direction} from "
+            f"{cp['before_mean']:.3g} to {cp['after_mean']:.3g}{pct_text}, "
+            f"based on {cp['before_n']} points before vs. {cp['after_n']} after."
+        )
+    lines.append(
+        "Each break is where the series' *mean* permanently moved, not a single-point anomaly — treat it as "
+        "'something changed here' (a policy, a system change, an external event) worth investigating, not noise."
+    )
+    return "\n".join(lines)
+
+
+def build_changepoint_chart(series: pd.Series, result: dict, title: str) -> go.Figure:
+    """The raw series with a vertical dashed line at each detected break."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=series.index, y=series.values, mode="lines", name="Observed", line=dict(color="#4c9be8")))
+    for cp in result.get("changepoints", []):
+        fig.add_vline(
+            x=cp["date"], line_dash="dash", line_color="#e8974c",
+            annotation_text=f"{cp['delta']:+.3g}", annotation_position="top",
+        )
+    fig.update_layout(title=title, showlegend=False, margin=dict(t=50, b=10, l=10, r=10))
     return fig
