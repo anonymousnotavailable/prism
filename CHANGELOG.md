@@ -2,6 +2,34 @@
 
 All notable changes to Prism are logged here, newest first.
 
+## 2026-08-12 (Run 26)
+
+### Added
+- **Run All Detectors** (`modules/detector_runner.py`, `app.py`) — a
+  single agentic entry point on the Overview tab that auto-fires
+  Hypothesis Sweep (`hypothesis_sweep.sweep_hypotheses()` +
+  `annotate_power()` + `cross_check_confounders()`) and Anomaly Detection
+  (`anomaly.find_anomalies()`) together in one click, using the exact
+  same functions and `st.session_state` slots their own manual tab
+  buttons already populate. Closes a gap the app's own code documented:
+  Auto-Insights and Confounder Check already run automatically on
+  upload, but the Agent Summary orchestration layer
+  (`insight_orchestrator.orchestrate_insights()`) stayed silent for most
+  users because it requires 2+ detectors to have fired, and two of its
+  detectors — both fully automatic, needing no column/target selection —
+  only ran after a user separately visited Stats Lab and the Overview
+  "Anomaly Detection" expander. The Causal Effect Estimator and Drift are
+  deliberately *not* included (both need a user-chosen treatment/outcome
+  column or a second dataset — no defensible automatic default). Adds no
+  new Gemini calls (the existing "Generate Executive Summary" button is
+  unchanged, still an explicit click), and guards against a very large
+  dataset turning one click into a multi-minute hang
+  (`MAX_AUTORUN_ROWS`/`MAX_AUTORUN_COLUMNS` in `detector_runner.py`,
+  falls back to "run each detector individually" past the cap). 16 new
+  tests, including an integration test proving `run_all_detectors()`'s
+  output feeds `insight_orchestrator.orchestrate_insights()` to a
+  non-silent, ranked result. 486 → 502 tests green.
+
 ## 2026-08-11 (Run 25)
 
 ### Added

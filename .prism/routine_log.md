@@ -1720,3 +1720,47 @@ web research surfaced. 32 new tests, 454→486 green, zero regressions.
 Verified live via Playwright (desktop dark/light, mobile dark); mobile
 light-theme automation remains blocked by the sidebar/popover gap.
 Merged to `main` and pushed.
+
+---
+
+## Run 26 (2026-08-12) — selection, logged before build
+
+**Selected: "Run Full Analysis" — a single agentic entry point that
+auto-fires the deterministic, zero-extra-input detectors so
+`insight_orchestrator` doesn't require two separate manual tab visits
+before it has enough to synthesize.**
+
+Reasoning: `_build_orchestration_input()`'s own docstring in `app.py`
+already documents the gap precisely — `auto_insights` and
+`confounder_scan` run automatically on upload, but
+`hypothesis_sweep_result` and `anomaly_result_df` stay `None` until the
+user manually opens Stats Lab / the Overview "Anomaly Detection"
+expander and clicks their own button, even though both underlying
+functions (`hypothesis_sweep.sweep_hypotheses()`,
+`anomaly.find_anomalies()`) are pure, deterministic, dataset-wide checks
+that need no column/target selection — unlike Causal Effect Estimator
+(needs treatment/outcome columns) or Drift (needs a second dataset),
+which is exactly why those two are *not* included in the auto-run. This
+was Run 25's own logged option (b) ("a single 'run everything' agentic
+entry point across Auto Insights/Hypothesis Sweep/Anomaly
+Drivers/Insight Orchestrator") and this cycle's fresh web research
+(`.prism/research_2026-08-12.md`) confirms it's the right call over
+chi-square power: 2026 competitor tooling (Julius AI, Hex's Notebook
+Agent, Anomalo's "Self-Driving Data") is converging on "one action,
+multi-faceted result" as the baseline agentic-EDA expectation, and
+Prism already *has* the detector bench — it's gated behind manual
+per-tab clicks, which is the actual gap versus 2026 competitors, not a
+missing detector.
+
+Design constraints going in: no new automatic Gemini calls (reuses the
+existing "Generate Executive Summary" button unchanged, still an
+explicit click) — keeps within Gemini free-tier RPM/RPD discipline
+research reconfirmed this run; size-aware guard so a very large dataset
+doesn't turn one click into a multi-minute hang; must not duplicate any
+detection logic, only wire the two existing pure functions into a new
+`modules/full_analysis.py` orchestration helper plus one Overview-tab
+button; failure states (no numeric columns, sklearn missing, dataset
+too large, too few viable pairs) must degrade to the same inline
+warnings the manual tabs already show, never a crash.
+
+Not an Atlas/JARVIS-track feature this run (no voice/HUD work touched).
