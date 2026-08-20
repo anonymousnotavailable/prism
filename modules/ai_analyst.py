@@ -20,6 +20,7 @@ Setup: put GEMINI_API_KEY=... in a .env file at the project root (see
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -481,6 +482,122 @@ def suggest_sql_fix(model, sql: str, error_message: str, table_name: str = "data
     if error:
         return "", error
     return _strip_sql_fence(text), None
+
+
+_SQL_PLAN_JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
+
+
+def generate_sql_plan(model, df: pd.DataFrame, column_types: dict[str, str], goal: str, table_name: str = "data") -> list[dict]:
+    """SQL-flavored sibling of auto_analyst.generate_analysis_plan: ask Gemini
+    for 2-4 ordered {"title","question"} steps that together answer an
+    open-ended/diagnostic `goal` via SQL against `table_name` — the Atlas
+    "multi" chained-query path. Same never-fails shape as
+    generate_analysis_plan: falls back to a single step wrapping `goal`
+    itself (a degraded "multi" run that's really a "single" run) on any
+    parse/model failure, since a plan-generation hiccup shouldn't block
+    the whole request.
+    """
+    fallback = [{"title": (goal[:40] or "Query"), "question": goal}]
+    if model is None:
+        return fallback
+
+    context = build_data_context(df, column_types)
+    prompt = (
+        "You are a senior data analyst breaking an open-ended question into 2 to 4 "
+        "ordered SQL sub-questions that together answer it. Each sub-question must be "
+        f"answerable as a single DuckDB SQL query against a table named `{table_name}`.\n\n"
+        f"{context}\n\n"
+        f'Open-ended question: "{goal}"\n\n'
+        'Return ONLY a JSON array, each element {"title": "3-6 words", "question": '
+        '"a specific, self-contained question answerable with one SQL query"}. '
+        "No prose, no markdown code fences."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return fallback
+
+    match = _SQL_PLAN_JSON_ARRAY_RE.search(text)
+    if not match:
+        return fallback
+    try:
+        raw_plan = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return fallback
+
+    cleaned = [
+        {"title": str(step.get("title") or f"Step {i + 1}"), "question": str(step["question"])}
+        for i, step in enumerate(raw_plan)
+        if isinstance(step, dict) and step.get("question")
+    ]
+    return cleaned or fallback
+
+
+def _summarize_sql_result(result_df: Optional[pd.DataFrame]) -> str:
+    """Stringify a chained-query step's result compactly for a follow-up prompt."""
+    if result_df is None:
+        return "(no result)"
+    return result_df.head(10).to_string()
+
+
+def synthesize_sql_findings(model, step_outcomes: list[dict]) -> tuple[str, Optional[str]]:
+    """Turn a chained-SQL run's step outcomes ({"title","sql","result_df","error"},
+    one per modules.sql_lab.run_query_multi call) into ONE short spoken
+    paragraph. Unlike auto_analyst.synthesize_findings' 5 numbered bullets,
+    this gets read aloud by Atlas, so it must be continuous prose (2-4
+    sentences) citing concrete numbers from the results — not a list.
+    Steps that errored are excluded from the summary prompt, same
+    discipline as synthesize_findings. Returns (narrative, error);
+    narrative is "" only when every step failed.
+    """
+    if model is None:
+        return "", "No Gemini model available."
+
+    summaries = [
+        f"- {outcome['title']} (`{outcome.get('sql', '')}`): {_summarize_sql_result(outcome.get('result_df'))}"
+        for outcome in step_outcomes
+        if not outcome.get("error")
+    ]
+    if not summaries:
+        return "", "No successful queries to summarize."
+
+    prompt = (
+        "You just ran the following SQL queries against a dataset and got these "
+        f"results:\n\n{chr(10).join(summaries)}\n\n"
+        "You are a senior data analyst speaking your findings out loud to someone who "
+        "can't see the screen. Summarize the overall answer in 2 to 4 continuous "
+        "sentences of plain spoken prose, citing the concrete numbers from the results "
+        "above. No bullet points, no markdown, no headers — just the sentences as "
+        "you'd say them."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
+
+
+def summarize_sql_result(model, question: str, result_df: Optional[pd.DataFrame]) -> tuple[str, Optional[str]]:
+    """Given the question and a single query's result, return ONE spoken
+    sentence stating the actual number/finding — not a description of the
+    query or its shape. Used for the "single" complexity voice narration
+    after an Atlas-triggered SQL query runs (see app.py's
+    _process_atlas_sql_question).
+    """
+    if model is None:
+        return "", "No Gemini model available."
+    if result_df is None or result_df.empty:
+        return "That query didn't return any rows.", None
+
+    prompt = (
+        f'Question: "{question}"\n\n'
+        f"Query result:\n{result_df.head(20).to_string()}\n\n"
+        "Answer the question in exactly ONE spoken sentence, stating the actual "
+        "number or finding from the result above — not a description of the query. "
+        "No markdown, just the sentence as you'd say it out loud."
+    )
+    text, error = call_gemini(model, prompt)
+    if error:
+        return "", error
+    return text.strip(), None
 
 
 def ask_question(

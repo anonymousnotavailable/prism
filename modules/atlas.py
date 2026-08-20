@@ -18,6 +18,11 @@ Architecture (the intent router is the core; everything else hangs off it):
                      ask_and_execute() pipeline — unchanged, so voice and
                      typed questions get identical, already-battle-tested
                      handling and share the same chat_history.
+    SQL_QUESTION --> same non-execution treatment as DATA_QUESTION: atlas.py
+                     only classifies it (plus a "single"|"multi" complexity
+                     field), app.py's _process_atlas_sql_question() generates
+                     and runs the SQL via modules/sql_lab.py and writes the
+                     reserved Atlas tab in SQL Lab.
     CHITCHAT     --> spoken_reply only, nothing executes.
 
 Malformed JSON gets exactly one retry (explicitly asking Gemini to return
@@ -82,12 +87,14 @@ Every message you receive is one utterance from the user (typed or transcribed f
 voice) inside Prism. Classify it and respond with STRICT JSON only — no prose, no
 markdown code fences, just the JSON object — matching exactly this shape:
 
-{{"type": "APP_COMMAND" | "DATA_QUESTION" | "CHITCHAT",
+{{"type": "APP_COMMAND" | "DATA_QUESTION" | "SQL_QUESTION" | "CHITCHAT",
   "action": "navigate" | "load_sample" | "clean_nulls" | "auto_clean" | "generate_dictionary" |
              "propose_plan" | "execute_plan" | "generate_report" | "build_dashboard" | "run_recipe" |
-             "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" | "none",
-  "target": "<tab name, column name, or null>",
-  "question": "<the data question if type is DATA_QUESTION, else null>",
+             "start_story_mode" | "demo_mode" | "next" | "previous" | "confirm" | "cancel" |
+             "save_sql_query" | "none",
+  "target": "<tab name, column name, saved-query name, or null>",
+  "question": "<the data/SQL question if type is DATA_QUESTION or SQL_QUESTION, else null>",
+  "complexity": "<if type is SQL_QUESTION: 'single' or 'multi', else null>",
   "spoken_reply": "<1-2 sentences, in character, said aloud>"}}
 
 Rules:
@@ -112,10 +119,22 @@ Rules:
   conversation shows Atlas was proposing or discussing an analysis plan — if Atlas's last
   message was instead asking to confirm a destructive cleaning action, those same words
   mean "confirm" (see the next rule), not "execute_plan".
-- DATA_QUESTION: the user is asking something about THEIR loaded data ("what's the
-  average revenue by region", "show me nulls in the age column", "now by month" as a
-  follow-up to a prior question). Set "question" to the verbatim question; action is
-  "none".
+- SQL_QUESTION: the user wants an answer computable via SQL over the tabular data —
+  filter/aggregate/sort/group/join/count ("what were sales by region last quarter",
+  "top 10 customers by revenue", "how many orders had a null shipping_date"). Set
+  "question" to the verbatim question (or a cleaned-up version); action "none". Set
+  "complexity" to "single" for one direct ask, "multi" for open-ended/diagnostic asks
+  that need several queries chained together to answer ("what's going wrong with
+  revenue this quarter", "find my biggest data quality issue", "why did churn
+  spike"). Prefer SQL_QUESTION over DATA_QUESTION whenever the question is
+  expressible as filter/aggregate/sort/group/join/count.
+- DATA_QUESTION: the user is asking something about their data that is NOT
+  SQL-expressible — a chart/plot request, statistics/ML (correlation, regression,
+  clustering, forecasting), or a free-form pandas transform. Set "question" to the
+  verbatim question; action is "none".
+- "save_sql_query": the user wants to save the query currently in SQL Lab under a
+  name ("save this as my weekly report", "save this query", "save it as churn_check").
+  Set "target" to the name if one was given, else null (a default name gets assigned).
 - CHITCHAT: greetings, small talk, or anything unrelated to the app or the data.
   action is "none", question is null, spoken_reply carries the whole response.
 - If the user is responding to a pending confirmation with agreement ("yes", "do it",
@@ -162,11 +181,12 @@ def _parse_intent_json(text: str) -> Optional[dict]:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
         return None
-    if data.get("type") not in ("APP_COMMAND", "DATA_QUESTION", "CHITCHAT"):
+    if data.get("type") not in ("APP_COMMAND", "DATA_QUESTION", "SQL_QUESTION", "CHITCHAT"):
         return None
     data.setdefault("action", "none")
     data.setdefault("target", None)
     data.setdefault("question", None)
+    data.setdefault("complexity", "single")  # cheaper/safer default if the model omits it
     data.setdefault("spoken_reply", "")
     return data
 

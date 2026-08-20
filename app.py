@@ -170,6 +170,8 @@ _DEFAULTS = {
     "atlas_orb_state": "idle",  # "idle" | "listening" | "processing" | "speaking"
     "atlas_pending_confirmation": None,  # {action, target, message, approved} — see atlas.guarded()
     "atlas_greeted": False,  # plays the on-load greeting exactly once per session
+    "_atlas_anomaly_mentioned_this_session": False,  # gates announce_ambient_insights' proactive
+                                                       # anomaly mention to at most once per session
     "story_mode_active": False,  # True while the Story Mode overlay is showing (Atlas-narrated)
     "story_slide_index": 0,
     "story_paused": False,
@@ -313,6 +315,31 @@ def sql_lab_all_tables() -> dict:
     return tables
 
 
+ATLAS_SQL_TAB_ID = "atlas_sql"  # reserved tab id, never matches a user-created
+                                 # tab's f"t{uuid.uuid4().hex[:8]}" pattern or "t1"
+
+
+def _write_atlas_sql_tab(sql: str, name: str) -> None:
+    """Create-or-update the reserved Atlas SQL tab and make it active. Not
+    the SQL Lab branch's local _sql_lab_inject() closure — that one also
+    calls st.rerun() itself, which would double-rerun here since this is
+    called from _process_atlas_sql_question, itself called from
+    _process_atlas_utterance which already reruns once at its own end.
+    Falls through to re-creating the tab if the user had closed it via
+    SQL Lab's "✕ Close" button — it's an ordinary sql_lab_tabs entry once
+    created, closeable like any other.
+    """
+    existing = next((t for t in st.session_state.sql_lab_tabs if t["id"] == ATLAS_SQL_TAB_ID), None)
+    if existing is None:
+        st.session_state.sql_lab_tabs.append({"id": ATLAS_SQL_TAB_ID, "name": name, "sql": sql})
+        st.session_state.sql_lab_tabs_rev += 1  # only on create — remounts the tab picker with the new option
+    else:
+        existing["sql"] = sql
+        existing["name"] = name
+    st.session_state.sql_lab_active_tab_id = ATLAS_SQL_TAB_ID
+    st.session_state.sql_lab_editor_rev += 1  # always — forces the ace editor widget to remount with new text
+
+
 # --------------------------------------------------------------------------
 # Atlas command registry — the concrete Prism actions the intent router can
 # execute. Registered once (idempotently, on every rerun) so atlas.dispatch()
@@ -334,7 +361,8 @@ def _cmd_load_sample(target) -> None:
     sample_df = ui.load_sample_dataframe(label)
     set_active_dataset(sample_df, sample_df.copy(), f"sample:{label.lower()}.csv")
     announce_ambient_insights(
-        sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+        sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types),
+        st.session_state.column_types,
     )
 
 
@@ -568,12 +596,19 @@ def _cmd_previous(target) -> None:
         atlas.say_only("There's no story in progress.")
 
 
-def announce_ambient_insights(df, quality: dict) -> None:
+def announce_ambient_insights(df, quality: dict, column_types: dict) -> None:
     """Item 5 (ambient insights) — after ANY fresh dataset load, Atlas
     proactively summarizes row/column count, the two most important quality
     findings, and one suggested next action, ending with a question. A
     "yes"/"do it" reply then routes through the normal intent router as a
     'confirm' for whichever guarded command that question implies.
+
+    Also folds in a proactive anomaly mention (gated once per session AND
+    severe-only — IsolationForest's default contamination=0.05 flags ~5% of
+    rows on almost any dataset with numeric variance, so an unfiltered
+    mention would fire on nearly every load, including clean data; only a
+    row deviating heavily — >=3x its column's median — is worth a spoken
+    interruption).
     """
     findings = []
     if quality["total_missing_pct"] > 0:
@@ -582,6 +617,21 @@ def announce_ambient_insights(df, quality: dict) -> None:
         findings.append(f"{quality['duplicate_rows']} duplicate row(s)")
     if quality["all_null_columns"]:
         findings.append(f"{len(quality['all_null_columns'])} fully empty column(s)")
+
+    anomaly_note = None
+    if (
+        not st.session_state.get("_atlas_anomaly_mentioned_this_session")
+        and anomaly.is_available()
+        and len(df) >= anomaly.MIN_ROWS_REQUIRED
+    ):
+        flagged, _anomaly_error = anomaly.find_anomalies(df, column_types)
+        if flagged is not None and not flagged.empty:
+            ratios = [
+                float(m.group(1)) for r in flagged["anomaly_reason"] if (m := re.search(r"(\d+\.\d+)x", r))
+            ]
+            if ratios and max(ratios) >= 3.0:
+                anomaly_note = f"one row looks like a real outlier ({max(ratios):.1f}x its column's median)"
+                st.session_state._atlas_anomaly_mentioned_this_session = True
 
     if findings:
         summary = (
@@ -595,6 +645,8 @@ def announce_ambient_insights(df, quality: dict) -> None:
             'looking clean already. Say "plan this" and I\'ll work out an analysis plan, '
             "or just tell me what you want to know."
         )
+    if anomaly_note:
+        summary += f" Also, {anomaly_note} — worth a look."
     atlas.say_only(summary)
 
 
@@ -670,6 +722,31 @@ def _cmd_auto_clean(target) -> None:
     _run_auto_clean(target)
 
 
+def _cmd_save_sql_query(target) -> None:
+    """Voice/typed "save this as X" — saves the query currently in SQL
+    Lab's active tab into sql_lab_saved_queries (the session-durable list
+    backing the Saved Queries expander's "This session" buttons), NOT the
+    download-button JSON path — a server-side handler can't trigger a
+    browser file-save dialog without a click, so this is the only path
+    that can make a voice save feel instant.
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    sql = sql_lab_active_tab()["sql"].strip()
+    if not sql:
+        atlas.say_only("There's nothing in the SQL editor yet to save.")
+        return
+    name = (target or "").strip() or f"Atlas query {len(st.session_state.sql_lab_saved_queries) + 1}"
+    existing_names = {q["name"] for q in st.session_state.sql_lab_saved_queries}
+    if name in existing_names:
+        # the Saved Queries UI keys each button by name — an unguarded duplicate
+        # would crash that expander with a duplicate-widget-key error
+        name = f"{name} ({sum(1 for n in existing_names if n.startswith(name)) + 1})"
+    st.session_state.sql_lab_saved_queries.append({"name": name, "sql": sql})
+    atlas.say_only(f'Saved as "{name}" — find it under Saved Queries in SQL Lab.')
+
+
 for _action, _fn in {
     "navigate": _cmd_navigate,
     "load_sample": _cmd_load_sample,
@@ -685,6 +762,7 @@ for _action, _fn in {
     "generate_dictionary": _cmd_generate_dictionary,
     "next": _cmd_next,
     "previous": _cmd_previous,
+    "save_sql_query": _cmd_save_sql_query,
 }.items():
     atlas.register_command(_action, _fn)
 
@@ -759,7 +837,8 @@ with st.sidebar:
                         st.warning(w)
                     st.success(f"Loaded {new_df.shape[0]:,} rows x {new_df.shape[1]} columns")
                     announce_ambient_insights(
-                        new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types)
+                        new_df, data_engine.get_data_quality_report(new_df, st.session_state.column_types),
+                        st.session_state.column_types,
                     )
 
         # --- Smart Sampling — shown once a large file has been read, until the
@@ -797,7 +876,8 @@ with st.sidebar:
                 st.session_state.pending_large_upload = None
                 st.toast("Sample ready.")
                 announce_ambient_insights(
-                    sampled_df, data_engine.get_data_quality_report(sampled_df, st.session_state.column_types)
+                    sampled_df, data_engine.get_data_quality_report(sampled_df, st.session_state.column_types),
+                    st.session_state.column_types,
                 )
                 st.rerun()
 
@@ -1106,6 +1186,89 @@ if typed_command:
     _atlas_utterance = typed_command
 
 
+def _process_atlas_sql_question(question: str, complexity: str) -> None:
+    """SQL_QUESTION handler — mirrors the DATA_QUESTION branch's guard
+    checks below but generates + runs SQL (via modules/sql_lab.py) and
+    writes into the reserved Atlas SQL tab instead of routing to AI
+    Analyst. Called from _process_atlas_utterance; does not call
+    st.rerun() itself — the caller already does, once, at its own end.
+
+    complexity="single": one generate_sql + run_query_multi call, then a
+    one-sentence spoken answer.
+    complexity="multi": mirrors auto_analyst's plan -> execute -> synthesize
+    shape (generate_sql_plan -> loop of generate_sql+run_query_multi,
+    never aborting on a step's failure -> synthesize_sql_findings), for
+    open-ended/diagnostic asks that need several queries chained together.
+    """
+    if st.session_state.working_df is None:
+        atlas.say_only("Upload data first and I'll get to work.")
+        return
+    sql_model = ai_analyst.get_sql_model()
+    if sql_model is None:
+        atlas.say_only("I need a Gemini API key configured first — see the AI Analyst tab for setup steps.")
+        return
+
+    df_, column_types_ = st.session_state.working_df, st.session_state.column_types
+    tables = sql_lab_all_tables()
+
+    def _post_result(run_result: dict) -> None:
+        """Populate the exact session_state keys SQL Lab's own "Run Query"
+        button sets, so jumping there shows the result table immediately
+        instead of an empty "No query run yet" panel — Atlas ran the query
+        via run_query_multi() directly, bypassing that button's handler."""
+        st.session_state.sql_result_df = run_result["result_df"]
+        st.session_state.sql_error = run_result["error"]
+        st.session_state.sql_exec_time = run_result["elapsed_seconds"]
+        st.session_state.sql_lab_truncated = run_result["truncated"]
+        st.session_state.sql_lab_row_count_full = run_result["row_count_full"]
+
+    if complexity == "multi":
+        with st.spinner(ui.get_loading_message()):
+            plan = ai_analyst.generate_sql_plan(sql_model, df_, column_types_, question)
+        step_outcomes: list[dict] = []
+        last_ok_sql, last_ok_result = None, None
+        for step in plan:
+            sql, gen_error = ai_analyst.generate_sql(sql_model, df_, column_types_, step["question"])
+            if gen_error:
+                step_outcomes.append({"title": step["title"], "sql": "", "result_df": None, "error": gen_error})
+                continue
+            run_result = sql_lab.run_query_multi(tables, sql)
+            step_outcomes.append({
+                "title": step["title"], "sql": sql,
+                "result_df": run_result["result_df"], "error": run_result["error"],
+            })
+            if not run_result["error"]:
+                last_ok_sql, last_ok_result = sql, run_result
+        with st.spinner(ui.get_loading_message()):
+            narrative, synth_error = ai_analyst.synthesize_sql_findings(sql_model, step_outcomes)
+        if last_ok_sql:
+            _write_atlas_sql_tab(last_ok_sql, f"Atlas: {question[:40]}")
+            _post_result(last_ok_result)
+            st.session_state.pending_active_section = "SQL Lab"
+        atlas.say_only(
+            narrative or f"Ran a {len(plan)}-step check but couldn't pull a clean answer out: "
+            f"{synth_error or 'every step failed'}."
+        )
+        return
+
+    # complexity == "single"
+    with st.spinner(ui.get_loading_message()):
+        sql, gen_error = ai_analyst.generate_sql(sql_model, df_, column_types_, question)
+    if gen_error:
+        atlas.say_only(gen_error)
+        return
+    run_result = sql_lab.run_query_multi(tables, sql)
+    _write_atlas_sql_tab(sql, f"Atlas: {question[:40]}")
+    _post_result(run_result)
+    st.session_state.pending_active_section = "SQL Lab"
+    if run_result["error"]:
+        atlas.say_only(f"That query didn't run: {run_result['error']}")
+        return
+    with st.spinner(ui.get_loading_message()):
+        answer, _summarize_error = ai_analyst.summarize_sql_result(sql_model, question, run_result["result_df"])
+    atlas.say_only(answer or "Done — check SQL Lab for the result.")
+
+
 def _process_atlas_utterance(utterance: Optional[str]) -> None:
     """Route `utterance` through the intent router and always end in
     st.rerun(). Call this only from a point where every keyed widget for
@@ -1150,6 +1313,9 @@ def _process_atlas_utterance(utterance: Optional[str]) -> None:
                 else:
                     atlas.speak("Here's what I found — check the AI Analyst tab.")
         st.session_state.pending_active_section = "AI Analyst"
+    elif intent["type"] == "SQL_QUESTION":
+        question = intent.get("question") or utterance
+        _process_atlas_sql_question(question, intent.get("complexity") or "single")
     st.rerun()
 
 
@@ -1184,7 +1350,8 @@ if st.session_state.working_df is None:
             st.session_state.jump_to_tab = palette_matched_tab
         st.toast(f"Loaded the {chosen_sample} sample dataset. 🎉")
         announce_ambient_insights(
-            sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types)
+            sample_df, data_engine.get_data_quality_report(sample_df, st.session_state.column_types),
+            st.session_state.column_types,
         )
         st.rerun()
 
