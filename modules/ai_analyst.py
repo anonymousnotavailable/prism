@@ -33,11 +33,11 @@ import plotly.graph_objects as go
 from dotenv import load_dotenv
 
 try:
-    import google.generativeai as genai
-    from google.api_core import exceptions as google_exceptions
+    from google import genai as genai_client
+    from google.genai import types as genai_types
 except ImportError:  # the app should still load even if the package isn't installed yet
-    genai = None
-    google_exceptions = None
+    genai_client = None
+    genai_types = None
 
 # Populate os.environ from a .env file in the project root, if one exists.
 # Safe to call even when no .env is present — it's then a no-op.
@@ -184,13 +184,56 @@ def get_api_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
+class _GeminiModel:
+    """Adapter presenting the old `google-generativeai` GenerativeModel
+    interface (`model.generate_content(contents) -> response` with a
+    `.text` property) on top of the current `google-genai` Client SDK.
+
+    Why this exists: `google-generativeai` ended upstream support (it now
+    raises a FutureWarning on import) and its successor, `google-genai`, has
+    a different shape — a single `Client` you call `client.models.generate_
+    content(model=..., contents=..., config=...)` on, rather than a
+    per-model object. Every one of the ~15 call sites across the app only
+    ever touches `model.generate_content(contents)` (never SDK internals
+    directly — `call_gemini()` is the sole choke point), so wrapping the new
+    Client behind this adapter kept the migration to this file and
+    `modules/atlas.py`'s router model, instead of a rewrite of every caller.
+    """
+
+    __slots__ = ("_client", "_model_name", "_system_instruction")
+
+    def __init__(self, client, model_name: str, system_instruction: Optional[str] = None):
+        self._client = client
+        self._model_name = model_name
+        self._system_instruction = system_instruction
+
+    def generate_content(self, contents):
+        config = (
+            genai_types.GenerateContentConfig(system_instruction=self._system_instruction)
+            if self._system_instruction
+            else None
+        )
+        return self._client.models.generate_content(
+            model=self._model_name, contents=contents, config=config
+        )
+
+
+def build_model(model_name: str, system_instruction: Optional[str] = None, api_key: Optional[str] = None):
+    """Generic model factory — build a Client-backed `_GeminiModel` for any
+    model name/system instruction, or None if unavailable (no key, or the
+    google-genai package isn't installed). get_model()/get_sql_model() below
+    are this app's two standing configurations; modules.atlas's intent
+    router calls this directly for its own system prompt.
+    """
+    key = api_key or get_api_key()
+    if not key or genai_client is None:
+        return None
+    return _GeminiModel(genai_client.Client(api_key=key), model_name, system_instruction)
+
+
 def get_model(api_key: Optional[str] = None):
     """Build a configured Gemini model instance, or None if unavailable."""
-    key = api_key or get_api_key()
-    if not key or genai is None:
-        return None
-    genai.configure(api_key=key)
-    return genai.GenerativeModel(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT)
+    return build_model(MODEL_NAME, system_instruction=CODE_SYSTEM_PROMPT, api_key=api_key)
 
 
 def get_sql_model(api_key: Optional[str] = None):
@@ -207,11 +250,7 @@ def get_sql_model(api_key: Optional[str] = None):
     three functions puts its full task instructions directly in the prompt,
     so no system instruction is needed here at all.
     """
-    key = api_key or get_api_key()
-    if not key or genai is None:
-        return None
-    genai.configure(api_key=key)
-    return genai.GenerativeModel(MODEL_NAME)
+    return build_model(MODEL_NAME, system_instruction=None, api_key=api_key)
 
 
 def generate_df_metadata(df: pd.DataFrame, column_types: Optional[dict[str, str]] = None) -> str:
@@ -315,7 +354,7 @@ def history_to_contents(chat_history: list[dict]) -> list[dict]:
     contents = []
     for msg in chat_history:
         if msg["role"] == "user":
-            contents.append({"role": "user", "parts": [msg["content"]]})
+            contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
         else:
             if msg.get("ask_error"):
                 text = "(The previous request failed and was not shown to the user.)"
@@ -323,7 +362,7 @@ def history_to_contents(chat_history: list[dict]) -> list[dict]:
                 text = f"```python\n{msg['code']}\n```"
             else:
                 text = "(no code generated)"
-            contents.append({"role": "model", "parts": [text]})
+            contents.append({"role": "model", "parts": [{"text": text}]})
     return contents
 
 
@@ -399,23 +438,39 @@ def call_gemini(model, contents) -> tuple[str, Optional[str]]:
         return "", limit_error
     try:
         response = model.generate_content(contents)
-    except google_exceptions.ResourceExhausted:
-        return "", (
-            "Daily free-tier quota exceeded for the Gemini API. Try again later, "
-            "or check your usage at https://aistudio.google.com/."
-        )
-    except (google_exceptions.PermissionDenied, google_exceptions.Unauthenticated, google_exceptions.InvalidArgument):
-        return "", (
-            "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
-            "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
-            "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
-            "at https://aistudio.google.com/apikey and update it wherever this app reads it "
-            "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
-            "your host's environment variables."
-        )
     except Exception as e:
+        # google.genai.errors.APIError (and its ClientError/ServerError
+        # subclasses) carry the HTTP-style status as `.code` — matching on
+        # that is simpler and more robust than importing every specific
+        # exception subclass, and degrades gracefully (falls through to the
+        # generic message below) for exceptions that don't have one at all
+        # (network errors, or the SDK being unavailable in a way that still
+        # let a call reach here).
+        code = getattr(e, "code", None)
+        if code == 429:
+            return "", (
+                "Daily free-tier quota exceeded for the Gemini API. Try again later, "
+                "or check your usage at https://aistudio.google.com/."
+            )
+        if code in (400, 401, 403):
+            return "", (
+                "Gemini rejected the request — GEMINI_API_KEY is set but isn't a valid Generative "
+                "Language API key (these start with 'AIzaSy...'; a Google OAuth token or another "
+                "kind of credential pasted in by mistake will fail the same way). Get a fresh one "
+                "at https://aistudio.google.com/apikey and update it wherever this app reads it "
+                "from — a local .env file, or Settings → Secrets on Streamlit Community Cloud, or "
+                "your host's environment variables."
+            )
         return "", f"Gemini request failed: {e}"
-    return response.text, None
+    # Guard against safety-filtered or empty responses. Unlike the old SDK
+    # (which raised ValueError/AttributeError on `.text` access), google-genai's
+    # `.text` property returns None outright when every candidate was
+    # safety-filtered or the response has no text parts — check the value,
+    # not for an exception.
+    text = getattr(response, "text", None)
+    if not text:
+        return "", "Gemini returned an empty or safety-filtered response — try rephrasing your question."
+    return text, None
 
 
 def explain_sql(model, sql: str) -> tuple[str, Optional[str]]:
@@ -617,7 +672,7 @@ def ask_question(
     see build_data_context. dataset_fingerprint — see build_data_context.
     """
     context = build_data_context(df, column_types, pii_findings, strict_mode, dataset_fingerprint)
-    user_turn = {"role": "user", "parts": [f"Data context:\n{context}\n\nQuestion: {question}"]}
+    user_turn = {"role": "user", "parts": [{"text": f"Data context:\n{context}\n\nQuestion: {question}"}]}
     contents = history_to_contents(chat_history) + [user_turn]
 
     text, error = call_gemini(model, contents)
@@ -730,7 +785,7 @@ def ask_and_execute(
         "```python code block)."
     )
     contents = history_to_contents(chat_history + [{"role": "user", "content": question}])
-    contents.append({"role": "user", "parts": [retry_prompt]})
+    contents.append({"role": "user", "parts": [{"text": retry_prompt}]})
 
     text, retry_ask_error = call_gemini(model, contents)
     if retry_ask_error:

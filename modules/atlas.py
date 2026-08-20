@@ -4,7 +4,11 @@ Atlas — Prism's JARVIS-style voice operator.
 Architecture (the intent router is the core; everything else hangs off it):
 
     utterance (voice or typed)
-        --> classify_intent(): ONE Gemini call, strict JSON out
+        --> classify_intent_fast(): zero-Gemini keyword match for a small,
+            context-free command set (navigate, demo/story mode, next/
+            previous, cancel) — returns None on no match
+        --> classify_intent(): ONE Gemini call, strict JSON out (only
+            reached when the fast path didn't match)
         --> {"type": APP_COMMAND | DATA_QUESTION | CHITCHAT, "action", "target",
              "question", "spoken_reply"}
 
@@ -44,12 +48,7 @@ from typing import Callable, Optional
 
 import streamlit as st
 
-from modules.ai_analyst import MODEL_NAME, call_gemini, get_api_key
-
-try:
-    import google.generativeai as genai
-except ImportError:  # pragma: no cover - the app should still load without it
-    genai = None
+from modules.ai_analyst import MODEL_NAME, build_model, call_gemini
 
 try:
     import edge_tts
@@ -151,6 +150,74 @@ Rules:
   screen, not in speech.
 """
 
+# ═══════════════════════════════════════════════════════════════════════
+# KEYWORD FAST PATH — a small, deliberately-conservative set of utterances
+# with exactly one correct interpretation regardless of conversation
+# context, matched with zero Gemini calls. Everything context-sensitive
+# (the router's own "go"/"do it"/"start" confirm-vs-execute_plan overlap,
+# data questions, chitchat, anything not an exact phrasing below) falls
+# through to classify_intent()'s Gemini call unchanged — this never
+# guesses. Cuts latency and API quota for the handful of commands used
+# every session (navigation, demo/story mode, slide stepping, cancel) and,
+# as a side effect, makes those commands exercisable in this sandbox
+# without a live GEMINI_API_KEY (see Run 16's routine_log note).
+# ═══════════════════════════════════════════════════════════════════════
+_FAST_PATH_TAB_ALIASES = {name.lower(): name for name in TAB_NAMES}
+
+_NAVIGATE_RE = re.compile(
+    r"^(?:go to|open|navigate to|show me)\s+(?:the\s+)?(.+?)(?:\s+tab)?$", re.I
+)
+
+_FAST_PATH_EXACT = {
+    "start demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "run demo mode": {"action": "demo_mode", "spoken_reply": "Starting demo mode."},
+    "start story mode": {"action": "start_story_mode", "spoken_reply": "Let's tell this dataset's story."},
+    "story mode": {"action": "start_story_mode", "spoken_reply": "Let's tell this dataset's story."},
+    "next": {"action": "next", "spoken_reply": "Next."},
+    "next slide": {"action": "next", "spoken_reply": "Next."},
+    "previous": {"action": "previous", "spoken_reply": "Back one."},
+    "previous slide": {"action": "previous", "spoken_reply": "Back one."},
+    "go back": {"action": "previous", "spoken_reply": "Back one."},
+    "cancel": {"action": "cancel", "spoken_reply": "Cancelled."},
+    "stop": {"action": "cancel", "spoken_reply": "Cancelled."},
+    "never mind": {"action": "cancel", "spoken_reply": "Cancelled."},
+}
+
+
+def _fast_intent(action: str, target: Optional[str], spoken_reply: str) -> dict:
+    return {
+        "type": "APP_COMMAND", "action": action, "target": target,
+        "question": None, "spoken_reply": spoken_reply,
+    }
+
+
+def classify_intent_fast(utterance: Optional[str]) -> Optional[dict]:
+    """Zero-Gemini-call match for the conservative fast-path set above.
+    Returns a fully-formed intent dict (same shape classify_intent()
+    returns) on a match, else None so the caller falls back to the full
+    Gemini router. Never raises.
+    """
+    text = (utterance or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"[.!?]+$", "", text).strip().lower()
+    if not text:
+        return None
+
+    exact = _FAST_PATH_EXACT.get(text)
+    if exact:
+        return _fast_intent(exact["action"], None, exact["spoken_reply"])
+
+    match = _NAVIGATE_RE.match(text)
+    if match:
+        target = _FAST_PATH_TAB_ALIASES.get(match.group(1).strip())
+        if target:
+            return _fast_intent("navigate", target, f"Opening {target}.")
+
+    return None
+
+
 FALLBACK_INTENT = {
     "type": "CHITCHAT",
     "action": "none",
@@ -166,11 +233,7 @@ _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 # INTENT ROUTER (the core)
 # ═══════════════════════════════════════════════════════════════════════
 def _client():
-    key = get_api_key()
-    if not key or genai is None:
-        return None
-    genai.configure(api_key=key)
-    return genai.GenerativeModel(MODEL_NAME, system_instruction=ROUTER_SYSTEM_PROMPT)
+    return build_model(MODEL_NAME, system_instruction=ROUTER_SYSTEM_PROMPT)
 
 
 def _parse_intent_json(text: str) -> Optional[dict]:
@@ -360,8 +423,10 @@ def handle_utterance(utterance: str) -> dict:
     st.session_state.chat_history.append({"role": "user", "content": utterance})
     set_state("processing")
 
-    context = _recent_context()
-    intent = classify_intent(utterance, context)
+    intent = classify_intent_fast(utterance)
+    if intent is None:
+        context = _recent_context()
+        intent = classify_intent(utterance, context)
 
     if intent["type"] == "APP_COMMAND":
         handled = dispatch(intent["action"], intent.get("target"))
@@ -446,6 +511,48 @@ def set_state(state: str) -> None:
     st.session_state.atlas_orb_state = state
 
 
+def raise_alert(count: int) -> None:
+    """Proactive-insight HUD: light up the orb in its 'alert' visual state
+    with no user action required, whenever a fresh dataset load surfaces
+    `count` high-severity Auto-Insight findings (see app.py's
+    announce_ambient_insights(), which calls this right after computing
+    `auto_insights.generate_insights()` — zero extra Gemini calls, this is
+    purely a visual signal over data already computed).
+
+    A no-op when count <= 0 — nothing to alert about, so the orb's current
+    state (idle, or whatever the last real interaction left it in) is left
+    alone rather than forced.
+    """
+    if count <= 0:
+        return
+    st.session_state.atlas_alert_count = count
+    st.session_state.atlas_alert_fresh = True  # see clear_alert()'s docstring
+    set_state("alert")
+
+
+def clear_alert() -> None:
+    """Call whenever the Overview tab renders its Auto-Insights panel — the
+    point at which the user has actually seen the findings that may have
+    triggered raise_alert().
+
+    raise_alert() and this both run within the *same* Streamlit script pass
+    when a fresh upload lands while Overview is already the active tab
+    (Overview is the default section), since the whole script runs top to
+    bottom in one pass. Clearing unconditionally here would erase the alert
+    before the browser ever painted it. `atlas_alert_fresh` is a one-run
+    grace flag: raise_alert() sets it, and the first time this function
+    sees it set it just consumes it (leaving the alert visible for that
+    render) instead of clearing — only the *next* time Overview renders
+    (a later, separate rerun) does the alert actually clear.
+    """
+    if st.session_state.get("atlas_alert_fresh"):
+        st.session_state.atlas_alert_fresh = False
+        return
+    st.session_state.atlas_alert_count = 0
+    if st.session_state.get("atlas_orb_state") == "alert":
+        set_state("idle")
+
+
 _ORB_CSS = """
 <style>
 .atlas-orb-wrap {
@@ -484,6 +591,22 @@ _ORB_CSS = """
 .atlas-orb.processing::after {
     border-top-color: transparent; border-right-color: transparent;
     animation: atlasSpin 0.9s linear infinite;
+}
+/* Proactive alert HUD: an unprompted amber pulse (distinct from the red
+   .listening ring and the cyan default) so a high-severity Auto-Insight
+   finding is visible even if the user never clicks anything — same sonar
+   mechanism as .speaking, just recolored and slower so it reads as "waiting
+   for you" rather than "actively talking". */
+.atlas-orb.alert { background: radial-gradient(circle at 35% 30%, var(--prism-warning, #FBBF24), var(--prism-accent2, #A78BFA)); }
+.atlas-orb.alert::after {
+    border-color: var(--prism-warning, #FBBF24);
+    animation: atlasSonar 2.2s ease-out infinite;
+}
+.atlas-orb.alert::before {
+    content: ""; position: absolute; inset: -8px; border-radius: 50%;
+    border: 2px solid rgba(251, 191, 36, 0.5);
+    animation: atlasSonar 2.2s ease-out infinite;
+    animation-delay: 1.1s;
 }
 @keyframes atlasPulse { 0%, 100% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.08); opacity: 1; } }
 @keyframes atlasListen { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }
@@ -654,9 +777,33 @@ def render_orb() -> None:
     playback state without a custom component, which is out of scope here.
     """
     state = st.session_state.get("atlas_orb_state", "idle")
-    st.markdown(_ORB_CSS, unsafe_allow_html=True)
+    if state == "alert":
+        count = st.session_state.get("atlas_alert_count", 0)
+        label = f"&#9888; {count} new insight{'s' if count != 1 else ''}" if count else "Atlas &middot; alert"
+    else:
+        label = f"Atlas &middot; {state}"
+    inject_orb_css()
     st.markdown(
         f'<div class="atlas-orb-wrap"><div class="atlas-orb {state}"></div>'
-        f'<div class="atlas-orb-label">Atlas &middot; {state}</div></div>',
+        f'<div class="atlas-orb-label">{label}</div></div>',
         unsafe_allow_html=True,
     )
+
+
+def inject_orb_css() -> None:
+    """Injects _ORB_CSS (the gradient/animation rules every `.atlas-orb`
+    element needs, including the small `.atlas-orb-sm` variant in the side
+    panel's header) onto the page.
+
+    render_orb() calls this itself, but render_orb() is only invoked for
+    the floating standalone orb (landing page, Story/Demo Mode — see its
+    call site in app.py). Once a dataset is active, the side panel replaces
+    the floating orb with its own small orb in the header — that markup is
+    written directly in app.py, not through render_orb(), so without a
+    separate call to this function the side panel's orb was a sized-but-
+    unstyled div: correct dimensions, no gradient/background, invisible
+    against the dark panel. Idempotent (repeated st.markdown(<style>) calls
+    just add redundant identical rules), so it's safe to call once per
+    rerun from both places.
+    """
+    st.markdown(_ORB_CSS, unsafe_allow_html=True)
