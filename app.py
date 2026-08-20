@@ -38,6 +38,7 @@ from modules import (
     data_engine,
     dataset_knowledge,
     datetime_intel,
+    db_connect,
     detector_runner,
     domains,
     drift,
@@ -138,6 +139,14 @@ _DEFAULTS = {
     "sql_lab_saved_queries": [],  # [{"name","sql"}] loaded/saved this session via the Saved Queries expander
     "sql_lab_assertions": [],  # current editable Data Tests suite — list of assertion specs (see sql_lab.run_assertions)
     "sql_lab_assertion_results": [],  # last "Run Test Suite" pass/fail/error results
+    "db_connection": None,  # {"engine_type","params","params_key","status","error"} or None if never connected —
+                             # session-level, like sql_lab_tabs, NOT dataset-scoped like sql_lab_extra_tables, so it
+                             # deliberately survives a set_active_dataset() swap; only "Disconnect" clears it
+    "db_connection_tables": [],  # cached list of live table names (db_connect.get_live_table_names), refreshed on connect
+    "db_connection_table_schemas": {},  # {table_name: "col (dtype), ..."} sampled once at connect — feeds Atlas's
+                                         # generate_sql() prompt for live-only tables the local dataset knows nothing about
+    "db_pending_confirm_sql": None,  # SQL staged by the manual-UI destructive-statement gate, awaiting confirm —
+                                      # DOES reset on a dataset swap (stale staged SQL against a replaced context shouldn't fire)
     "second_df": None,  # second file uploaded in the Combine tab (raw, uncleaned)
     "second_file_name": None,  # detects a new second-file upload vs. a plain rerun
     "combine_preview_df": None,  # last previewed join result
@@ -304,9 +313,12 @@ def set_active_dataset(raw_df, working_df, source_name, cleaning_log=None, chat_
     st.session_state.sql_lab_explain_error = None
     st.session_state.sql_lab_fix_suggestion = ""
     st.session_state.sql_lab_fix_error = None
+    st.session_state.db_pending_confirm_sql = None  # staged against the *previous* context — stale, drop it
     # NOTE: sql_lab_tabs/_history/_saved_queries/_assertions are deliberately
     # NOT reset here — authored query/test content, same as cleaning_log and
-    # recipes surviving a dataset swap elsewhere in this function.
+    # recipes surviving a dataset swap elsewhere in this function. db_connection/
+    # db_connection_tables are ALSO deliberately not reset — a live DB connection
+    # isn't dataset-scoped (see its _DEFAULTS comment); only "Disconnect" clears it.
     st.session_state.second_df = None
     st.session_state.second_file_name = None
     st.session_state.combine_preview_df = None
@@ -406,6 +418,104 @@ def sql_lab_all_tables() -> dict:
     return tables
 
 
+def sql_lab_live_backend() -> Optional[str]:
+    """None if no live connection, else the connected engine_type
+    ("mysql"/"postgres"/"sqlite"/"sqlserver") — the single choke-point every
+    SQL-executing call site checks to decide which executor to use."""
+    conn = st.session_state.db_connection
+    return conn["engine_type"] if conn else None
+
+
+def sql_lab_attach_info() -> Optional[dict]:
+    """None if no live DuckDB-attachable connection (no connection at all,
+    or a SQL Server one — that engine has its own separate SQLAlchemy
+    executor, db_connect.run_live_query_sqlserver), else
+    {"attach_clause","attach_extension"} ready to spread into
+    sql_lab.run_query_multi(..., attach_clause=..., attach_extension=...) /
+    sql_lab.explain_query(..., attach_clause=..., attach_extension=...).
+    Builds a fresh clause every call (cheap string formatting) rather than
+    caching it — see modules/db_connect.py's docstring for why the actual
+    query path never reuses the cached connection object either.
+    """
+    conn = st.session_state.db_connection
+    if not conn or conn["engine_type"] not in db_connect.DUCKDB_ATTACH_ENGINES:
+        return None
+    return {
+        "attach_clause": db_connect.build_attach_clause(conn["engine_type"], conn["params"], alias="live"),
+        "attach_extension": db_connect.extension_for_engine(conn["engine_type"]),
+    }
+
+
+def sql_lab_run_query(sql: str, timeout_seconds=None, row_cap=None) -> dict:
+    """Single choke-point for running a query in SQL Lab or from Atlas —
+    picks the SQL Server executor or the local/DuckDB-attach executor based
+    on the current connection, so every call site (manual Run Query, Atlas
+    single/multi, the destructive-gate re-entry) shares one branch instead
+    of repeating the if/else everywhere."""
+    backend = sql_lab_live_backend()
+    if backend == "sqlserver":
+        engine = db_connect.get_sqlserver_engine(st.session_state.db_connection["params_key"])
+        kwargs = {}
+        if timeout_seconds is not None:
+            kwargs["timeout_seconds"] = timeout_seconds
+        if row_cap is not None:
+            kwargs["row_cap"] = row_cap
+        return db_connect.run_live_query_sqlserver(engine, sql, **kwargs)
+    attach = sql_lab_attach_info() or {}
+    kwargs = dict(attach)
+    if timeout_seconds is not None:
+        kwargs["timeout_seconds"] = timeout_seconds
+    if row_cap is not None:
+        kwargs["row_cap"] = row_cap
+    return sql_lab.run_query_multi(sql_lab_all_tables(), sql, **kwargs)
+
+
+def sql_lab_live_schema_note() -> str:
+    """Short plain-text note describing the live-connected tables, meant to
+    be appended to the natural-language question passed into
+    ai_analyst.generate_sql()/generate_sql_plan(). Those functions only ever
+    describe the local active dataset (`df_`/`column_types_`) — without this,
+    Atlas has no idea `live.<table>` exists or what columns it has, and can
+    only ever generate SQL against the locally uploaded data. Returns ""
+    when there's no live connection (the common case), so call sites can
+    unconditionally append it without an extra branch."""
+    conn = st.session_state.db_connection
+    schemas = st.session_state.db_connection_table_schemas
+    if not conn or not schemas:
+        return ""
+    label = db_connect.ENGINE_LABELS.get(conn["engine_type"], conn["engine_type"])
+    lines = [f'A live {label} connection is also attached as `live` — reference its tables as `"live"."<table>"`. Tables available:']
+    for tname, cols in schemas.items():
+        lines.append(f'- "{tname}": {cols}')
+    return "\n".join(lines)
+
+
+def _db_connection_expander_label() -> str:
+    conn = st.session_state.db_connection
+    if not conn:
+        return "🔌 Database Connection"
+    label = db_connect.ENGINE_LABELS.get(conn["engine_type"], conn["engine_type"])
+    return f"🔌 Database Connection — Connected ({label})"
+
+
+def _materialize_sqlite_upload(uploaded_file) -> str:
+    """Writes an uploaded .sqlite/.db file to a stable temp path (same
+    content -> same path, via a content hash) so DuckDB's sqlite ATTACH,
+    which needs a real filesystem path rather than bytes, can read it.
+    Re-uploads of the same bytes reuse the same file instead of piling up
+    temp files across reruns."""
+    import hashlib
+    import tempfile
+    from pathlib import Path
+
+    content = uploaded_file.getvalue()
+    digest = hashlib.sha256(content).hexdigest()[:16]
+    path = Path(tempfile.gettempdir()) / f"prism_sqlite_{digest}.db"
+    if not path.exists():
+        path.write_bytes(content)
+    return str(path)
+
+
 ATLAS_SQL_TAB_ID = "atlas_sql"  # reserved tab id, never matches a user-created
                                  # tab's f"t{uuid.uuid4().hex[:8]}" pattern or "t1"
 
@@ -429,6 +539,19 @@ def _write_atlas_sql_tab(sql: str, name: str) -> None:
         existing["name"] = name
     st.session_state.sql_lab_active_tab_id = ATLAS_SQL_TAB_ID
     st.session_state.sql_lab_editor_rev += 1  # always — forces the ace editor widget to remount with new text
+
+
+def _post_sql_lab_result(run_result: dict) -> None:
+    """Populate the exact session_state keys SQL Lab's own "Run Query"
+    button sets, so jumping there shows the result table immediately
+    instead of an empty "No query run yet" panel — used by every path
+    that runs a query outside that button's own click handler (Atlas
+    single/multi, the live destructive-gate re-entry)."""
+    st.session_state.sql_result_df = run_result["result_df"]
+    st.session_state.sql_error = run_result["error"]
+    st.session_state.sql_exec_time = run_result["elapsed_seconds"]
+    st.session_state.sql_lab_truncated = run_result["truncated"]
+    st.session_state.sql_lab_row_count_full = run_result["row_count_full"]
 
 
 # --------------------------------------------------------------------------
@@ -932,6 +1055,34 @@ def _cmd_save_sql_query(target) -> None:
     atlas.say_only(f'Saved as "{name}" — find it under Saved Queries in SQL Lab.')
 
 
+def _cmd_run_live_sql(target) -> None:
+    """Re-entry point for atlas.guarded()'s confirm round-trip when the
+    AI generated a statement that would modify the connected live database
+    — `target` is the staged SQL text itself (guarded() carries arbitrary
+    strings through its target param, not just dataset/column names).
+    Mirrors _process_atlas_sql_question's single-query tail: run it, write
+    the reserved Atlas tab, populate the SQL Lab result panel, speak.
+    """
+    sql = (target or "").strip()
+    if not sql:
+        atlas.say_only("Nothing to run.")
+        return
+    if not sql_lab_live_backend():
+        # The connection could have been dropped between staging the
+        # confirmation and the user saying "confirm" — don't silently run
+        # a write against local data instead.
+        atlas.say_only("The live database connection isn't active anymore — nothing was run.")
+        return
+    run_result = sql_lab_run_query(sql)
+    _write_atlas_sql_tab(sql, "Atlas: live query")
+    _post_sql_lab_result(run_result)
+    st.session_state.pending_active_section = "SQL Lab"
+    if run_result["error"]:
+        atlas.say_only(f"That didn't run: {run_result['error']}")
+        return
+    atlas.say_only("Done — that change went through. Check SQL Lab for the result.")
+
+
 for _action, _fn in {
     "navigate": _cmd_navigate,
     "load_sample": _cmd_load_sample,
@@ -948,6 +1099,7 @@ for _action, _fn in {
     "next": _cmd_next,
     "previous": _cmd_previous,
     "save_sql_query": _cmd_save_sql_query,
+    "run_live_sql": _cmd_run_live_sql,
 }.items():
     atlas.register_command(_action, _fn)
 
@@ -1394,30 +1546,37 @@ def _process_atlas_sql_question(question: str, complexity: str) -> None:
         return
 
     df_, column_types_ = st.session_state.working_df, st.session_state.column_types
-    tables = sql_lab_all_tables()
-
-    def _post_result(run_result: dict) -> None:
-        """Populate the exact session_state keys SQL Lab's own "Run Query"
-        button sets, so jumping there shows the result table immediately
-        instead of an empty "No query run yet" panel — Atlas ran the query
-        via run_query_multi() directly, bypassing that button's handler."""
-        st.session_state.sql_result_df = run_result["result_df"]
-        st.session_state.sql_error = run_result["error"]
-        st.session_state.sql_exec_time = run_result["elapsed_seconds"]
-        st.session_state.sql_lab_truncated = run_result["truncated"]
-        st.session_state.sql_lab_row_count_full = run_result["row_count_full"]
+    # Appended to whatever question text reaches generate_sql()/generate_sql_plan() —
+    # those only ever describe df_/column_types_ (the local active dataset), so without
+    # this Atlas has no idea a live.<table> exists at all. "" when there's no live
+    # connection, so this is safe to append unconditionally.
+    live_note = sql_lab_live_schema_note()
 
     if complexity == "multi":
         with st.spinner(ui.get_loading_message()):
-            plan = ai_analyst.generate_sql_plan(sql_model, df_, column_types_, question)
+            plan = ai_analyst.generate_sql_plan(
+                sql_model, df_, column_types_, f"{question}\n\n{live_note}" if live_note else question
+            )
+        live_backend = sql_lab_live_backend()
         step_outcomes: list[dict] = []
         last_ok_sql, last_ok_result = None, None
         for step in plan:
-            sql, gen_error = ai_analyst.generate_sql(sql_model, df_, column_types_, step["question"])
+            step_question = f"{step['question']}\n\n{live_note}" if live_note else step["question"]
+            sql, gen_error = ai_analyst.generate_sql(sql_model, df_, column_types_, step_question)
             if gen_error:
                 step_outcomes.append({"title": step["title"], "sql": "", "result_df": None, "error": gen_error})
                 continue
-            run_result = sql_lab.run_query_multi(tables, sql)
+            if live_backend and db_connect.is_destructive_statement(sql):
+                # Multi-step plans never auto-run a write against the live DB —
+                # that would need a per-step confirmation round-trip this loop
+                # can't pause for. Skip it; the user can run it manually from
+                # SQL Lab, where the same gate applies with a Run Anyway button.
+                step_outcomes.append({
+                    "title": step["title"], "sql": sql, "result_df": None,
+                    "error": "Skipped — this step would modify live data. Run it manually from SQL Lab to confirm.",
+                })
+                continue
+            run_result = sql_lab_run_query(sql)
             step_outcomes.append({
                 "title": step["title"], "sql": sql,
                 "result_df": run_result["result_df"], "error": run_result["error"],
@@ -1428,7 +1587,7 @@ def _process_atlas_sql_question(question: str, complexity: str) -> None:
             narrative, synth_error = ai_analyst.synthesize_sql_findings(sql_model, step_outcomes)
         if last_ok_sql:
             _write_atlas_sql_tab(last_ok_sql, f"Atlas: {question[:40]}")
-            _post_result(last_ok_result)
+            _post_sql_lab_result(last_ok_result)
             st.session_state.pending_active_section = "SQL Lab"
         atlas.say_only(
             narrative or f"Ran a {len(plan)}-step check but couldn't pull a clean answer out: "
@@ -1438,13 +1597,23 @@ def _process_atlas_sql_question(question: str, complexity: str) -> None:
 
     # complexity == "single"
     with st.spinner(ui.get_loading_message()):
-        sql, gen_error = ai_analyst.generate_sql(sql_model, df_, column_types_, question)
+        sql, gen_error = ai_analyst.generate_sql(
+            sql_model, df_, column_types_, f"{question}\n\n{live_note}" if live_note else question
+        )
     if gen_error:
         atlas.say_only(gen_error)
         return
-    run_result = sql_lab.run_query_multi(tables, sql)
+    live_backend = sql_lab_live_backend()
+    if live_backend and db_connect.is_destructive_statement(sql):
+        live_label = db_connect.ENGINE_LABELS.get(live_backend, live_backend)
+        if not atlas.guarded(
+            "run_live_sql", sql,
+            f"That query will modify your connected {live_label} database: {sql[:160]}",
+        ):
+            return
+    run_result = sql_lab_run_query(sql)
     _write_atlas_sql_tab(sql, f"Atlas: {question[:40]}")
-    _post_result(run_result)
+    _post_sql_lab_result(run_result)
     st.session_state.pending_active_section = "SQL Lab"
     if run_result["error"]:
         atlas.say_only(f"That query didn't run: {run_result['error']}")
@@ -3486,6 +3655,108 @@ elif st.session_state.active_section == "SQL Lab":
         with st.container(key="sql_lab_console"):
             tables = sql_lab_all_tables()
 
+            # ---- Database Connection ---------------------------------------
+            with st.expander(_db_connection_expander_label(), expanded=False):
+                live_conn = st.session_state.db_connection
+                engine_labels = ["MySQL", "PostgreSQL", "SQLite", "SQL Server"]
+                engine_by_label = {"MySQL": "mysql", "PostgreSQL": "postgres", "SQLite": "sqlite", "SQL Server": "sqlserver"}
+                engine_choice = st.selectbox("Engine", engine_labels, key="db_conn_engine")
+                engine_type = engine_by_label[engine_choice]
+
+                if engine_type == "sqlserver":
+                    st.caption(
+                        "⚠️ Needs Microsoft's ODBC Driver for SQL Server — pre-installed on Streamlit Community "
+                        "Cloud, NOT present on this app's current Render deploy (would need a Docker-based "
+                        "deploy to add it). Works locally if the driver is installed on your machine."
+                    )
+
+                conn_params: dict = {}
+                if engine_type == "sqlite":
+                    st.caption("SQLite is a local file, not a network service — upload the .db file to query it.")
+                    sqlite_file = st.file_uploader(
+                        "Upload a .sqlite/.db file", type=["sqlite", "db", "sqlite3"], key="db_conn_sqlite_file",
+                    )
+                    if sqlite_file is not None:
+                        conn_params["path"] = _materialize_sqlite_upload(sqlite_file)
+                else:
+                    pcol1, pcol2 = st.columns(2)
+                    conn_params["host"] = pcol1.text_input("Host", key="db_conn_host")
+                    conn_params["port"] = pcol2.number_input(
+                        "Port", key="db_conn_port", value=db_connect.ENGINE_DEFAULT_PORTS[engine_type], step=1,
+                    )
+                    conn_params["user"] = st.text_input("Username", key="db_conn_user")
+                    conn_params["password"] = st.text_input("Password", type="password", key="db_conn_password")
+                    conn_params["database"] = st.text_input("Database name", key="db_conn_database")
+
+                test_col, connect_col, disconnect_col = st.columns(3)
+                sqlite_missing = engine_type == "sqlite" and not conn_params.get("path")
+
+                if test_col.button("Test Connection", use_container_width=True, key="db_conn_test_btn"):
+                    if sqlite_missing:
+                        st.warning("Upload a .sqlite/.db file first.")
+                    else:
+                        with st.spinner("Testing connection..."):
+                            test_ok, test_err = db_connect.test_connection(engine_type, conn_params)
+                        if test_ok:
+                            st.success("Connection OK ✓")
+                        else:
+                            st.error(test_err)
+
+                if connect_col.button("Connect", type="primary", use_container_width=True, key="db_conn_connect_btn"):
+                    if sqlite_missing:
+                        st.warning("Upload a .sqlite/.db file first.")
+                    else:
+                        with st.spinner("Connecting..."):
+                            connect_ok, connect_err = db_connect.test_connection(engine_type, conn_params)
+                        if not connect_ok:
+                            st.error(connect_err)
+                        else:
+                            params_key = db_connect.build_connection_params_key(engine_type, conn_params)
+                            try:
+                                if engine_type == "sqlserver":
+                                    conn_obj = db_connect.get_sqlserver_engine(params_key)
+                                else:
+                                    conn_obj = db_connect.get_duckdb_attach_connection(engine_type, params_key)
+                                table_names = db_connect.get_live_table_names(engine_type, conn_obj)
+                            except Exception as e:
+                                st.error(f"Connected, but couldn't list tables: {e}")
+                                table_names = []
+                            # Cache a small column-schema sample per table now, once,
+                            # instead of re-sampling on every Atlas SQL question — this
+                            # is what lets generate_sql() describe live-only tables
+                            # (ones the local active dataset knows nothing about).
+                            table_schemas: dict[str, str] = {}
+                            for _tname in table_names[:8]:  # cap — a live DB could have hundreds
+                                _sample_df, _sample_err = db_connect.get_live_table_sample(
+                                    engine_type, conn_obj, _tname, n=5
+                                )
+                                if _sample_df is not None:
+                                    table_schemas[_tname] = ", ".join(
+                                        f"{c} ({_sample_df[c].dtype})" for c in _sample_df.columns
+                                    )
+                            st.session_state.db_connection = {
+                                "engine_type": engine_type, "params": conn_params, "params_key": params_key,
+                                "status": "connected", "error": None,
+                            }
+                            st.session_state.db_connection_tables = table_names
+                            st.session_state.db_connection_table_schemas = table_schemas
+                            st.toast(f"Connected to {engine_choice} — {len(table_names)} table(s) visible. 🔌")
+                            st.rerun()
+
+                if live_conn and disconnect_col.button("Disconnect", use_container_width=True, key="db_conn_disconnect_btn"):
+                    db_connect.disconnect(live_conn["engine_type"])
+                    st.session_state.db_connection = None
+                    st.session_state.db_connection_tables = []
+                    st.session_state.db_connection_table_schemas = {}
+                    st.toast("Disconnected.")
+                    st.rerun()
+
+                if live_conn:
+                    live_label = db_connect.ENGINE_LABELS.get(live_conn["engine_type"], live_conn["engine_type"])
+                    st.caption(f"🟢 Connected · {live_label} · {len(st.session_state.db_connection_tables)} table(s) visible")
+                    if st.session_state.db_connection_tables:
+                        st.caption(", ".join(f"`{t}`" for t in st.session_state.db_connection_tables[:20]))
+
             # ---- Registered Tables ---------------------------------------
             with st.expander(f"Registered Tables ({len(tables)})", expanded=False):
                 st.caption(f'`data` — active dataset · {len(df):,} rows × {df.shape[1]} columns')
@@ -3495,6 +3766,13 @@ elif st.session_state.active_section == "SQL Lab":
                         del st.session_state.sql_lab_extra_tables[tname]
                         st.rerun()
                     info_col.caption(f'`{tname}` — {len(tdf):,} rows × {tdf.shape[1]} columns')
+
+                if st.session_state.db_connection and st.session_state.db_connection_tables:
+                    live_label = db_connect.ENGINE_LABELS.get(
+                        st.session_state.db_connection["engine_type"], st.session_state.db_connection["engine_type"]
+                    )
+                    for tname in st.session_state.db_connection_tables:
+                        st.caption(f'`live.{tname}` — live {live_label} table (via the Database Connection above)')
 
                 st.markdown("**Register another table**")
                 extra_file = st.file_uploader(
@@ -3657,27 +3935,65 @@ elif st.session_state.active_section == "SQL Lab":
                 # enabled). The empty-error case is instead handled inside the click branch.
                 fix_clicked = st.button("Suggest a Fix", use_container_width=True)
 
+            def _execute_sql_lab_query(query_text_run: str) -> None:
+                result = sql_lab_run_query(query_text_run)
+                st.session_state.sql_result_df = result["result_df"]
+                st.session_state.sql_error = result["error"]
+                st.session_state.sql_exec_time = result["elapsed_seconds"]
+                st.session_state.sql_lab_truncated = result["truncated"]
+                st.session_state.sql_lab_row_count_full = result["row_count_full"]
+                st.session_state.sql_lab_fix_suggestion = ""
+                st.session_state.sql_lab_fix_error = None
+                history_entry = {
+                    "sql": query_text_run,
+                    "status": "error" if result["error"] else "ok",
+                    "elapsed_seconds": result["elapsed_seconds"],
+                    "rows": result["row_count_full"],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "source": sql_lab_live_backend() or "local",  # which backend actually ran it
+                }
+                st.session_state.sql_lab_history = ([history_entry] + st.session_state.sql_lab_history)[:50]
+
             if run_clicked:
                 query_text_run = active_tab["sql"].strip()
                 if not query_text_run:
                     st.warning("Write a query first — the editor is empty.")
+                elif sql_lab_live_backend() and db_connect.is_destructive_statement(query_text_run):
+                    st.session_state.db_pending_confirm_sql = query_text_run
+                    st.rerun()
                 else:
-                    result = sql_lab.run_query_multi(tables, query_text_run)
-                    st.session_state.sql_result_df = result["result_df"]
-                    st.session_state.sql_error = result["error"]
-                    st.session_state.sql_exec_time = result["elapsed_seconds"]
-                    st.session_state.sql_lab_truncated = result["truncated"]
-                    st.session_state.sql_lab_row_count_full = result["row_count_full"]
-                    st.session_state.sql_lab_fix_suggestion = ""
-                    st.session_state.sql_lab_fix_error = None
-                    history_entry = {
-                        "sql": query_text_run,
-                        "status": "error" if result["error"] else "ok",
-                        "elapsed_seconds": result["elapsed_seconds"],
-                        "rows": result["row_count_full"],
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    }
-                    st.session_state.sql_lab_history = ([history_entry] + st.session_state.sql_lab_history)[:50]
+                    # A fresh, non-destructive run means the user has moved on —
+                    # drop any stale staged confirmation from an earlier query so
+                    # it doesn't linger on screen (or get run) against new intent.
+                    st.session_state.db_pending_confirm_sql = None
+                    _execute_sql_lab_query(query_text_run)
+
+            # ---- Destructive-statement confirmation gate (live DB only) -----
+            # Local/uploaded-data queries never reach here — they only ever run
+            # against an ephemeral, non-writable DuckDB VIEW over a pandas
+            # DataFrame, which INSERT/UPDATE/DELETE/DROP already fails against
+            # at the DuckDB engine level regardless of anything this app does.
+            if st.session_state.db_pending_confirm_sql:
+                live_label_gate = db_connect.ENGINE_LABELS.get(
+                    sql_lab_live_backend(), sql_lab_live_backend() or "the connected database"
+                )
+                st.warning(
+                    f"This statement will modify live data in your connected {live_label_gate} database "
+                    "and cannot be undone by Prism."
+                )
+                st.code(st.session_state.db_pending_confirm_sql, language="sql")
+                gate_confirmed = st.checkbox("I understand this changes live data", key="db_confirm_checkbox")
+                gate_col1, gate_col2 = st.columns(2)
+                if gate_col1.button(
+                    "Run Anyway", type="primary", use_container_width=True,
+                    disabled=not gate_confirmed, key="db_confirm_run_btn",
+                ):
+                    _execute_sql_lab_query(st.session_state.db_pending_confirm_sql)
+                    st.session_state.db_pending_confirm_sql = None
+                    st.rerun()
+                if gate_col2.button("Cancel", use_container_width=True, key="db_confirm_cancel_btn"):
+                    st.session_state.db_pending_confirm_sql = None
+                    st.rerun()
 
             # ---- Results ----------------------------------------------------
             if st.session_state.sql_error:
@@ -3710,7 +4026,7 @@ elif st.session_state.active_section == "SQL Lab":
                     st.info(f"Result truncated to {sql_lab.DEFAULT_ROW_CAP:,} rows for display — export for the full result.")
                 st.dataframe(result_df, use_container_width=True)
 
-                exp_col1, exp_col2, viz_col, ai_col = st.columns(4)
+                exp_col1, exp_col2, viz_col, ai_col, load_col = st.columns(5)
                 with exp_col1:
                     st.download_button(
                         "Download CSV", data=result_df.to_csv(index=False).encode("utf-8"),
@@ -3743,6 +4059,21 @@ elif st.session_state.active_section == "SQL Lab":
                             cleaning_log=[{"description": "SQL Lab query result", "code": active_tab["sql"]}],
                         )
                         st.session_state.jump_to_tab = "AI Analyst"
+                        st.rerun()
+                with load_col:
+                    # Reuses set_active_dataset() exactly like Send to Visualize/AI
+                    # Analyst above and the Combine tab's "Use as Active Dataset" —
+                    # no separate row-cap/browse-tables feature: volume is controlled
+                    # by the user's own query LIMIT/WHERE, same as any other result here.
+                    if st.button("Load as Active Dataset", use_container_width=True):
+                        source_label = (
+                            f"live:{sql_lab_live_backend()}" if sql_lab_live_backend() else "sql_lab_result"
+                        )
+                        set_active_dataset(
+                            result_df.copy(), result_df.copy(), source_label,
+                            cleaning_log=[{"description": "SQL Lab query result", "code": active_tab["sql"]}],
+                        )
+                        st.toast("Loaded as your active dataset — Clean/Visualize/AI Analyst can all use it now. 📊")
                         st.rerun()
             else:
                 ui.render_empty_state(
@@ -3838,12 +4169,14 @@ elif st.session_state.active_section == "SQL Lab":
             # ---- Performance Analyzer -----------------------------------
             with st.expander("⚡ Performance Analyzer", expanded=False):
                 st.caption("Runs EXPLAIN ANALYZE against the query above — executes it once more to profile it.")
-                if st.button("Analyze Performance", key="sql_lab_explain_btn"):
+                if sql_lab_live_backend() == "sqlserver":
+                    st.caption("Not available for SQL Server connections yet — DuckDB's EXPLAIN doesn't reach that executor.")
+                elif st.button("Analyze Performance", key="sql_lab_explain_btn"):
                     query_text_plan = active_tab["sql"].strip()
                     if not query_text_plan:
                         st.warning("Write a query first — the editor is empty.")
                     else:
-                        plan_text, plan_error = sql_lab.explain_query(tables, query_text_plan)
+                        plan_text, plan_error = sql_lab.explain_query(tables, query_text_plan, **(sql_lab_attach_info() or {}))
                         st.session_state.sql_lab_explain_plan = plan_text
                         st.session_state.sql_lab_explain_error = plan_error
                 if st.session_state.sql_lab_explain_error:
@@ -3901,7 +4234,11 @@ elif st.session_state.active_section == "SQL Lab":
                 for idx, h in enumerate(st.session_state.sql_lab_history[:20]):
                     hrow1, hrow2 = st.columns([5, 1])
                     status_txt = "OK" if h["status"] == "ok" else "ERROR"
-                    hrow1.caption(f'`{status_txt}` · {h["rows"]:,} rows · {h["elapsed_seconds"] * 1000:.0f} ms — {h["sql"][:80]}')
+                    source = h.get("source", "local")  # older history entries predate this tag — default to local
+                    source_txt = "" if source == "local" else f" · {db_connect.ENGINE_LABELS.get(source, source)} (live)"
+                    hrow1.caption(
+                        f'`{status_txt}` · {h["rows"]:,} rows · {h["elapsed_seconds"] * 1000:.0f} ms{source_txt} — {h["sql"][:80]}'
+                    )
                     if hrow2.button("Reload", key=f"sql_lab_history_reload_{idx}", use_container_width=True):
                         _sql_lab_inject(h["sql"])
 

@@ -106,11 +106,26 @@ def run_query_multi(
     sql: str,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     row_cap: int = DEFAULT_ROW_CAP,
+    attach_clause: Optional[str] = None,
+    attach_extension: Optional[str] = None,
 ) -> dict:
     """Execute `sql` against every {name: df} pair, each registered as a
     DuckDB table on a fresh in-memory connection — the multi-table version
     of run_query(), used once more than one table is registered (the active
     dataset plus anything added via "Registered Tables").
+
+    attach_clause/attach_extension optionally bring a live external database
+    (MySQL/Postgres/SQLite, via modules.db_connect) into the SAME connection
+    as the local tables, so one query can JOIN a live table against a local
+    one. Deliberately just raw strings, not a modules.db_connect import —
+    sql_lab.py stays a pure-logic, zero-Streamlit-import module (matching
+    join_engine.py's own stated convention); the caller (app.py, via
+    db_connect.build_attach_clause()) builds these strings, this function
+    only executes them. A fresh ATTACH is built on THIS call's own
+    connection rather than reusing any cached connection elsewhere, so the
+    existing per-call timeout/interrupt isolation below is unaffected by
+    live-DB queries — see modules/db_connect.py's docstring for why the
+    cached connection there is never reused for actual query execution.
 
     Runs on a daemon thread bounded by timeout_seconds; con.interrupt() is
     called if it overruns — DuckDB's own cancel hook, safe to call from
@@ -134,6 +149,18 @@ def run_query_multi(
         return {**empty, "error": "The `duckdb` package isn't installed."}
 
     con = duckdb.connect(database=":memory:")
+    if attach_clause:
+        try:
+            if attach_extension:
+                con.execute(f"INSTALL {attach_extension}")
+                con.execute(f"LOAD {attach_extension}")
+        except Exception:
+            pass  # already loaded, or autoload will handle it on ATTACH anyway
+        try:
+            con.execute(attach_clause)
+        except Exception as e:
+            con.close()
+            return {**empty, "elapsed_seconds": time.perf_counter() - start, "error": f"Couldn't connect to the live database: {e}"}
     for name, table_df in tables.items():
         con.register(name, table_df)
 
@@ -183,11 +210,17 @@ def run_query_multi(
     }
 
 
-def explain_query(tables: dict[str, pd.DataFrame], sql: str) -> tuple[Optional[str], Optional[str]]:
+def explain_query(
+    tables: dict[str, pd.DataFrame], sql: str,
+    attach_clause: Optional[str] = None, attach_extension: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str]]:
     """Run EXPLAIN ANALYZE against the same registered tables (falls back to
     a plain EXPLAIN if ANALYZE errors — e.g. a non-SELECT statement). This
     is opt-in/manual with no timeout wrapper: ANALYZE runs the query once
     already, so there's no point double-bounding it. Returns (plan_text, error).
+
+    attach_clause/attach_extension — see run_query_multi's docstring; same
+    raw-string contract, same reasoning for not importing modules.db_connect here.
     """
     if duckdb is None:
         return None, "The `duckdb` package isn't installed."
@@ -197,6 +230,14 @@ def explain_query(tables: dict[str, pd.DataFrame], sql: str) -> tuple[Optional[s
     con = None
     try:
         con = duckdb.connect(database=":memory:")
+        if attach_clause:
+            if attach_extension:
+                try:
+                    con.execute(f"INSTALL {attach_extension}")
+                    con.execute(f"LOAD {attach_extension}")
+                except Exception:
+                    pass
+            con.execute(attach_clause)
         for name, table_df in tables.items():
             con.register(name, table_df)
         try:
